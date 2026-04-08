@@ -58,7 +58,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--population-size", type=int, default=20, help="Hybrid optimizer population size.")
     parser.add_argument("--generations", type=int, default=50, help="Hybrid optimizer generations.")
     parser.add_argument("--lambda-weight", type=float, default=0.5, help="Lambda in F(S) = lambda*MF - (1-lambda)*DCV.")
+    parser.add_argument("--score-mode", choices=["raw_mf", "normalized_mf"], default="raw_mf", help="Fairness score variant used inside F(S).")
     parser.add_argument("--optimizer-seed", type=int, default=42, help="Random seed.")
+    parser.add_argument("--fairness-repair-bias", type=float, default=0.35, help="Bias repair and mutation toward under-covered protected groups.")
+    parser.add_argument("--disable-swarm-guidance", action="store_true", help="Ablation: disable swarm-guided updates.")
+    parser.add_argument("--disable-crossover", action="store_true", help="Ablation: disable crossover.")
+    parser.add_argument("--disable-community-repair", action="store_true", help="Ablation: disable community-aware repair.")
+    parser.add_argument("--debug-hybrid", action="store_true", help="Print per-generation hybrid optimizer diagnostics.")
+    parser.add_argument("--debug-frequency", type=int, default=1, help="Print every N generations when --debug-hybrid is enabled.")
     parser.add_argument("--ml", action="store_true", help="Enable ML-guided candidate restriction.")
     parser.add_argument("--ml-top-fraction", type=float, default=0.3, help="Top candidate fraction for ML-guided search.")
     parser.add_argument("--ml-singleton-runs", type=int, default=30, help="Monte Carlo runs per singleton label.")
@@ -101,11 +108,18 @@ def main() -> None:
         fairness=FairnessConfig(
             protected_attribute=args.protected_attribute,
             lambda_weight=args.lambda_weight,
+            score_mode=args.score_mode,
         ),
         optimizer=OptimizerConfig(
             budget=args.budget,
             population_size=args.population_size,
             generations=args.generations,
+            fairness_repair_bias=args.fairness_repair_bias,
+            disable_swarm_guidance=args.disable_swarm_guidance,
+            disable_crossover=args.disable_crossover,
+            disable_community_repair=args.disable_community_repair,
+            debug_logging=args.debug_hybrid,
+            debug_frequency=args.debug_frequency,
             seed=args.optimizer_seed,
         ),
         ml=MLConfig(

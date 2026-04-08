@@ -17,6 +17,7 @@ def generate_singleton_labels(
     lambda_weight: float,
     mc_runs: int,
     target_mode: str = "population_proportional",
+    score_mode: str = "raw_mf",
     positive_fraction: float = 0.2,
     max_nodes: int | None = None,
     ranking_feature: str = "pagerank",
@@ -44,6 +45,7 @@ def generate_singleton_labels(
             lambda_weight=lambda_weight,
             target_mode=target_mode,
             total_spread=diffusion.total_spread_mean,
+            score_mode=score_mode,
         )
         records.append(
             {

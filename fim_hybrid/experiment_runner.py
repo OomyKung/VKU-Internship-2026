@@ -22,6 +22,40 @@ from .label_generation import generate_singleton_labels
 from .ml_training import predict_node_utilities, select_top_candidate_pool, train_node_ranker
 
 
+def _optimizer_note(config: ExperimentConfig) -> str:
+    notes: list[str] = []
+    if config.optimizer.disable_swarm_guidance:
+        notes.append("swarm_off")
+    if config.optimizer.disable_crossover:
+        notes.append("crossover_off")
+    if config.optimizer.disable_community_repair:
+        notes.append("community_repair_off")
+    if config.optimizer.debug_logging:
+        notes.append(f"debug_every_{config.optimizer.debug_frequency}")
+    if config.optimizer.fairness_repair_bias > 0.0:
+        notes.append(f"repair_bias={config.optimizer.fairness_repair_bias}")
+    return ";".join(notes)
+
+
+def _save_history_frame(
+    history: pd.DataFrame,
+    output_dir: Path,
+    dataset_name: str,
+    budget: int,
+    community_method: str,
+    label: str,
+) -> Path | None:
+    if history.empty:
+        return None
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    safe_method = community_method.replace(" ", "_")
+    safe_label = label.replace(" ", "_")
+    history_path = output_dir / f"{dataset_name}_budget{budget}_{safe_method}_{safe_label}_history.csv"
+    history.to_csv(history_path, index=False)
+    return history_path
+
+
 def _evaluate_seed_set(
     seed_set: list[object],
     simulator: IndependentCascadeSimulator,
@@ -46,6 +80,7 @@ def _evaluate_seed_set(
         lambda_weight=config.fairness.lambda_weight,
         target_mode=config.fairness.target_mode,
         total_spread=diffusion.total_spread_mean,
+        score_mode=config.fairness.score_mode,
     )
     return {
         "dataset": config.dataset.name,
@@ -54,8 +89,12 @@ def _evaluate_seed_set(
         "seed_set": json.dumps(list(seed_set)),
         "total_spread": diffusion.total_spread_mean,
         "mf": fairness.mf,
+        "mf_component": fairness.mf_component,
+        "ideal_mf": fairness.ideal_mf,
+        "mf_to_ideal_ratio": fairness.mf_to_ideal_ratio,
         "dcv": fairness.dcv,
         "f_score": fairness.combined_score,
+        "score_mode": fairness.score_mode,
         "runtime_seconds": runtime_seconds,
         "candidate_pool_size": candidate_pool_size if candidate_pool_size is not None else len(simulator.graph),
         "group_spread": json.dumps(fairness.group_spread),
@@ -163,6 +202,17 @@ def run_experiment(
         )
         hybrid_result = optimizer.optimize()
         hybrid_runtime = perf_counter() - hybrid_start
+        history_path = _save_history_frame(
+            history=hybrid_result.history,
+            output_dir=config.output_dir,
+            dataset_name=config.dataset.name,
+            budget=config.optimizer.budget,
+            community_method=community_method,
+            label="hybrid_siea",
+        )
+        hybrid_note = _optimizer_note(config)
+        if history_path is not None:
+            hybrid_note = ";".join(part for part in [hybrid_note, f"history={history_path.name}"] if part)
         results.append(
             _evaluate_seed_set(
                 seed_set=hybrid_result.best_seed_set,
@@ -173,6 +223,7 @@ def run_experiment(
                 label="hybrid_siea",
                 community_method=community_method,
                 candidate_pool_size=hybrid_result.candidate_pool_size,
+                note=hybrid_note,
             )
         )
 
@@ -186,6 +237,7 @@ def run_experiment(
                 lambda_weight=config.fairness.lambda_weight,
                 mc_runs=config.ml.singleton_mc_runs,
                 target_mode=config.fairness.target_mode,
+                score_mode=config.fairness.score_mode,
                 positive_fraction=config.ml.positive_fraction,
                 max_nodes=ml_max_nodes,
             )
@@ -211,6 +263,20 @@ def run_experiment(
             )
             ml_hybrid_result = ml_optimizer.optimize()
             ml_hybrid_runtime = perf_counter() - ml_hybrid_start
+            ml_history_path = _save_history_frame(
+                history=ml_hybrid_result.history,
+                output_dir=config.output_dir,
+                dataset_name=config.dataset.name,
+                budget=config.optimizer.budget,
+                community_method=community_method,
+                label="ml_guided_hybrid_siea",
+            )
+            ml_note_parts = [
+                _optimizer_note(config),
+                f"model={ml_result.model_name};train_r2={ml_result.training_r2:.4f}",
+            ]
+            if ml_history_path is not None:
+                ml_note_parts.append(f"history={ml_history_path.name}")
             results.append(
                 _evaluate_seed_set(
                     seed_set=ml_hybrid_result.best_seed_set,
@@ -221,7 +287,7 @@ def run_experiment(
                     label="ml_guided_hybrid_siea",
                     community_method=community_method,
                     candidate_pool_size=ml_hybrid_result.candidate_pool_size,
-                    note=f"model={ml_result.model_name};train_r2={ml_result.training_r2:.4f}",
+                    note=";".join(part for part in ml_note_parts if part),
                 )
             )
 

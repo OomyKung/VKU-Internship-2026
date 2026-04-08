@@ -20,6 +20,10 @@ class FairnessMetrics:
     group_spread: dict[object, float]
     group_targets: dict[object, float]
     normalized_group_spread: dict[object, float]
+    ideal_mf: float
+    mf_to_ideal_ratio: float
+    score_mode: str
+    mf_component: float
 
 
 def compute_group_sizes(graph: nx.Graph, protected_attribute: str) -> dict[object, int]:
@@ -96,6 +100,7 @@ def evaluate_fairness(
     group_targets: dict[object, float] | None = None,
     target_mode: str = "population_proportional",
     total_spread: float | None = None,
+    score_mode: str = "raw_mf",
 ) -> FairnessMetrics:
     """Compute MF, DCV, and the combined fairness-aware score."""
 
@@ -112,8 +117,23 @@ def evaluate_fairness(
 
     mf, normalized = maximin_fairness(group_spread, group_sizes)
     dcv = diversity_constraint_violation(group_spread, group_targets)
+    total_population = float(sum(group_sizes.values()))
+    # Under perfectly proportional spread, every group's normalized spread is
+    # equal to total_spread / total_population. This is a useful ceiling-like
+    # diagnostic for understanding why MF can look numerically small.
+    ideal_mf = total_spread / max(total_population, 1.0)
+    mf_to_ideal_ratio = mf / ideal_mf if ideal_mf > 1e-12 else 0.0
+    if score_mode == "raw_mf":
+        mf_component = mf
+    elif score_mode == "normalized_mf":
+        mf_component = mf_to_ideal_ratio
+    else:
+        raise ValueError(
+            f"Unsupported score_mode '{score_mode}'. Supported modes: raw_mf, normalized_mf."
+        )
+
     # This is the main optimization objective used by the hybrid algorithm.
-    combined_score = lambda_weight * mf - (1.0 - lambda_weight) * dcv
+    combined_score = lambda_weight * mf_component - (1.0 - lambda_weight) * dcv
 
     return FairnessMetrics(
         mf=mf,
@@ -122,4 +142,8 @@ def evaluate_fairness(
         group_spread={group: float(group_spread.get(group, 0.0)) for group in group_sizes},
         group_targets=group_targets,
         normalized_group_spread=normalized,
+        ideal_mf=ideal_mf,
+        mf_to_ideal_ratio=mf_to_ideal_ratio,
+        score_mode=score_mode,
+        mf_component=mf_component,
     )

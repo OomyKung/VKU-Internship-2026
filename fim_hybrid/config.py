@@ -54,6 +54,7 @@ class FairnessConfig:
     protected_attribute: str = "color"
     lambda_weight: float = 0.5
     target_mode: str = "population_proportional"
+    score_mode: str = "raw_mf"
 
 
 @dataclass(slots=True)
@@ -74,8 +75,14 @@ class OptimizerConfig:
     swarm_social_rate: float = 0.25
     swarm_elite_rate: float = 0.15
     restart_rate: float = 0.05
+    fairness_repair_bias: float = 0.35
     # Optional convergence-based early stopping.
     convergence_patience: Optional[int] = None
+    disable_swarm_guidance: bool = False
+    disable_crossover: bool = False
+    disable_community_repair: bool = False
+    debug_logging: bool = False
+    debug_frequency: int = 1
     seed: int = 42
 
 
