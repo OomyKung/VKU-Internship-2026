@@ -39,6 +39,7 @@ class IndependentCascadeSimulator:
         self.seed = seed
         # Precompute adjacency in a diffusion-friendly format once at startup.
         self.out_neighbors = self._build_adjacency(propagation_probability)
+        self._attribute_cache: dict[str, dict[object, object]] = {}
 
     def _build_adjacency(
         self,
@@ -61,6 +62,16 @@ class IndependentCascadeSimulator:
         signature = "|".join(map(str, sorted(seed_set)))
         checksum = zlib.adler32(signature.encode("utf-8"))
         return np.random.default_rng(self.seed + checksum + runs)
+
+    def _node_attribute_values(self, attribute_name: str) -> dict[object, object]:
+        """Return a cached node-to-attribute mapping for repeated group lookups."""
+
+        if attribute_name not in self._attribute_cache:
+            self._attribute_cache[attribute_name] = {
+                node: self.graph.nodes[node].get(attribute_name, "__missing__")
+                for node in self.graph.nodes()
+            }
+        return self._attribute_cache[attribute_name]
 
     def simulate_once(
         self,
@@ -90,6 +101,7 @@ class IndependentCascadeSimulator:
         seed_set: Iterable[object],
         runs: int = 100,
         protected_attribute: str | None = None,
+        compute_std: bool = True,
     ) -> DiffusionResult:
         """Run repeated Monte Carlo simulations and aggregate spread statistics."""
 
@@ -98,29 +110,62 @@ class IndependentCascadeSimulator:
             raise ValueError("seed_set must contain at least one node.")
 
         rng = self._rng_for_seed_set(normalized_seed_set, runs)
-        total_spreads: list[float] = []
-        group_spreads: dict[object, list[float]] = {}
         start = perf_counter()
+        node_groups = self._node_attribute_values(protected_attribute) if protected_attribute else None
 
-        for _ in range(runs):
-            active_nodes = self.simulate_once(normalized_seed_set, rng)
-            total_spreads.append(float(len(active_nodes)))
+        if compute_std:
+            total_spreads: list[float] = []
+            group_spreads: dict[object, list[float]] = {}
 
-            if protected_attribute:
-                # Collect per-group activated counts for fairness evaluation.
-                per_group: dict[object, float] = {}
-                for node in active_nodes:
-                    group_value = self.graph.nodes[node].get(protected_attribute, "__missing__")
-                    per_group[group_value] = per_group.get(group_value, 0.0) + 1.0
-                for group_value in set(group_spreads).union(per_group):
-                    group_spreads.setdefault(group_value, []).append(per_group.get(group_value, 0.0))
+            for _ in range(runs):
+                active_nodes = self.simulate_once(normalized_seed_set, rng)
+                total_spreads.append(float(len(active_nodes)))
 
-        # Return summary statistics rather than all raw runs to keep the interface simple.
-        runtime_seconds = perf_counter() - start
-        total_spread_mean = float(np.mean(total_spreads))
-        total_spread_std = float(np.std(total_spreads))
-        group_spread_mean = {group: float(np.mean(values)) for group, values in group_spreads.items()}
-        group_spread_std = {group: float(np.std(values)) for group, values in group_spreads.items()}
+                if node_groups is not None:
+                    # Collect per-group activated counts for fairness evaluation.
+                    per_group: dict[object, float] = {}
+                    for node in active_nodes:
+                        group_value = node_groups[node]
+                        per_group[group_value] = per_group.get(group_value, 0.0) + 1.0
+                    for group_value in set(group_spreads).union(per_group):
+                        group_spreads.setdefault(group_value, []).append(per_group.get(group_value, 0.0))
+
+            # Return summary statistics rather than all raw runs to keep the interface simple.
+            runtime_seconds = perf_counter() - start
+            total_spread_mean = float(np.mean(total_spreads))
+            total_spread_std = float(np.std(total_spreads))
+            group_spread_mean = {group: float(np.mean(values)) for group, values in group_spreads.items()}
+            group_spread_std = {group: float(np.std(values)) for group, values in group_spreads.items()}
+        else:
+            # Most optimizer calls only use means, so avoid storing every Monte
+            # Carlo sample when standard deviations are not needed downstream.
+            total_spread_sum = 0.0
+            group_spread_sum: dict[object, float] = {}
+            group_spread_count: dict[object, int] = {}
+
+            for _ in range(runs):
+                active_nodes = self.simulate_once(normalized_seed_set, rng)
+                total_spread_sum += float(len(active_nodes))
+
+                if node_groups is not None:
+                    per_group: dict[object, float] = {}
+                    for node in active_nodes:
+                        group_value = node_groups[node]
+                        per_group[group_value] = per_group.get(group_value, 0.0) + 1.0
+                    for group_value in set(group_spread_sum).union(per_group):
+                        group_spread_sum[group_value] = (
+                            group_spread_sum.get(group_value, 0.0) + per_group.get(group_value, 0.0)
+                        )
+                        group_spread_count[group_value] = group_spread_count.get(group_value, 0) + 1
+
+            runtime_seconds = perf_counter() - start
+            total_spread_mean = total_spread_sum / float(runs)
+            total_spread_std = 0.0
+            group_spread_mean = {
+                group: group_spread_sum[group] / max(float(group_spread_count[group]), 1.0)
+                for group in group_spread_sum
+            }
+            group_spread_std = {group: 0.0 for group in group_spread_sum}
 
         return DiffusionResult(
             seed_set=normalized_seed_set,

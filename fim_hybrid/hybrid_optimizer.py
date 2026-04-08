@@ -171,10 +171,16 @@ class HybridSIEAOptimizer:
             for group in self.group_sizes
         }
 
-    def _fairness_priority_multiplier(self, node: object, selected: set[object] | None = None) -> float:
+    def _fairness_priority_multiplier(
+        self,
+        node: object,
+        selected: set[object] | None = None,
+        deficits: dict[object, float] | None = None,
+    ) -> float:
         if selected is None or self.config.fairness_repair_bias <= 0.0:
             return 1.0
-        deficits = self._group_deficits(selected)
+        if deficits is None:
+            deficits = self._group_deficits(selected)
         return 1.0 + self.config.fairness_repair_bias * max(
             deficits.get(self.node_groups[node], 0.0),
             0.0,
@@ -355,9 +361,10 @@ class HybridSIEAOptimizer:
         # Sample from only the strongest part of the ranking to keep the search
         # focused while remaining stochastic.
         window = nodes[: min(len(nodes), top_window)]
+        deficits = self._group_deficits(selected) if selected is not None else None
         scores = np.asarray(
             [
-                self.node_priority[node] * self._fairness_priority_multiplier(node, selected)
+                self.node_priority[node] * self._fairness_priority_multiplier(node, selected, deficits)
                 for node in window
             ],
             dtype=float,
@@ -374,14 +381,26 @@ class HybridSIEAOptimizer:
         selected: set[object],
     ) -> Optional[object]:
         # Choose an unused node from a specific community.
-        candidates = [node for node in self.community_ranked_nodes.get(community_idx, []) if node not in selected]
+        candidates: list[object] = []
+        for node in self.community_ranked_nodes.get(community_idx, []):
+            if node in selected:
+                continue
+            candidates.append(node)
+            if len(candidates) >= 10:
+                break
         if not candidates:
             return None
         return self._sample_from_sequence(candidates, selected=selected)
 
     def _available_global_node(self, selected: set[object]) -> Optional[object]:
         # Choose an unused node from the full candidate pool.
-        candidates = [node for node in self.global_ranked_nodes if node not in selected]
+        candidates: list[object] = []
+        for node in self.global_ranked_nodes:
+            if node in selected:
+                continue
+            candidates.append(node)
+            if len(candidates) >= 10:
+                break
         if not candidates:
             return None
         return self._sample_from_sequence(candidates, selected=selected)
@@ -399,11 +418,15 @@ class HybridSIEAOptimizer:
             if nodes and comm_idx != excluded_community
         ]
         self.rng.shuffle(community_order)
+        available_counts = {
+            comm_idx: sum(1 for node in self.community_ranked_nodes[comm_idx] if node not in selected)
+            for comm_idx in community_order
+        }
         return sorted(
             community_order,
             key=lambda comm_idx: (
                 comm_idx in represented,
-                -len([node for node in self.community_ranked_nodes[comm_idx] if node not in selected]),
+                -available_counts[comm_idx],
             ),
         )
 
@@ -622,6 +645,7 @@ class HybridSIEAOptimizer:
             signature,
             runs=self.mc_runs,
             protected_attribute=self.fairness_config.protected_attribute,
+            compute_std=False,
         )
         fairness = evaluate_fairness(
             group_spread=diffusion.group_spread_mean,

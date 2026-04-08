@@ -17,7 +17,7 @@ from .data_loader import load_dataset
 from .diffusion import IndependentCascadeSimulator
 from .fairness import compute_group_sizes, evaluate_fairness
 from .feature_extraction import compute_node_features
-from .hybrid_optimizer import HybridSIEAOptimizer
+from .hybrid_optimizer import HybridOptimizationResult, HybridSIEAOptimizer
 from .label_generation import generate_singleton_labels
 from .ml_training import predict_node_utilities, select_top_candidate_pool, train_node_ranker
 
@@ -73,6 +73,7 @@ def _evaluate_seed_set(
         seed_set,
         runs=config.diffusion.mc_runs,
         protected_attribute=config.fairness.protected_attribute,
+        compute_std=False,
     )
     fairness = evaluate_fairness(
         group_spread=diffusion.group_spread_mean,
@@ -97,6 +98,38 @@ def _evaluate_seed_set(
         "score_mode": fairness.score_mode,
         "runtime_seconds": runtime_seconds,
         "candidate_pool_size": candidate_pool_size if candidate_pool_size is not None else len(simulator.graph),
+        "group_spread": json.dumps(fairness.group_spread),
+        "group_targets": json.dumps(fairness.group_targets),
+        "note": note or "",
+    }
+
+
+def _result_row_from_hybrid_result(
+    hybrid_result: HybridOptimizationResult,
+    config: ExperimentConfig,
+    community_method: str,
+    runtime_seconds: float,
+    label: str,
+    note: str | None = None,
+) -> dict[str, object]:
+    """Build a result row from the optimizer's final cached evaluation."""
+
+    fairness = hybrid_result.best_fairness
+    return {
+        "dataset": config.dataset.name,
+        "community_method": community_method,
+        "method": label,
+        "seed_set": json.dumps(hybrid_result.best_seed_set),
+        "total_spread": hybrid_result.best_spread,
+        "mf": fairness.mf,
+        "mf_component": fairness.mf_component,
+        "ideal_mf": fairness.ideal_mf,
+        "mf_to_ideal_ratio": fairness.mf_to_ideal_ratio,
+        "dcv": fairness.dcv,
+        "f_score": fairness.combined_score,
+        "score_mode": fairness.score_mode,
+        "runtime_seconds": runtime_seconds,
+        "candidate_pool_size": hybrid_result.candidate_pool_size,
         "group_spread": json.dumps(fairness.group_spread),
         "group_targets": json.dumps(fairness.group_targets),
         "note": note or "",
@@ -214,15 +247,12 @@ def run_experiment(
         if history_path is not None:
             hybrid_note = ";".join(part for part in [hybrid_note, f"history={history_path.name}"] if part)
         results.append(
-            _evaluate_seed_set(
-                seed_set=hybrid_result.best_seed_set,
-                simulator=simulator,
-                group_sizes=group_sizes,
+            _result_row_from_hybrid_result(
+                hybrid_result=hybrid_result,
                 config=config,
+                community_method=community_method,
                 runtime_seconds=hybrid_runtime,
                 label="hybrid_siea",
-                community_method=community_method,
-                candidate_pool_size=hybrid_result.candidate_pool_size,
                 note=hybrid_note,
             )
         )
@@ -278,15 +308,12 @@ def run_experiment(
             if ml_history_path is not None:
                 ml_note_parts.append(f"history={ml_history_path.name}")
             results.append(
-                _evaluate_seed_set(
-                    seed_set=ml_hybrid_result.best_seed_set,
-                    simulator=simulator,
-                    group_sizes=group_sizes,
+                _result_row_from_hybrid_result(
+                    hybrid_result=ml_hybrid_result,
                     config=config,
+                    community_method=community_method,
                     runtime_seconds=ml_hybrid_runtime,
                     label="ml_guided_hybrid_siea",
-                    community_method=community_method,
-                    candidate_pool_size=ml_hybrid_result.candidate_pool_size,
                     note=";".join(part for part in ml_note_parts if part),
                 )
             )
