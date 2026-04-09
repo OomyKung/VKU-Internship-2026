@@ -44,6 +44,15 @@ from .fairness import (
     evaluate_fairness,
 )
 from .hybrid_optimizer import CandidateEvaluation, HybridOptimizationResult, HybridSIEAConfig, HybridSIEAOptimizer
+from .label_generation import NodeUtilityLabelResult, generate_singleton_node_utility_labels
+from .ml_training import MLTrainingResult, select_ml_candidate_nodes, train_node_utility_model
+from .node2vec_embeddings import (
+    Node2VecConfig,
+    Node2VecEmbeddingResult,
+    build_node2vec_cache_path,
+    generate_node2vec_embeddings,
+    transform_node2vec_embeddings,
+)
 
 __all__ = [
     "BaselineResult",
@@ -81,6 +90,10 @@ __all__ = [
     "HybridSIEAConfig",
     "HybridSIEAOptimizer",
     "load_dataset",
+    "MLTrainingResult",
+    "NodeUtilityLabelResult",
+    "Node2VecConfig",
+    "Node2VecEmbeddingResult",
     "run_experiment",
     "run_loaded_experiment",
     "resolve_builtin_dataset",
@@ -90,10 +103,16 @@ __all__ = [
     "sample_candidate_nodes_by_community",
     "sample_node_from_community",
     "score_communities_by_size",
+    "select_ml_candidate_nodes",
     "simulate_independent_cascade",
     "simulate_independent_cascade_once",
+    "train_node_utility_model",
+    "build_node2vec_cache_path",
+    "generate_node2vec_embeddings",
+    "transform_node2vec_embeddings",
     "validate_communities",
     "validate_community_assignments",
+    "generate_singleton_node_utility_labels",
     "verify_protected_groups",
     "verify_dataset_phase1",
 ]

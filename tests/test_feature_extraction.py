@@ -10,6 +10,7 @@ import pandas as pd
 from fim_hybrid.community_detection import detect_communities
 from fim_hybrid.data_loader import LoadedDataset, verify_protected_groups
 from fim_hybrid.feature_extraction import compute_node_features, compute_structural_node_scores
+from fim_hybrid.node2vec_embeddings import Node2VecConfig
 
 
 def _toy_feature_dataset() -> tuple[LoadedDataset, object, object]:
@@ -56,6 +57,65 @@ class FeatureExtractionTestCase(unittest.TestCase):
         self.assertIn("structural_score", feature_frame.columns)
         self.assertIn("cross_community_degree", feature_frame.columns)
         self.assertIn("protected_group", feature_frame.columns)
+        self.assertIn("normalized_degree", feature_frame.columns)
+        self.assertIn("betweenness", feature_frame.columns)
+        self.assertIn("clustering_coefficient", feature_frame.columns)
+        self.assertIn("community_size", feature_frame.columns)
+        self.assertIn("within_community_degree", feature_frame.columns)
+        self.assertIn("protected_group_frequency", feature_frame.columns)
+        self.assertIn("minority_group_indicator", feature_frame.columns)
+        self.assertIn("neighborhood_group_entropy", feature_frame.columns)
+        self.assertIn("fraction_neighbors_in_undercovered_groups", feature_frame.columns)
+        self.assertFalse(feature_frame.isna().any().any())
+
+    def test_compute_node_features_is_deterministic(self) -> None:
+        dataset, report, community_result = _toy_feature_dataset()
+
+        first = compute_node_features(dataset, report, community_result)
+        second = compute_node_features(dataset, report, community_result)
+
+        self.assertTrue(first.equals(second))
+
+    def test_compute_node_features_can_include_node2vec_embeddings(self) -> None:
+        dataset, report, community_result = _toy_feature_dataset()
+
+        plain_frame = compute_node_features(dataset, report, community_result)
+        node2vec_frame = compute_node_features(
+            dataset,
+            report,
+            community_result,
+            node2vec_config=Node2VecConfig(
+                dimensions=4,
+                walk_length=6,
+                num_walks=4,
+                window=2,
+                random_seed=7,
+            ),
+        )
+
+        self.assertEqual(len(node2vec_frame), len(plain_frame))
+        self.assertTrue(set(plain_frame["node_id"]) == set(node2vec_frame["node_id"]))
+        self.assertEqual(len(node2vec_frame.filter(like="node2vec_").columns), 4)
+        self.assertFalse(node2vec_frame.filter(like="node2vec_").isna().any().any())
+
+    def test_feature_values_respect_basic_bounds(self) -> None:
+        dataset, report, community_result = _toy_feature_dataset()
+
+        feature_frame = compute_node_features(dataset, report, community_result)
+
+        self.assertTrue(((feature_frame["normalized_degree"] >= 0.0) & (feature_frame["normalized_degree"] <= 1.0)).all())
+        self.assertTrue(
+            ((feature_frame["clustering_coefficient"] >= 0.0) & (feature_frame["clustering_coefficient"] <= 1.0)).all()
+        )
+        self.assertTrue(
+            (
+                (feature_frame["fraction_neighbors_in_undercovered_groups"] >= 0.0)
+                & (feature_frame["fraction_neighbors_in_undercovered_groups"] <= 1.0)
+            ).all()
+        )
+        self.assertTrue(
+            ((feature_frame["neighborhood_group_entropy"] >= 0.0) & (feature_frame["neighborhood_group_entropy"] <= 1.0)).all()
+        )
 
     def test_compute_structural_node_scores_returns_one_score_per_node(self) -> None:
         dataset, report, community_result = _toy_feature_dataset()
