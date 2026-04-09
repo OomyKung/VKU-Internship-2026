@@ -1,177 +1,196 @@
-"""Independent Cascade diffusion simulator."""
+"""Phase 2 Independent Cascade diffusion utilities."""
 
 from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
 from time import perf_counter
-from typing import Iterable
+from typing import Any, Iterable
 import zlib
 
 import networkx as nx
 import numpy as np
 
+from .data_loader import LoadedDataset, ProtectedGroupReport
+
 
 @dataclass(slots=True)
 class DiffusionResult:
-    """Monte Carlo diffusion summary."""
+    """Monte Carlo diffusion summary for one seed set."""
 
-    # Mean and standard deviation are kept because spread can vary materially
-    # across Monte Carlo runs.
-    seed_set: tuple[object, ...]
+    seed_set: tuple[Any, ...]
     total_spread_mean: float
     total_spread_std: float
-    group_spread_mean: dict[object, float]
-    group_spread_std: dict[object, float]
+    group_spread_mean: dict[str, float]
+    group_spread_std: dict[str, float]
     runtime_seconds: float
 
 
-class IndependentCascadeSimulator:
-    """Repeated Monte Carlo simulator for the Independent Cascade model."""
+def _sort_key(value: Any) -> tuple[str, str]:
+    return (type(value).__name__, repr(value))
 
-    def __init__(
-        self,
-        graph: nx.Graph,
-        propagation_probability: float | None = None,
-        seed: int = 42,
-    ) -> None:
-        self.graph = graph
-        self.seed = seed
-        # Precompute adjacency in a diffusion-friendly format once at startup.
-        self.out_neighbors = self._build_adjacency(propagation_probability)
-        self._attribute_cache: dict[str, dict[object, object]] = {}
 
-    def _build_adjacency(
-        self,
-        propagation_probability: float | None,
-    ) -> dict[object, list[tuple[object, float]]]:
-        adjacency: dict[object, list[tuple[object, float]]] = {}
-        for node in self.graph.nodes():
-            adjacency[node] = []
-            # For undirected graphs, NetworkX exposes neighbors; for directed
-            # graphs, the IC process follows outgoing edges.
-            neighbors = self.graph.successors(node) if self.graph.is_directed() else self.graph.neighbors(node)
-            for neighbor in neighbors:
-                edge_probability = self.graph[node][neighbor].get("p", propagation_probability or 0.01)
-                adjacency[node].append((neighbor, float(edge_probability)))
-        return adjacency
+def _normalize_seed_set(seed_set: Iterable[Any]) -> tuple[Any, ...]:
+    seed_values = list(seed_set)
+    if not seed_values:
+        raise ValueError("seed_set must contain at least one node.")
 
-    def _rng_for_seed_set(self, seed_set: Iterable[object], runs: int) -> np.random.Generator:
-        # Tie the RNG seed to the seed set so repeated evaluations of the same
-        # candidate are reproducible across the project.
-        signature = "|".join(map(str, sorted(seed_set)))
-        checksum = zlib.adler32(signature.encode("utf-8"))
-        return np.random.default_rng(self.seed + checksum + runs)
+    unique_seeds = set(seed_values)
+    if len(unique_seeds) != len(seed_values):
+        raise ValueError("seed_set must not contain duplicate nodes.")
 
-    def _node_attribute_values(self, attribute_name: str) -> dict[object, object]:
-        """Return a cached node-to-attribute mapping for repeated group lookups."""
+    return tuple(sorted(unique_seeds, key=_sort_key))
 
-        if attribute_name not in self._attribute_cache:
-            self._attribute_cache[attribute_name] = {
-                node: self.graph.nodes[node].get(attribute_name, "__missing__")
-                for node in self.graph.nodes()
-            }
-        return self._attribute_cache[attribute_name]
 
-    def simulate_once(
-        self,
-        seed_set: Iterable[object],
-        rng: np.random.Generator,
-    ) -> set[object]:
-        """Run one Independent Cascade simulation."""
+def _validate_probability(propagation_probability: float) -> None:
+    if not 0.0 <= propagation_probability <= 1.0:
+        raise ValueError("propagation_probability must be between 0.0 and 1.0.")
 
-        active = set(seed_set)
-        # BFS-style frontier expansion mirrors the IC process generation by generation.
-        frontier = deque(seed_set)
 
-        while frontier:
-            source = frontier.popleft()
-            for target, probability in self.out_neighbors[source]:
-                if target in active:
-                    continue
-                # A live activation succeeds with the edge probability.
-                if rng.random() <= probability:
-                    active.add(target)
-                    frontier.append(target)
+def _validate_seed_nodes(graph: nx.Graph, seed_set: tuple[Any, ...]) -> None:
+    missing_nodes = [node for node in seed_set if node not in graph]
+    if missing_nodes:
+        preview = ", ".join(repr(node) for node in missing_nodes[:5])
+        raise ValueError(f"seed_set contains nodes not present in the graph: {preview}.")
 
-        return active
 
-    def simulate_many(
-        self,
-        seed_set: Iterable[object],
-        runs: int = 100,
-        protected_attribute: str | None = None,
-        compute_std: bool = True,
-    ) -> DiffusionResult:
-        """Run repeated Monte Carlo simulations and aggregate spread statistics."""
-
-        normalized_seed_set = tuple(sorted(set(seed_set)))
-        if not normalized_seed_set:
-            raise ValueError("seed_set must contain at least one node.")
-
-        rng = self._rng_for_seed_set(normalized_seed_set, runs)
-        start = perf_counter()
-        node_groups = self._node_attribute_values(protected_attribute) if protected_attribute else None
-
-        if compute_std:
-            total_spreads: list[float] = []
-            group_spreads: dict[object, list[float]] = {}
-
-            for _ in range(runs):
-                active_nodes = self.simulate_once(normalized_seed_set, rng)
-                total_spreads.append(float(len(active_nodes)))
-
-                if node_groups is not None:
-                    # Collect per-group activated counts for fairness evaluation.
-                    per_group: dict[object, float] = {}
-                    for node in active_nodes:
-                        group_value = node_groups[node]
-                        per_group[group_value] = per_group.get(group_value, 0.0) + 1.0
-                    for group_value in set(group_spreads).union(per_group):
-                        group_spreads.setdefault(group_value, []).append(per_group.get(group_value, 0.0))
-
-            # Return summary statistics rather than all raw runs to keep the interface simple.
-            runtime_seconds = perf_counter() - start
-            total_spread_mean = float(np.mean(total_spreads))
-            total_spread_std = float(np.std(total_spreads))
-            group_spread_mean = {group: float(np.mean(values)) for group, values in group_spreads.items()}
-            group_spread_std = {group: float(np.std(values)) for group, values in group_spreads.items()}
-        else:
-            # Most optimizer calls only use means, so avoid storing every Monte
-            # Carlo sample when standard deviations are not needed downstream.
-            total_spread_sum = 0.0
-            group_spread_sum: dict[object, float] = {}
-            group_spread_count: dict[object, int] = {}
-
-            for _ in range(runs):
-                active_nodes = self.simulate_once(normalized_seed_set, rng)
-                total_spread_sum += float(len(active_nodes))
-
-                if node_groups is not None:
-                    per_group: dict[object, float] = {}
-                    for node in active_nodes:
-                        group_value = node_groups[node]
-                        per_group[group_value] = per_group.get(group_value, 0.0) + 1.0
-                    for group_value in set(group_spread_sum).union(per_group):
-                        group_spread_sum[group_value] = (
-                            group_spread_sum.get(group_value, 0.0) + per_group.get(group_value, 0.0)
-                        )
-                        group_spread_count[group_value] = group_spread_count.get(group_value, 0) + 1
-
-            runtime_seconds = perf_counter() - start
-            total_spread_mean = total_spread_sum / float(runs)
-            total_spread_std = 0.0
-            group_spread_mean = {
-                group: group_spread_sum[group] / max(float(group_spread_count[group]), 1.0)
-                for group in group_spread_sum
-            }
-            group_spread_std = {group: 0.0 for group in group_spread_sum}
-
-        return DiffusionResult(
-            seed_set=normalized_seed_set,
-            total_spread_mean=total_spread_mean,
-            total_spread_std=total_spread_std,
-            group_spread_mean=group_spread_mean,
-            group_spread_std=group_spread_std,
-            runtime_seconds=runtime_seconds,
+def _edge_probability(graph: nx.Graph, source: Any, target: Any, fallback_probability: float) -> float:
+    probability = float(graph[source][target].get("p", fallback_probability))
+    if not 0.0 <= probability <= 1.0:
+        raise ValueError(
+            f"Edge probability for ({source!r}, {target!r}) must be between 0.0 and 1.0."
         )
+    return probability
+
+
+def _run_independent_cascade(
+    graph: nx.Graph,
+    seed_set: tuple[Any, ...],
+    propagation_probability: float,
+    rng: np.random.Generator,
+) -> set[Any]:
+    active_nodes = set(seed_set)
+    frontier = deque(seed_set)
+
+    while frontier:
+        source = frontier.popleft()
+        neighbors = graph.successors(source) if graph.is_directed() else graph.neighbors(source)
+        for target in neighbors:
+            if target in active_nodes:
+                continue
+
+            probability = _edge_probability(graph, source, target, propagation_probability)
+            if rng.random() <= probability:
+                active_nodes.add(target)
+                frontier.append(target)
+
+    return active_nodes
+
+
+def _node_to_group_mapping(
+    dataset: LoadedDataset,
+    protected_group_report: ProtectedGroupReport,
+) -> dict[Any, str]:
+    if dataset.name != protected_group_report.dataset_name:
+        raise ValueError(
+            "protected_group_report.dataset_name must match dataset.name."
+        )
+    if dataset.graph.is_directed() != protected_group_report.is_directed:
+        raise ValueError(
+            "protected_group_report.is_directed must match the dataset graph."
+        )
+
+    node_to_group: dict[Any, str] = {}
+    for group_name, node_ids in protected_group_report.protected_groups.items():
+        for node_id in node_ids:
+            node_to_group[node_id] = group_name
+
+    graph_nodes = set(dataset.graph.nodes())
+    report_nodes = set(node_to_group)
+    if graph_nodes != report_nodes:
+        raise ValueError(
+            "protected_group_report nodes must match the dataset graph nodes exactly."
+        )
+
+    return node_to_group
+
+
+def _rng_for_seed_set(seed_set: tuple[Any, ...], random_seed: int) -> np.random.Generator:
+    signature = "|".join(f"{type(node).__name__}:{repr(node)}" for node in seed_set)
+    checksum = zlib.adler32(signature.encode("utf-8"))
+    return np.random.default_rng(random_seed + checksum)
+
+
+def simulate_independent_cascade_once(
+    graph: nx.Graph,
+    seed_set: Iterable[Any],
+    propagation_probability: float,
+    rng: np.random.Generator,
+) -> set[Any]:
+    """Run one Independent Cascade simulation and return activated nodes."""
+
+    _validate_probability(propagation_probability)
+    normalized_seed_set = _normalize_seed_set(seed_set)
+    _validate_seed_nodes(graph, normalized_seed_set)
+    return _run_independent_cascade(graph, normalized_seed_set, propagation_probability, rng)
+
+
+def simulate_independent_cascade(
+    dataset: LoadedDataset,
+    protected_group_report: ProtectedGroupReport,
+    seed_set: Iterable[Any],
+    propagation_probability: float = 0.01,
+    mc_runs: int = 100,
+    random_seed: int = 42,
+) -> DiffusionResult:
+    """Run Monte Carlo Independent Cascade simulations with per-group spread tracking."""
+
+    _validate_probability(propagation_probability)
+    if mc_runs < 1:
+        raise ValueError("mc_runs must be at least 1.")
+
+    normalized_seed_set = _normalize_seed_set(seed_set)
+    _validate_seed_nodes(dataset.graph, normalized_seed_set)
+    node_to_group = _node_to_group_mapping(dataset, protected_group_report)
+    group_names = list(protected_group_report.protected_groups)
+
+    rng = _rng_for_seed_set(normalized_seed_set, random_seed)
+    total_spreads: list[float] = []
+    group_spreads: dict[str, list[float]] = {group_name: [] for group_name in group_names}
+
+    start = perf_counter()
+    for _ in range(mc_runs):
+        active_nodes = _run_independent_cascade(
+            dataset.graph,
+            normalized_seed_set,
+            propagation_probability,
+            rng,
+        )
+        total_spreads.append(float(len(active_nodes)))
+
+        per_group_counts = {group_name: 0.0 for group_name in group_names}
+        for node_id in active_nodes:
+            per_group_counts[node_to_group[node_id]] += 1.0
+
+        for group_name in group_names:
+            group_spreads[group_name].append(per_group_counts[group_name])
+
+    runtime_seconds = perf_counter() - start
+    total_spread_array = np.asarray(total_spreads, dtype=float)
+    group_spread_mean = {
+        group_name: float(np.mean(values))
+        for group_name, values in group_spreads.items()
+    }
+    group_spread_std = {
+        group_name: float(np.std(values))
+        for group_name, values in group_spreads.items()
+    }
+
+    return DiffusionResult(
+        seed_set=normalized_seed_set,
+        total_spread_mean=float(np.mean(total_spread_array)),
+        total_spread_std=float(np.std(total_spread_array)),
+        group_spread_mean=group_spread_mean,
+        group_spread_std=group_spread_std,
+        runtime_seconds=runtime_seconds,
+    )

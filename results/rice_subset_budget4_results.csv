@@ -1,6 +1,0 @@
-dataset,community_method,method,seed_set,total_spread,mf,mf_component,ideal_mf,mf_to_ideal_ratio,dcv,f_score,score_mode,runtime_seconds,candidate_pool_size,group_spread,group_targets,note
-rice_subset,leiden,degree,"[1335, 5234, 3634, 1315]",16.0,0.035955056179775284,1.0,0.035955056179775284,1.0,0.0,0.5,normalized_mf,0.0008446000001640641,445,"{""__missing__"": 16.0}","{""__missing__"": 16.0}",
-rice_subset,leiden,pagerank,"[1335, 5234, 1315, 3634]",16.0,0.035955056179775284,1.0,0.035955056179775284,1.0,0.0,0.5,normalized_mf,0.0007422999997288571,445,"{""__missing__"": 16.0}","{""__missing__"": 16.0}",
-rice_subset,leiden,community_round_robin,"[1628, 6109, 97, 1335]",11.6,0.02606741573033708,1.0,0.02606741573033708,1.0,0.0,0.5,normalized_mf,0.010083600000143633,445,"{""__missing__"": 11.6}","{""__missing__"": 11.6}",
-rice_subset,leiden,random,"[3550, 3161, 1138, 135]",5.7,0.012808988764044944,1.0,0.012808988764044944,1.0,0.0,0.5,normalized_mf,0.00019580000025598565,445,"{""__missing__"": 5.7}","{""__missing__"": 5.7}",
-rice_subset,leiden,hybrid_siea,"[1335, 5234, 5351, 1237]",22.5,0.05056179775280899,1.0,0.05056179775280899,1.0,0.0,0.5,normalized_mf,16.116902400000072,445,"{""__missing__"": 22.5}","{""__missing__"": 22.5}",repair_bias=0.35;history=rice_subset_budget4_leiden_hybrid_siea_history.csv

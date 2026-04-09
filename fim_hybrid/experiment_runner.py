@@ -1,330 +1,266 @@
-"""Experiment runner for Fair Influence Maximization research prototypes."""
+"""Experiment runner for fair comparison across FIM methods."""
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass
 from pathlib import Path
-from time import perf_counter
 import json
 
-import matplotlib.pyplot as plt
 import pandas as pd
 
-from .baselines import community_round_robin, random_seed_set, top_k_by_feature
-from .community_detection import detect_communities
-from .config import ExperimentConfig
-from .data_loader import load_dataset
-from .diffusion import IndependentCascadeSimulator
-from .fairness import compute_group_sizes, evaluate_fairness
-from .feature_extraction import compute_node_features
-from .hybrid_optimizer import HybridOptimizationResult, HybridSIEAOptimizer
-from .label_generation import generate_singleton_labels
-from .ml_training import predict_node_utilities, select_top_candidate_pool, train_node_ranker
+from .baselines import BaselineResult, run_baseline
+from .community_detection import CommunityQualityMetrics, compute_community_quality_metrics, detect_communities
+from .config import DatasetConfig
+from .data_loader import LoadedDataset, ProtectedGroupReport, load_dataset, verify_protected_groups
+from .hybrid_optimizer import HybridOptimizationResult, HybridSIEAConfig, HybridSIEAOptimizer
 
 
-def _optimizer_note(config: ExperimentConfig) -> str:
-    notes: list[str] = []
-    if config.optimizer.disable_swarm_guidance:
-        notes.append("swarm_off")
-    if config.optimizer.disable_crossover:
-        notes.append("crossover_off")
-    if config.optimizer.disable_community_repair:
-        notes.append("community_repair_off")
-    if config.optimizer.debug_logging:
-        notes.append(f"debug_every_{config.optimizer.debug_frequency}")
-    if config.optimizer.fairness_repair_bias > 0.0:
-        notes.append(f"repair_bias={config.optimizer.fairness_repair_bias}")
-    return ";".join(notes)
+@dataclass(slots=True)
+class ExperimentSettings:
+    """Explicit experiment settings for method comparison."""
+
+    protected_attribute: str
+    budget: int
+    community_method: str = "leiden"
+    propagation_probability: float = 0.01
+    mc_runs: int = 20
+    lambda_weight: float = 0.5
+    population_size: int = 12
+    generations: int = 10
+    crossover_probability: float = 0.7
+    mutation_probability: float = 0.2
+    elite_fraction: float = 0.25
+    leader_guidance_fraction: float = 0.34
+    local_search_steps: int = 2
+    random_seed: int = 42
+    output_dir: Path | None = None
+    use_node2vec: bool = False
 
 
-def _save_history_frame(
-    history: pd.DataFrame,
-    output_dir: Path,
+def _dataset_output_dir(output_dir: Path | None, dataset_name: str) -> Path | None:
+    if output_dir is None:
+        return None
+
+    dataset_dir = output_dir / dataset_name
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+    return dataset_dir
+
+
+def _history_path(
+    output_dir: Path | None,
     dataset_name: str,
     budget: int,
     community_method: str,
     label: str,
 ) -> Path | None:
-    if history.empty:
+    dataset_dir = _dataset_output_dir(output_dir, dataset_name)
+    if dataset_dir is None:
         return None
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    safe_method = community_method.replace(" ", "_")
-    safe_label = label.replace(" ", "_")
-    history_path = output_dir / f"{dataset_name}_budget{budget}_{safe_method}_{safe_label}_history.csv"
-    history.to_csv(history_path, index=False)
-    return history_path
+    path = dataset_dir / f"{dataset_name}_budget{budget}_{community_method}_{label}_history.csv"
+    return path
 
 
-def _evaluate_seed_set(
-    seed_set: list[object],
-    simulator: IndependentCascadeSimulator,
-    group_sizes: dict[object, int],
-    config: ExperimentConfig,
-    runtime_seconds: float,
-    label: str,
-    community_method: str,
-    candidate_pool_size: int | None = None,
-    note: str | None = None,
-) -> dict[str, object]:
-    # Re-evaluate each final seed set with the same diffusion/fairness pipeline
-    # so all methods are compared on one consistent scoring path.
-    diffusion = simulator.simulate_many(
-        seed_set,
-        runs=config.diffusion.mc_runs,
-        protected_attribute=config.fairness.protected_attribute,
-        compute_std=False,
-    )
-    fairness = evaluate_fairness(
-        group_spread=diffusion.group_spread_mean,
-        group_sizes=group_sizes,
-        lambda_weight=config.fairness.lambda_weight,
-        target_mode=config.fairness.target_mode,
-        total_spread=diffusion.total_spread_mean,
-        score_mode=config.fairness.score_mode,
-    )
+def _community_columns(quality: CommunityQualityMetrics) -> dict[str, float | int]:
     return {
-        "dataset": config.dataset.name,
-        "community_method": community_method,
-        "method": label,
-        "seed_set": json.dumps(list(seed_set)),
-        "total_spread": diffusion.total_spread_mean,
-        "mf": fairness.mf,
-        "mf_component": fairness.mf_component,
-        "ideal_mf": fairness.ideal_mf,
-        "mf_to_ideal_ratio": fairness.mf_to_ideal_ratio,
-        "dcv": fairness.dcv,
-        "f_score": fairness.combined_score,
-        "score_mode": fairness.score_mode,
-        "runtime_seconds": runtime_seconds,
-        "candidate_pool_size": candidate_pool_size if candidate_pool_size is not None else len(simulator.graph),
-        "group_spread": json.dumps(fairness.group_spread),
-        "group_targets": json.dumps(fairness.group_targets),
-        "note": note or "",
+        "community_modularity": quality.modularity,
+        "num_communities": quality.num_communities,
+        "largest_community_size": quality.largest_community_size,
+        "smallest_community_size": quality.smallest_community_size,
+        "average_community_size": quality.average_community_size,
+        "community_size_std": quality.community_size_std,
     }
 
 
-def _result_row_from_hybrid_result(
-    hybrid_result: HybridOptimizationResult,
-    config: ExperimentConfig,
+def _baseline_row(
+    dataset: LoadedDataset,
     community_method: str,
-    runtime_seconds: float,
-    label: str,
-    note: str | None = None,
+    result: BaselineResult,
+    quality: CommunityQualityMetrics,
 ) -> dict[str, object]:
-    """Build a result row from the optimizer's final cached evaluation."""
-
-    fairness = hybrid_result.best_fairness
     return {
-        "dataset": config.dataset.name,
+        "dataset": dataset.name,
         "community_method": community_method,
-        "method": label,
-        "seed_set": json.dumps(hybrid_result.best_seed_set),
-        "total_spread": hybrid_result.best_spread,
-        "mf": fairness.mf,
-        "mf_component": fairness.mf_component,
-        "ideal_mf": fairness.ideal_mf,
-        "mf_to_ideal_ratio": fairness.mf_to_ideal_ratio,
-        "dcv": fairness.dcv,
-        "f_score": fairness.combined_score,
-        "score_mode": fairness.score_mode,
-        "runtime_seconds": runtime_seconds,
-        "candidate_pool_size": hybrid_result.candidate_pool_size,
-        "group_spread": json.dumps(fairness.group_spread),
-        "group_targets": json.dumps(fairness.group_targets),
-        "note": note or "",
+        "method": result.method,
+        "variant_type": "baseline",
+        "seed_set": json.dumps(list(result.seed_set)),
+        "total_spread": result.total_spread_mean,
+        "mf": result.mf,
+        "dcv": result.dcv,
+        "f_score": result.f_score,
+        "runtime_seconds": result.runtime_seconds,
+        "candidate_pool_size": dataset.graph.number_of_nodes(),
+        "swarm_guidance": False,
+        "crossover": False,
+        "local_search": False,
+        "community_aware_mutation": result.method == "community_round_robin",
+        "node2vec_enabled": False,
+        "note": "",
+        **_community_columns(quality),
     }
 
 
-def plot_experiment_results(results: pd.DataFrame, output_dir: Path, stem: str) -> None:
-    """Create simple runtime and score comparison plots."""
+def _hybrid_row(
+    dataset: LoadedDataset,
+    community_method: str,
+    label: str,
+    variant_type: str,
+    result: HybridOptimizationResult,
+    config: HybridSIEAConfig,
+    quality: CommunityQualityMetrics,
+    note: str = "",
+) -> dict[str, object]:
+    return {
+        "dataset": dataset.name,
+        "community_method": community_method,
+        "method": label,
+        "variant_type": variant_type,
+        "seed_set": json.dumps(list(result.best_seed_set)),
+        "total_spread": result.best_spread,
+        "mf": result.best_fairness.mf,
+        "dcv": result.best_fairness.dcv,
+        "f_score": result.best_score,
+        "runtime_seconds": result.runtime_seconds,
+        "candidate_pool_size": result.candidate_pool_size,
+        "swarm_guidance": not config.disable_swarm_guidance,
+        "crossover": not config.disable_crossover,
+        "local_search": not config.disable_local_search,
+        "community_aware_mutation": not config.disable_community_aware_mutation,
+        "node2vec_enabled": False,
+        "note": note,
+        **_community_columns(quality),
+    }
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    # Keep the plotting layer intentionally simple so the research pipeline
-    # works even without a larger experiment-management framework.
-    for metric in ["f_score", "total_spread", "runtime_seconds"]:
-        plt.figure(figsize=(10, 4))
-        ordered = results.sort_values(metric, ascending=(metric == "runtime_seconds"))
-        plt.bar(ordered["method"], ordered[metric])
-        plt.xticks(rotation=30, ha="right")
-        plt.ylabel(metric)
-        plt.tight_layout()
-        plt.savefig(output_dir / f"{stem}_{metric}.png", dpi=200)
-        plt.close()
+
+def _build_optimizer_config(settings: ExperimentSettings, **overrides: object) -> HybridSIEAConfig:
+    config = HybridSIEAConfig(
+        budget=settings.budget,
+        population_size=settings.population_size,
+        generations=settings.generations,
+        crossover_probability=settings.crossover_probability,
+        mutation_probability=settings.mutation_probability,
+        elite_fraction=settings.elite_fraction,
+        leader_guidance_fraction=settings.leader_guidance_fraction,
+        propagation_probability=settings.propagation_probability,
+        mc_runs=settings.mc_runs,
+        lambda_weight=settings.lambda_weight,
+        random_seed=settings.random_seed,
+        local_search_steps=settings.local_search_steps,
+    )
+    for key, value in overrides.items():
+        setattr(config, key, value)
+    return config
 
 
-def run_experiment(
-    config: ExperimentConfig,
+def run_loaded_experiment(
+    dataset: LoadedDataset,
+    protected_group_report: ProtectedGroupReport,
+    settings: ExperimentSettings,
     community_methods: list[str] | None = None,
     baseline_methods: list[str] | None = None,
-    enable_plots: bool = True,
-    ml_max_nodes: int | None = None,
+    include_ablations: bool = True,
 ) -> pd.DataFrame:
-    """Run a full FIM experiment and return a results table."""
+    """Run one or more method comparisons on a preloaded dataset."""
 
-    # Load the graph once, then reuse the same simulator across all methods.
-    dataset = load_dataset(config.dataset)
-    simulator = IndependentCascadeSimulator(
-        graph=dataset.graph,
-        propagation_probability=config.diffusion.propagation_probability,
-        seed=config.diffusion.seed,
-    )
-    group_sizes = compute_group_sizes(dataset.graph, config.fairness.protected_attribute)
+    if settings.use_node2vec:
+        raise NotImplementedError("Optional Node2Vec guidance is not implemented in this rebuilt prototype.")
 
-    methods = community_methods or [config.community.method]
+    methods = community_methods or [settings.community_method]
     baselines = baseline_methods or ["degree", "pagerank", "community_round_robin", "random"]
     results: list[dict[str, object]] = []
 
     for community_method in methods:
-        # Recompute communities and node features for each requested method so
-        # baseline and hybrid comparisons stay method-specific.
-        community_config = replace(config.community, method=community_method)
-        community_result = detect_communities(dataset.graph, community_config)
-        feature_frame = compute_node_features(
-            dataset.graph,
-            community_result,
-            protected_attribute=config.fairness.protected_attribute,
-        )
+        community_result = detect_communities(dataset.graph, method=community_method, seed=settings.random_seed)
+        quality = compute_community_quality_metrics(dataset.graph, community_result)
 
         for baseline_name in baselines:
-            start = perf_counter()
-            # Baselines are intentionally simple and interpretable.
-            if baseline_name == "degree":
-                seed_set = top_k_by_feature(feature_frame, "degree", config.optimizer.budget)
-            elif baseline_name == "pagerank":
-                seed_set = top_k_by_feature(feature_frame, "pagerank", config.optimizer.budget)
-            elif baseline_name == "community_round_robin":
-                seed_set = community_round_robin(
-                    feature_frame,
-                    community_result,
-                    config.optimizer.budget,
-                    ranking_feature="pagerank",
-                )
-            elif baseline_name == "random":
-                seed_set = random_seed_set(
-                    feature_frame["node_id"].tolist(),
-                    config.optimizer.budget,
-                    seed=config.random_seed,
-                )
-            else:
-                raise ValueError(f"Unsupported baseline method '{baseline_name}'.")
-
-            runtime_seconds = perf_counter() - start
-            results.append(
-                _evaluate_seed_set(
-                    seed_set=seed_set,
-                    simulator=simulator,
-                    group_sizes=group_sizes,
-                    config=config,
-                    runtime_seconds=runtime_seconds,
-                    label=baseline_name,
-                    community_method=community_method,
-                )
-            )
-
-        hybrid_start = perf_counter()
-        # Run the unified SI+EA optimizer on the full candidate pool.
-        optimizer = HybridSIEAOptimizer(
-            graph=dataset.graph,
-            community_result=community_result,
-            feature_frame=feature_frame,
-            simulator=simulator,
-            fairness_config=config.fairness,
-            optimizer_config=config.optimizer,
-            mc_runs=config.diffusion.mc_runs,
-        )
-        hybrid_result = optimizer.optimize()
-        hybrid_runtime = perf_counter() - hybrid_start
-        history_path = _save_history_frame(
-            history=hybrid_result.history,
-            output_dir=config.output_dir,
-            dataset_name=config.dataset.name,
-            budget=config.optimizer.budget,
-            community_method=community_method,
-            label="hybrid_siea",
-        )
-        hybrid_note = _optimizer_note(config)
-        if history_path is not None:
-            hybrid_note = ";".join(part for part in [hybrid_note, f"history={history_path.name}"] if part)
-        results.append(
-            _result_row_from_hybrid_result(
-                hybrid_result=hybrid_result,
-                config=config,
-                community_method=community_method,
-                runtime_seconds=hybrid_runtime,
-                label="hybrid_siea",
-                note=hybrid_note,
-            )
-        )
-
-        if config.ml.enabled:
-            # The optional ML stage predicts promising nodes and then narrows the
-            # hybrid optimizer's candidate pool.
-            training_frame = generate_singleton_labels(
-                feature_frame=feature_frame,
-                simulator=simulator,
-                protected_attribute=config.fairness.protected_attribute,
-                lambda_weight=config.fairness.lambda_weight,
-                mc_runs=config.ml.singleton_mc_runs,
-                target_mode=config.fairness.target_mode,
-                score_mode=config.fairness.score_mode,
-                positive_fraction=config.ml.positive_fraction,
-                max_nodes=ml_max_nodes,
-            )
-            ml_result = train_node_ranker(training_frame, config.ml)
-            predicted_scores = predict_node_utilities(feature_frame, ml_result)
-            candidate_pool = select_top_candidate_pool(
-                feature_frame=feature_frame,
-                predicted_scores=predicted_scores,
-                top_fraction=config.ml.top_fraction,
-            )
-
-            ml_hybrid_start = perf_counter()
-            ml_optimizer = HybridSIEAOptimizer(
-                graph=dataset.graph,
+            baseline_result = run_baseline(
+                dataset=dataset,
+                protected_group_report=protected_group_report,
+                method=baseline_name,
+                budget=settings.budget,
+                propagation_probability=settings.propagation_probability,
+                mc_runs=settings.mc_runs,
+                lambda_weight=settings.lambda_weight,
                 community_result=community_result,
-                feature_frame=feature_frame,
-                simulator=simulator,
-                fairness_config=config.fairness,
-                optimizer_config=config.optimizer,
-                candidate_nodes=candidate_pool,
-                guidance_scores=predicted_scores,
-                mc_runs=config.diffusion.mc_runs,
+                random_seed=settings.random_seed,
             )
-            ml_hybrid_result = ml_optimizer.optimize()
-            ml_hybrid_runtime = perf_counter() - ml_hybrid_start
-            ml_history_path = _save_history_frame(
-                history=ml_hybrid_result.history,
-                output_dir=config.output_dir,
-                dataset_name=config.dataset.name,
-                budget=config.optimizer.budget,
-                community_method=community_method,
-                label="ml_guided_hybrid_siea",
+            results.append(_baseline_row(dataset, community_method, baseline_result, quality))
+
+        hybrid_variants: list[tuple[str, str, str, dict[str, object]]] = [
+            (
+                "cea_fim",
+                "comparator",
+                "CEA-style baseline: community EA without swarm guidance or local search.",
+                {"disable_swarm_guidance": True, "disable_local_search": True},
+            ),
+            ("hybrid_siea", "proposed", "", {}),
+        ]
+        if include_ablations:
+            hybrid_variants.extend(
+                [
+                    ("hybrid_no_swarm", "ablation", "Ablation: swarm guidance disabled.", {"disable_swarm_guidance": True}),
+                    ("hybrid_no_crossover", "ablation", "Ablation: crossover disabled.", {"disable_crossover": True}),
+                    ("hybrid_no_local_search", "ablation", "Ablation: local search disabled.", {"disable_local_search": True}),
+                    (
+                        "hybrid_no_community_mutation",
+                        "ablation",
+                        "Ablation: community-aware mutation bonus disabled.",
+                        {"disable_community_aware_mutation": True},
+                    ),
+                ]
             )
-            ml_note_parts = [
-                _optimizer_note(config),
-                f"model={ml_result.model_name};train_r2={ml_result.training_r2:.4f}",
-            ]
-            if ml_history_path is not None:
-                ml_note_parts.append(f"history={ml_history_path.name}")
+
+        for label, variant_type, note, overrides in hybrid_variants:
+            config = _build_optimizer_config(settings, **overrides)
+            optimizer = HybridSIEAOptimizer(
+                dataset=dataset,
+                protected_group_report=protected_group_report,
+                community_result=community_result,
+                config=config,
+            )
+            result = optimizer.optimize()
+            history_path = _history_path(settings.output_dir, dataset.name, settings.budget, community_method, label)
+            if history_path is not None:
+                result.history.to_csv(history_path, index=False)
+                note = "; ".join(part for part in [note, f"history={history_path.name}"] if part)
             results.append(
-                _result_row_from_hybrid_result(
-                    hybrid_result=ml_hybrid_result,
-                    config=config,
+                _hybrid_row(
+                    dataset=dataset,
                     community_method=community_method,
-                    runtime_seconds=ml_hybrid_runtime,
-                    label="ml_guided_hybrid_siea",
-                    note=";".join(part for part in ml_note_parts if part),
+                    label=label,
+                    variant_type=variant_type,
+                    result=result,
+                    config=config,
+                    quality=quality,
+                    note=note,
                 )
             )
 
     result_frame = pd.DataFrame(results)
-    config.output_dir.mkdir(parents=True, exist_ok=True)
-    stem = f"{config.dataset.name}_budget{config.optimizer.budget}"
-    # Save a CSV so results can be inspected without rerunning the experiment.
-    result_frame.to_csv(config.output_dir / f"{stem}_results.csv", index=False)
-
-    if enable_plots and not result_frame.empty:
-        plot_experiment_results(result_frame, config.output_dir, stem)
-
+    dataset_dir = _dataset_output_dir(settings.output_dir, dataset.name)
+    if dataset_dir is not None:
+        output_path = dataset_dir / f"{dataset.name}_budget{settings.budget}_results.csv"
+        result_frame.to_csv(output_path, index=False)
     return result_frame
+
+
+def run_experiment(
+    dataset_config: DatasetConfig,
+    settings: ExperimentSettings,
+    community_methods: list[str] | None = None,
+    baseline_methods: list[str] | None = None,
+    include_ablations: bool = True,
+) -> pd.DataFrame:
+    """Load a dataset and run the comparison experiment."""
+
+    dataset = load_dataset(dataset_config)
+    protected_group_report = verify_protected_groups(dataset, settings.protected_attribute)
+    return run_loaded_experiment(
+        dataset=dataset,
+        protected_group_report=protected_group_report,
+        settings=settings,
+        community_methods=community_methods,
+        baseline_methods=baseline_methods,
+        include_ablations=include_ablations,
+    )

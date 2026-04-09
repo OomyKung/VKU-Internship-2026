@@ -1,149 +1,126 @@
-"""Fairness metrics for Fair Influence Maximization."""
+"""Phase 2 fairness metrics for protected-group spread diagnostics."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-import networkx as nx
 import numpy as np
 
 
 @dataclass(slots=True)
 class FairnessMetrics:
-    """Fairness-aware evaluation output."""
+    """Fairness summary derived from mean per-group spread."""
 
-    # `mf` and `dcv` are kept separately so analyses can inspect the trade-off
-    # instead of looking only at the combined score.
+    group_spread: dict[str, float]
+    normalized_group_spread: dict[str, float]
+    group_targets: dict[str, float]
     mf: float
+    soft_mf: float | None
     dcv: float
-    combined_score: float
-    group_spread: dict[object, float]
-    group_targets: dict[object, float]
-    normalized_group_spread: dict[object, float]
-    ideal_mf: float
-    mf_to_ideal_ratio: float
-    score_mode: str
-    mf_component: float
 
 
-def compute_group_sizes(graph: nx.Graph, protected_attribute: str) -> dict[object, int]:
-    """Count graph nodes by protected attribute value."""
+def _normalize_group_spread_input(
+    group_spread: dict[str, float],
+    group_sizes: dict[str, int],
+) -> dict[str, float]:
+    if not group_sizes:
+        raise ValueError("group_sizes must contain at least one protected group.")
+    if any(size <= 0 for size in group_sizes.values()):
+        raise ValueError("group_sizes must contain only positive group sizes.")
 
-    # Missing values are treated as their own group so fairness accounting stays explicit.
-    group_sizes: dict[object, int] = {}
-    for _, attrs in graph.nodes(data=True):
-        value = attrs.get(protected_attribute, "__missing__")
-        group_sizes[value] = group_sizes.get(value, 0) + 1
-    return group_sizes
+    unknown_groups = sorted(set(group_spread) - set(group_sizes))
+    if unknown_groups:
+        preview = ", ".join(repr(group_name) for group_name in unknown_groups[:5])
+        raise ValueError(f"group_spread contains unknown groups: {preview}.")
+
+    return {
+        group_name: float(group_spread.get(group_name, 0.0))
+        for group_name in group_sizes
+    }
 
 
-def compute_group_targets(
-    group_sizes: dict[object, int],
+def compute_normalized_group_spread(
+    group_spread: dict[str, float],
+    group_sizes: dict[str, int],
+) -> dict[str, float]:
+    """Normalize mean group spread by protected-group size."""
+
+    normalized_group_spread: dict[str, float] = {}
+    for group_name, spread in _normalize_group_spread_input(group_spread, group_sizes).items():
+        normalized_group_spread[group_name] = spread / float(group_sizes[group_name])
+    return normalized_group_spread
+
+
+def compute_strict_mf(normalized_group_spread: dict[str, float]) -> float:
+    """Return strict MF as the minimum normalized protected-group spread."""
+
+    if not normalized_group_spread:
+        raise ValueError("normalized_group_spread must contain at least one protected group.")
+    return float(min(normalized_group_spread.values()))
+
+
+def compute_soft_mf(normalized_group_spread: dict[str, float]) -> float:
+    """Return diagnostic soft MF as the mean normalized protected-group spread."""
+
+    if not normalized_group_spread:
+        raise ValueError("normalized_group_spread must contain at least one protected group.")
+    return float(np.mean(list(normalized_group_spread.values())))
+
+
+def compute_dcv(
+    group_spread: dict[str, float],
+    group_sizes: dict[str, int],
     total_spread: float,
-    target_mode: str = "population_proportional",
-) -> dict[object, float]:
-    """Create fairness targets for each group."""
+) -> tuple[float, dict[str, float]]:
+    """Compute population-proportional DCV and the implied group targets."""
 
-    # Targets express what "fair enough" means before we compare achieved spread.
+    if total_spread < 0.0:
+        raise ValueError("total_spread must be non-negative.")
+
+    completed_group_spread = _normalize_group_spread_input(group_spread, group_sizes)
     total_population = float(sum(group_sizes.values()))
-    if total_population <= 0:
-        raise ValueError("group_sizes must contain at least one node.")
+    group_targets = {
+        group_name: float(total_spread) * (float(group_size) / total_population)
+        for group_name, group_size in group_sizes.items()
+    }
 
-    if target_mode == "population_proportional":
-        # Larger groups are expected to receive proportionally larger spread.
-        return {
-            group: total_spread * (size / total_population)
-            for group, size in group_sizes.items()
-        }
-    if target_mode == "uniform":
-        # Uniform targets ask each group to receive the same expected spread.
-        uniform_target = total_spread / max(len(group_sizes), 1)
-        return {group: uniform_target for group in group_sizes}
-
-    raise ValueError(
-        f"Unsupported target_mode '{target_mode}'. Supported modes: population_proportional, uniform."
-    )
-
-
-def maximin_fairness(
-    group_spread: dict[object, float],
-    group_sizes: dict[object, int],
-) -> tuple[float, dict[object, float]]:
-    """Compute maximin fairness as the minimum normalized group spread."""
-
-    # Normalize by group size so large groups do not dominate the fairness metric.
-    normalized = {}
-    for group, size in group_sizes.items():
-        normalized[group] = float(group_spread.get(group, 0.0)) / max(float(size), 1.0)
-    return min(normalized.values()), normalized
-
-
-def diversity_constraint_violation(
-    group_spread: dict[object, float],
-    group_targets: dict[object, float],
-) -> float:
-    """Average relative shortfall from desired group targets."""
-
-    # Only shortfalls count as violations; exceeding the target is not penalized.
-    violations = []
-    for group, target in group_targets.items():
-        achieved = float(group_spread.get(group, 0.0))
-        safe_target = max(float(target), 1e-9)
+    violations: list[float] = []
+    for group_name, target in group_targets.items():
+        achieved = completed_group_spread[group_name]
+        safe_target = max(target, 1e-9)
         violations.append(max(target - achieved, 0.0) / safe_target)
-    return float(np.mean(violations)) if violations else 0.0
+
+    return float(np.mean(violations)), group_targets
 
 
 def evaluate_fairness(
-    group_spread: dict[object, float],
-    group_sizes: dict[object, int],
-    lambda_weight: float,
-    group_targets: dict[object, float] | None = None,
-    target_mode: str = "population_proportional",
+    group_spread: dict[str, float],
+    group_sizes: dict[str, int],
     total_spread: float | None = None,
-    score_mode: str = "raw_mf",
+    include_soft_mf: bool = True,
 ) -> FairnessMetrics:
-    """Compute MF, DCV, and the combined fairness-aware score."""
+    """Compute normalized group spread, strict MF, soft MF, and DCV."""
 
-    # If no explicit total spread is given, infer it from the per-group spread totals.
+    normalized_group_spread = compute_normalized_group_spread(group_spread, group_sizes)
+    completed_group_spread = {
+        group_name: float(group_spread.get(group_name, 0.0))
+        for group_name in group_sizes
+    }
+
     if total_spread is None:
-        total_spread = float(sum(group_spread.values()))
+        total_spread = float(sum(completed_group_spread.values()))
 
-    if group_targets is None:
-        group_targets = compute_group_targets(
-            group_sizes=group_sizes,
-            total_spread=total_spread,
-            target_mode=target_mode,
-        )
-
-    mf, normalized = maximin_fairness(group_spread, group_sizes)
-    dcv = diversity_constraint_violation(group_spread, group_targets)
-    total_population = float(sum(group_sizes.values()))
-    # Under perfectly proportional spread, every group's normalized spread is
-    # equal to total_spread / total_population. This is a useful ceiling-like
-    # diagnostic for understanding why MF can look numerically small.
-    ideal_mf = total_spread / max(total_population, 1.0)
-    mf_to_ideal_ratio = mf / ideal_mf if ideal_mf > 1e-12 else 0.0
-    if score_mode == "raw_mf":
-        mf_component = mf
-    elif score_mode == "normalized_mf":
-        mf_component = mf_to_ideal_ratio
-    else:
-        raise ValueError(
-            f"Unsupported score_mode '{score_mode}'. Supported modes: raw_mf, normalized_mf."
-        )
-
-    # This is the main optimization objective used by the hybrid algorithm.
-    combined_score = lambda_weight * mf_component - (1.0 - lambda_weight) * dcv
+    dcv, group_targets = compute_dcv(
+        group_spread=completed_group_spread,
+        group_sizes=group_sizes,
+        total_spread=total_spread,
+    )
 
     return FairnessMetrics(
-        mf=mf,
-        dcv=dcv,
-        combined_score=combined_score,
-        group_spread={group: float(group_spread.get(group, 0.0)) for group in group_sizes},
+        group_spread=completed_group_spread,
+        normalized_group_spread=normalized_group_spread,
         group_targets=group_targets,
-        normalized_group_spread=normalized,
-        ideal_mf=ideal_mf,
-        mf_to_ideal_ratio=mf_to_ideal_ratio,
-        score_mode=score_mode,
-        mf_component=mf_component,
+        mf=compute_strict_mf(normalized_group_spread),
+        soft_mf=compute_soft_mf(normalized_group_spread) if include_soft_mf else None,
+        dcv=dcv,
     )

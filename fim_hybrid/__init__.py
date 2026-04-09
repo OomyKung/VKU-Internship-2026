@@ -1,42 +1,99 @@
-"""Research-friendly Fair Influence Maximization package."""
+"""Fair Influence Maximization research package."""
 
-# Re-export the main entry points so scripts and notebooks can import from the
-# package root instead of reaching into individual module files.
-from .config import (
-    CommunityConfig,
-    DatasetConfig,
-    DiffusionConfig,
-    ExperimentConfig,
-    FairnessConfig,
-    MLConfig,
-    OptimizerConfig,
+from .baselines import BaselineResult, run_baseline, run_baselines
+from .community_detection import (
+    CommunityDetectionResult,
+    CommunityQualityMetrics,
+    CommunityStats,
+    CommunityValidationReport,
+    choose_communities,
+    compute_community_quality_metrics,
+    detect_communities,
+    format_community_debug_report,
+    get_community_stats,
+    get_community_sizes,
+    get_node_community,
+    get_nodes_in_community,
+    sample_community,
+    sample_candidate_nodes_by_community,
+    sample_node_from_community,
+    score_communities_by_size,
+    validate_communities,
+    validate_community_assignments,
 )
-from .community_detection import CommunityDetectionResult, detect_communities
-from .data_loader import LoadedDataset, load_dataset, resolve_builtin_dataset
-from .diffusion import DiffusionResult, IndependentCascadeSimulator
-from .fairness import FairnessMetrics, evaluate_fairness
-from .feature_extraction import compute_node_features
-from .hybrid_optimizer import HybridOptimizationResult, HybridSIEAOptimizer
+from .config import DatasetConfig
+from .data_loader import (
+    LoadedDataset,
+    ProtectedGroupReport,
+    format_phase1_report,
+    load_dataset,
+    resolve_builtin_dataset,
+    verify_protected_groups,
+    verify_dataset_phase1,
+)
+from .diffusion import DiffusionResult, simulate_independent_cascade, simulate_independent_cascade_once
+from .evaluation import SeedSetEvaluation, compute_f_score, evaluate_seed_set
+from .experiment_runner import ExperimentSettings, run_experiment, run_loaded_experiment
+from .feature_extraction import compute_node_features, compute_structural_node_scores
+from .fairness import (
+    FairnessMetrics,
+    compute_dcv,
+    compute_normalized_group_spread,
+    compute_soft_mf,
+    compute_strict_mf,
+    evaluate_fairness,
+)
+from .hybrid_optimizer import CandidateEvaluation, HybridOptimizationResult, HybridSIEAConfig, HybridSIEAOptimizer
 
-# Keep the public package surface explicit for readability and stability.
 __all__ = [
-    "CommunityConfig",
+    "BaselineResult",
+    "CandidateEvaluation",
     "CommunityDetectionResult",
+    "CommunityQualityMetrics",
+    "CommunityStats",
+    "CommunityValidationReport",
     "DatasetConfig",
-    "DiffusionConfig",
-    "DiffusionResult",
-    "ExperimentConfig",
-    "FairnessConfig",
-    "FairnessMetrics",
-    "HybridOptimizationResult",
-    "HybridSIEAOptimizer",
-    "IndependentCascadeSimulator",
     "LoadedDataset",
-    "MLConfig",
-    "OptimizerConfig",
-    "compute_node_features",
+    "ProtectedGroupReport",
+    "choose_communities",
+    "DiffusionResult",
     "detect_communities",
+    "ExperimentSettings",
+    "evaluate_seed_set",
+    "FairnessMetrics",
+    "SeedSetEvaluation",
+    "compute_f_score",
+    "compute_dcv",
+    "compute_community_quality_metrics",
+    "compute_node_features",
+    "compute_normalized_group_spread",
+    "compute_structural_node_scores",
+    "compute_soft_mf",
+    "compute_strict_mf",
     "evaluate_fairness",
+    "format_phase1_report",
+    "format_community_debug_report",
+    "get_community_stats",
+    "get_community_sizes",
+    "get_node_community",
+    "get_nodes_in_community",
+    "HybridOptimizationResult",
+    "HybridSIEAConfig",
+    "HybridSIEAOptimizer",
     "load_dataset",
+    "run_experiment",
+    "run_loaded_experiment",
     "resolve_builtin_dataset",
+    "run_baseline",
+    "run_baselines",
+    "sample_community",
+    "sample_candidate_nodes_by_community",
+    "sample_node_from_community",
+    "score_communities_by_size",
+    "simulate_independent_cascade",
+    "simulate_independent_cascade_once",
+    "validate_communities",
+    "validate_community_assignments",
+    "verify_protected_groups",
+    "verify_dataset_phase1",
 ]

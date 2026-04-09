@@ -1,4 +1,4 @@
-"""CLI entry point for running FIM experiments."""
+"""CLI for fair FIM method comparison experiments."""
 
 from __future__ import annotations
 
@@ -6,31 +6,17 @@ import argparse
 from pathlib import Path
 import sys
 
-# Add the repository root to sys.path so the script can import the local package
-# when it is run directly from PowerShell.
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from fim_hybrid.config import (  # noqa: E402
-    CommunityConfig,
-    DatasetConfig,
-    DiffusionConfig,
-    ExperimentConfig,
-    FairnessConfig,
-    MLConfig,
-    OptimizerConfig,
-)
 from fim_hybrid.data_loader import resolve_builtin_dataset  # noqa: E402
-from fim_hybrid.experiment_runner import run_experiment  # noqa: E402
+from fim_hybrid.experiment_runner import ExperimentSettings, run_experiment  # noqa: E402
 
 
 def _resolve_repo_path(path_value: str | None) -> Path | None:
-    """Resolve CLI paths relative to the repository root when needed."""
-
     if path_value is None:
         return None
-
     path = Path(path_value)
     if path.is_absolute():
         return path
@@ -38,109 +24,76 @@ def _resolve_repo_path(path_value: str | None) -> Path | None:
 
 
 def parse_args() -> argparse.Namespace:
-    # Keep the CLI flat and explicit so single-command local runs are easy.
-    parser = argparse.ArgumentParser(description="Run Fair Influence Maximization experiments.")
-    parser.add_argument("--dataset", default="twitter", help="Built-in dataset name.")
-    parser.add_argument("--edge-path", default=None, help="Path to an edge-list file.")
-    parser.add_argument("--attribute-path", default=None, help="Path to a node-attribute CSV file.")
-    parser.add_argument("--pickle-path", default=None, help="Path to a pickled NetworkX graph.")
-    parser.add_argument("--protected-attribute", default="color", help="Protected attribute for fairness metrics.")
-    parser.add_argument("--budget", type=int, default=10, help="Seed budget.")
+    parser = argparse.ArgumentParser(description="Run comparable Fair Influence Maximization experiments.")
+    parser.add_argument("--dataset", default="graph_spa_500_0", help="Built-in dataset name.")
+    parser.add_argument("--protected-attribute", required=True, help="Protected attribute for fairness metrics.")
     parser.add_argument("--community-methods", nargs="+", default=["leiden"], help="Community detection methods to compare.")
     parser.add_argument(
         "--baseline-methods",
         nargs="+",
         default=["degree", "pagerank", "community_round_robin", "random"],
-        help="Baseline seed selection methods to compare.",
+        help="Baseline methods to compare.",
     )
-    parser.add_argument("--propagation-prob", type=float, default=0.01, help="IC edge propagation probability.")
-    parser.add_argument("--mc-runs", type=int, default=100, help="Monte Carlo diffusion runs.")
-    parser.add_argument("--population-size", type=int, default=20, help="Hybrid optimizer population size.")
-    parser.add_argument("--generations", type=int, default=50, help="Hybrid optimizer generations.")
+    parser.add_argument("--budget", type=int, required=True, help="Fixed seed budget.")
+    parser.add_argument("--propagation-prob", type=float, default=0.01, help="Independent Cascade propagation probability.")
+    parser.add_argument("--mc-runs", type=int, default=20, help="Monte Carlo run count.")
     parser.add_argument("--lambda-weight", type=float, default=0.5, help="Lambda in F(S) = lambda*MF - (1-lambda)*DCV.")
-    parser.add_argument("--score-mode", choices=["raw_mf", "normalized_mf"], default="raw_mf", help="Fairness score variant used inside F(S).")
-    parser.add_argument("--optimizer-seed", type=int, default=42, help="Random seed.")
-    parser.add_argument("--fairness-repair-bias", type=float, default=0.35, help="Bias repair and mutation toward under-covered protected groups.")
-    parser.add_argument("--disable-swarm-guidance", action="store_true", help="Ablation: disable swarm-guided updates.")
-    parser.add_argument("--disable-crossover", action="store_true", help="Ablation: disable crossover.")
-    parser.add_argument("--disable-community-repair", action="store_true", help="Ablation: disable community-aware repair.")
-    parser.add_argument("--debug-hybrid", action="store_true", help="Print per-generation hybrid optimizer diagnostics.")
-    parser.add_argument("--debug-frequency", type=int, default=1, help="Print every N generations when --debug-hybrid is enabled.")
-    parser.add_argument("--ml", action="store_true", help="Enable ML-guided candidate restriction.")
-    parser.add_argument("--ml-top-fraction", type=float, default=0.3, help="Top candidate fraction for ML-guided search.")
-    parser.add_argument("--ml-singleton-runs", type=int, default=30, help="Monte Carlo runs per singleton label.")
-    parser.add_argument("--ml-max-nodes", type=int, default=None, help="Limit nodes used for label generation.")
-    parser.add_argument("--output-dir", default="results", help="Output directory.")
-    parser.add_argument("--no-plots", action="store_true", help="Disable result plots.")
+    parser.add_argument("--population-size", type=int, default=12, help="Hybrid population size.")
+    parser.add_argument("--generations", type=int, default=10, help="Hybrid generation count.")
+    parser.add_argument("--crossover-probability", type=float, default=0.7, help="Hybrid crossover probability.")
+    parser.add_argument("--mutation-probability", type=float, default=0.2, help="Hybrid mutation probability.")
+    parser.add_argument("--elite-fraction", type=float, default=0.25, help="Hybrid elite fraction.")
+    parser.add_argument("--leader-guidance-fraction", type=float, default=0.34, help="Swarm-style leader replacement fraction.")
+    parser.add_argument("--local-search-steps", type=int, default=2, help="Local search refinement steps per offspring.")
+    parser.add_argument("--random-seed", type=int, default=42, help="Random seed.")
+    parser.add_argument("--output-dir", default="results", help="Directory for CSV outputs.")
+    parser.add_argument("--no-ablations", action="store_true", help="Skip optimizer ablation variants.")
+    parser.add_argument("--use-node2vec", action="store_true", help="Request optional Node2Vec guidance.")
     return parser.parse_args()
-
-
-def build_dataset_config(args: argparse.Namespace) -> DatasetConfig:
-    # Use explicit file paths when provided; otherwise resolve one of the built-in datasets.
-    if args.edge_path or args.pickle_path:
-        return DatasetConfig(
-            name=args.dataset,
-            edge_path=_resolve_repo_path(args.edge_path),
-            attribute_path=_resolve_repo_path(args.attribute_path),
-            pickle_path=_resolve_repo_path(args.pickle_path),
-            propagation_probability=args.propagation_prob,
-        )
-
-    dataset_config = resolve_builtin_dataset(args.dataset, ROOT)
-    dataset_config.propagation_probability = args.propagation_prob
-    return dataset_config
 
 
 def main() -> None:
     args = parse_args()
-    output_dir = _resolve_repo_path(args.output_dir) or (ROOT / "results")
-
-    # Translate CLI arguments into the dataclass-based experiment configuration
-    # used throughout the rest of the package.
-    experiment_config = ExperimentConfig(
-        dataset=build_dataset_config(args),
-        community=CommunityConfig(method=args.community_methods[0], seed=args.optimizer_seed),
-        diffusion=DiffusionConfig(
-            propagation_probability=args.propagation_prob,
-            mc_runs=args.mc_runs,
-            seed=args.optimizer_seed,
-        ),
-        fairness=FairnessConfig(
-            protected_attribute=args.protected_attribute,
-            lambda_weight=args.lambda_weight,
-            score_mode=args.score_mode,
-        ),
-        optimizer=OptimizerConfig(
-            budget=args.budget,
-            population_size=args.population_size,
-            generations=args.generations,
-            fairness_repair_bias=args.fairness_repair_bias,
-            disable_swarm_guidance=args.disable_swarm_guidance,
-            disable_crossover=args.disable_crossover,
-            disable_community_repair=args.disable_community_repair,
-            debug_logging=args.debug_hybrid,
-            debug_frequency=args.debug_frequency,
-            seed=args.optimizer_seed,
-        ),
-        ml=MLConfig(
-            enabled=args.ml,
-            top_fraction=args.ml_top_fraction,
-            singleton_mc_runs=args.ml_singleton_runs,
-            seed=args.optimizer_seed,
-        ),
+    dataset_config = resolve_builtin_dataset(args.dataset, ROOT)
+    output_dir = _resolve_repo_path(args.output_dir)
+    settings = ExperimentSettings(
+        protected_attribute=args.protected_attribute,
+        budget=args.budget,
+        community_method=args.community_methods[0],
+        propagation_probability=args.propagation_prob,
+        mc_runs=args.mc_runs,
+        lambda_weight=args.lambda_weight,
+        population_size=args.population_size,
+        generations=args.generations,
+        crossover_probability=args.crossover_probability,
+        mutation_probability=args.mutation_probability,
+        elite_fraction=args.elite_fraction,
+        leader_guidance_fraction=args.leader_guidance_fraction,
+        local_search_steps=args.local_search_steps,
+        random_seed=args.random_seed,
         output_dir=output_dir,
-        random_seed=args.optimizer_seed,
+        use_node2vec=args.use_node2vec,
     )
-
-    results = run_experiment(
-        config=experiment_config,
+    result_frame = run_experiment(
+        dataset_config=dataset_config,
+        settings=settings,
         community_methods=args.community_methods,
         baseline_methods=args.baseline_methods,
-        enable_plots=not args.no_plots,
-        ml_max_nodes=args.ml_max_nodes,
+        include_ablations=not args.no_ablations,
     )
-    # Print a compact summary table while full results are saved to CSV.
-    print(results[["dataset", "community_method", "method", "total_spread", "mf", "dcv", "f_score", "runtime_seconds"]])
+    columns = [
+        "dataset",
+        "community_method",
+        "method",
+        "variant_type",
+        "total_spread",
+        "mf",
+        "dcv",
+        "f_score",
+        "runtime_seconds",
+        "community_modularity",
+    ]
+    print(result_frame[columns].sort_values(["community_method", "f_score"], ascending=[True, False]).to_string(index=False))
 
 
 if __name__ == "__main__":

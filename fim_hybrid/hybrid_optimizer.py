@@ -1,39 +1,61 @@
-"""Unified hybrid Swarm Intelligence + Evolutionary optimizer for FIM."""
+"""Phase 5 unified hybrid SI+EA optimizer for Fair Influence Maximization."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from time import perf_counter
-from typing import Optional
+from typing import Any, Iterable, Sequence
 
-import networkx as nx
 import numpy as np
 import pandas as pd
 
-from .community_detection import CommunityDetectionResult
-from .config import FairnessConfig, OptimizerConfig
-from .diffusion import IndependentCascadeSimulator
-from .fairness import FairnessMetrics, compute_group_sizes, evaluate_fairness
+from .community_detection import CommunityDetectionResult, get_community_stats, sample_community, sample_node_from_community
+from .data_loader import LoadedDataset, ProtectedGroupReport
+from .evaluation import evaluate_seed_set
+from .feature_extraction import compute_node_features, compute_structural_node_scores
+from .fairness import FairnessMetrics
+
+
+@dataclass(slots=True)
+class HybridSIEAConfig:
+    """Explicit configuration for the unified hybrid SI+EA optimizer."""
+
+    budget: int
+    population_size: int = 12
+    generations: int = 10
+    crossover_probability: float = 0.7
+    mutation_probability: float = 0.2
+    elite_fraction: float = 0.25
+    leader_guidance_fraction: float = 0.34
+    propagation_probability: float = 0.01
+    mc_runs: int = 30
+    lambda_weight: float = 0.5
+    random_seed: int = 42
+    local_search_steps: int = 2
+    disable_swarm_guidance: bool = False
+    disable_crossover: bool = False
+    disable_local_search: bool = False
+    disable_community_aware_mutation: bool = False
+    debug_logging: bool = False
 
 
 @dataclass(slots=True)
 class CandidateEvaluation:
-    """Evaluation result for a seed set."""
+    """Evaluation bundle for one candidate seed set."""
 
-    # Keep the original seed set and its measured spread/fairness together so
-    # the optimizer does not need to pass parallel arrays around.
-    seed_set: tuple[object, ...]
-    total_spread: float
+    seed_set: tuple[Any, ...]
+    total_spread_mean: float
+    total_spread_std: float
     fairness: FairnessMetrics
     score: float
 
 
 @dataclass(slots=True)
 class HybridOptimizationResult:
-    """Final optimization result."""
+    """Final optimizer output with history for reporting/debugging."""
 
-    # `history` stores per-generation diagnostics for later plotting/analysis.
-    best_seed_set: list[object]
+    best_seed_set: tuple[Any, ...]
     best_score: float
     best_spread: float
     best_fairness: FairnessMetrics
@@ -42,464 +64,273 @@ class HybridOptimizationResult:
     history: pd.DataFrame
 
 
+def _sort_key(value: Any) -> tuple[str, str]:
+    return (type(value).__name__, repr(value))
+
+
+def _normalize_seed_set(seed_set: Iterable[Any]) -> tuple[Any, ...]:
+    return tuple(sorted(set(seed_set), key=_sort_key))
+
+
 class HybridSIEAOptimizer:
-    """Community-aware hybrid SI+EA optimizer for Fair Influence Maximization."""
-
-    _REQUIRED_FEATURE_COLUMNS = {
-        "node_id",
-        "degree",
-        "pagerank",
-        "community_size",
-        "within_community_degree",
-        "cross_community_degree",
-        "minority_neighbor_ratio",
-    }
-
-    _RATE_FIELDS = (
-        "crossover_rate",
-        "mutation_rate",
-        "elite_fraction",
-        "swarm_inertia_rate",
-        "swarm_cognitive_rate",
-        "swarm_social_rate",
-        "swarm_elite_rate",
-        "restart_rate",
-    )
+    """Simple unified hybrid optimizer combining leader guidance and EA operators."""
 
     def __init__(
         self,
-        graph: nx.Graph,
+        dataset: LoadedDataset,
+        protected_group_report: ProtectedGroupReport,
         community_result: CommunityDetectionResult,
-        feature_frame: pd.DataFrame,
-        simulator: IndependentCascadeSimulator,
-        fairness_config: FairnessConfig,
-        optimizer_config: OptimizerConfig,
-        candidate_nodes: Optional[list[object]] = None,
-        guidance_scores: Optional[pd.Series] = None,
-        mc_runs: int = 100,
+        config: HybridSIEAConfig,
+        candidate_nodes: Sequence[Any] | None = None,
+        node_scores: dict[Any, float] | None = None,
     ) -> None:
-        self.graph = graph
+        self.dataset = dataset
+        self.protected_group_report = protected_group_report
         self.community_result = community_result
-        self.feature_frame = feature_frame.copy()
-        self.simulator = simulator
-        self.fairness_config = fairness_config
-        self.config = optimizer_config
-        self.mc_runs = mc_runs
-        self.rng = np.random.default_rng(optimizer_config.seed)
-        self.guidance_scores = guidance_scores
+        self.config = config
+        self.rng = np.random.default_rng(config.random_seed)
+        self.evaluation_cache: dict[tuple[Any, ...], CandidateEvaluation] = {}
 
         self._validate_inputs()
-
-        # Group sizes are reused in every fairness evaluation, so compute once.
-        self.group_sizes = compute_group_sizes(graph, fairness_config.protected_attribute)
-        self.total_population = float(sum(self.group_sizes.values()))
-        self.node_groups = {
-            node: graph.nodes[node].get(fairness_config.protected_attribute, "__missing__")
-            for node in graph.nodes()
-        }
-        self.seed_group_targets = self._build_seed_group_targets()
-        raw_candidate_pool = (
-            list(candidate_nodes)
-            if candidate_nodes is not None
-            else self.feature_frame["node_id"].tolist()
-        )
-        # Preserve order while removing duplicates from the candidate pool.
-        self.candidate_pool = self._deduplicate_nodes(raw_candidate_pool)
-        if not self.candidate_pool:
-            raise ValueError("candidate_nodes must contain at least one usable node.")
+        self.candidate_pool = self._build_candidate_pool(candidate_nodes)
         self.candidate_pool_set = set(self.candidate_pool)
-        if self.config.budget > len(self.candidate_pool):
-            raise ValueError("Optimizer budget cannot exceed candidate pool size.")
-
-        feature_nodes = set(self.feature_frame["node_id"].tolist())
-        missing_from_graph = [node for node in self.candidate_pool if node not in self.graph]
-        if missing_from_graph:
-            raise ValueError(
-                f"candidate_nodes contains nodes missing from the graph: {missing_from_graph[:5]}"
-            )
-        missing_from_features = [node for node in self.candidate_pool if node not in feature_nodes]
-        if missing_from_features:
-            raise ValueError(
-                "candidate_nodes contains nodes missing from feature_frame: "
-                f"{missing_from_features[:5]}"
-            )
-
-        self.partition = community_result.partition
-        missing_partition_nodes = [node for node in self.candidate_pool if node not in self.partition]
-        if missing_partition_nodes:
-            raise ValueError(
-                "Community partition is missing candidate nodes: "
-                f"{missing_partition_nodes[:5]}"
-            )
-        # Precompute node priorities and community rankings for all later sampling,
-        # repair, mutation, and swarm-move operations.
-        self.node_priority = self._build_node_priority()
-        self.global_ranked_nodes = sorted(
-            self.candidate_pool,
-            key=lambda node: self.node_priority[node],
-            reverse=True,
-        )
-        self.node_order = {node: idx for idx, node in enumerate(self.global_ranked_nodes)}
-        self.community_ranked_nodes = self._build_community_rankings()
-        self.evaluation_cache: dict[tuple[object, ...], CandidateEvaluation] = {}
-
-    def _build_seed_group_targets(self) -> dict[object, float]:
-        # These targets only guide local search operators. Final evaluation
-        # still uses the diffusion-based fairness metrics.
-        if self.fairness_config.target_mode == "uniform":
-            per_group = self.config.budget / max(len(self.group_sizes), 1)
-            return {group: per_group for group in self.group_sizes}
-        if self.fairness_config.target_mode == "population_proportional":
-            return {
-                group: self.config.budget * (size / max(self.total_population, 1.0))
-                for group, size in self.group_sizes.items()
-            }
-        raise ValueError(
-            f"Unsupported target_mode '{self.fairness_config.target_mode}' for optimizer guidance."
-        )
-
-    def _selected_group_counts(self, selected: set[object]) -> dict[object, int]:
-        counts = {group: 0 for group in self.group_sizes}
-        for node in selected:
-            counts[self.node_groups[node]] = counts.get(self.node_groups[node], 0) + 1
-        return counts
-
-    def _group_deficits(self, selected: set[object]) -> dict[object, float]:
-        counts = self._selected_group_counts(selected)
-        return {
-            group: self.seed_group_targets.get(group, 0.0) - counts.get(group, 0)
-            for group in self.group_sizes
+        self.available_communities = self._build_available_communities()
+        self.available_community_stats = get_community_stats(self.available_communities)
+        self.max_unique_seed_sets = math.comb(len(self.candidate_pool), self.config.budget)
+        self.node_group_by_node = {
+            node_id: group_name
+            for group_name, node_ids in self.protected_group_report.protected_groups.items()
+            for node_id in node_ids
         }
-
-    def _fairness_priority_multiplier(
-        self,
-        node: object,
-        selected: set[object] | None = None,
-        deficits: dict[object, float] | None = None,
-    ) -> float:
-        if selected is None or self.config.fairness_repair_bias <= 0.0:
-            return 1.0
-        if deficits is None:
-            deficits = self._group_deficits(selected)
-        return 1.0 + self.config.fairness_repair_bias * max(
-            deficits.get(self.node_groups[node], 0.0),
-            0.0,
-        )
-
-    def _population_diversity(self, population: list[tuple[object, ...]]) -> float:
-        if len(population) < 2:
-            return 0.0
-
-        distances: list[float] = []
-        seed_sets = [set(candidate) for candidate in population]
-        for left_idx in range(len(seed_sets)):
-            for right_idx in range(left_idx + 1, len(seed_sets)):
-                union = seed_sets[left_idx] | seed_sets[right_idx]
-                if not union:
-                    distances.append(0.0)
-                    continue
-                overlap = seed_sets[left_idx] & seed_sets[right_idx]
-                distances.append(1.0 - (len(overlap) / len(union)))
-        return float(np.mean(distances)) if distances else 0.0
-
-    def _seed_metadata(self, seed_set: tuple[object, ...]) -> dict[str, str]:
-        communities = [self.partition[node] for node in seed_set]
-        groups = [self.node_groups[node] for node in seed_set]
-        group_counts = self._selected_group_counts(set(seed_set))
-        labels = [f"{node}|g={self.node_groups[node]}|c={self.partition[node]}" for node in seed_set]
-        return {
-            "best_seed_nodes": str(list(seed_set)),
-            "best_seed_groups": str(groups),
-            "best_seed_communities": str(communities),
-            "best_seed_group_counts": str(group_counts),
-            "best_seed_labels": str(labels),
-        }
-
-    def _log_generation_diagnostics(
-        self,
-        generation: int,
-        best_evaluation: CandidateEvaluation,
-        population: list[tuple[object, ...]],
-    ) -> None:
-        if not self.config.debug_logging:
-            return
-        if generation % self.config.debug_frequency != 0:
-            return
-
-        metadata = self._seed_metadata(best_evaluation.seed_set)
-        diversity = self._population_diversity(population)
-        print(
-            "[hybrid_siea] "
-            f"gen={generation} "
-            f"f={best_evaluation.score:.6f} "
-            f"spread={best_evaluation.total_spread:.4f} "
-            f"mf={best_evaluation.fairness.mf:.6f} "
-            f"mf_to_ideal={best_evaluation.fairness.mf_to_ideal_ratio:.3f} "
-            f"dcv={best_evaluation.fairness.dcv:.6f} "
-            f"diversity={diversity:.3f}"
-        )
-        print(
-            "[hybrid_siea] "
-            f"best={metadata['best_seed_labels']} "
-            f"group_counts={metadata['best_seed_group_counts']}"
+        self.node_scores = self._build_node_scores(node_scores)
+        self.global_ranked_nodes = tuple(
+            sorted(
+                self.candidate_pool,
+                key=lambda node_id: (-float(self.node_scores[node_id]), _sort_key(node_id)),
+            )
         )
 
     def _validate_inputs(self) -> None:
-        # Fail fast on malformed configurations so debugging stays local to the
-        # optimizer instead of surfacing later as hard-to-trace runtime errors.
-        if self.graph.number_of_nodes() == 0:
-            raise ValueError("graph must contain at least one node.")
-        if self.config.budget <= 0:
-            raise ValueError("optimizer budget must be positive.")
-        if self.config.population_size <= 0:
-            raise ValueError("population_size must be positive.")
-        if self.config.generations < 0:
-            raise ValueError("generations must be non-negative.")
-        if self.mc_runs <= 0:
-            raise ValueError("mc_runs must be positive.")
-        if self.config.debug_frequency <= 0:
-            raise ValueError("debug_frequency must be positive.")
-        if self.config.fairness_repair_bias < 0.0:
-            raise ValueError("fairness_repair_bias must be non-negative.")
-        if not 0.0 <= self.fairness_config.lambda_weight <= 1.0:
-            raise ValueError("lambda_weight must be in the range [0, 1].")
+        if self.dataset.graph.number_of_nodes() == 0:
+            raise ValueError("dataset.graph must contain at least one node.")
+        if self.dataset.name != self.protected_group_report.dataset_name:
+            raise ValueError("protected_group_report.dataset_name must match dataset.name.")
+        if set(self.dataset.graph.nodes()) != set(self.community_result.community_id_by_node):
+            raise ValueError("community_result must contain an assignment for every graph node.")
+        if (
+            not self.community_result.validation.every_node_assigned_exactly_once
+            or not self.community_result.validation.mapping_matches_grouped_communities
+            or self.community_result.validation.has_empty_communities
+        ):
+            raise ValueError("community_result validation must confirm a complete non-empty one-to-one assignment.")
+        if self.config.budget < 1:
+            raise ValueError("budget must be at least 1.")
+        if self.config.population_size < 1:
+            raise ValueError("population_size must be at least 1.")
+        if self.config.generations < 1:
+            raise ValueError("generations must be at least 1.")
+        if self.config.local_search_steps < 0:
+            raise ValueError("local_search_steps must be non-negative.")
+        if self.config.mc_runs < 1:
+            raise ValueError("mc_runs must be at least 1.")
+        if not 0.0 <= self.config.crossover_probability <= 1.0:
+            raise ValueError("crossover_probability must be between 0.0 and 1.0.")
+        if not 0.0 <= self.config.mutation_probability <= 1.0:
+            raise ValueError("mutation_probability must be between 0.0 and 1.0.")
+        if not 0.0 < self.config.elite_fraction <= 1.0:
+            raise ValueError("elite_fraction must be in the interval (0.0, 1.0].")
+        if not 0.0 <= self.config.leader_guidance_fraction <= 1.0:
+            raise ValueError("leader_guidance_fraction must be between 0.0 and 1.0.")
+        if not 0.0 <= self.config.propagation_probability <= 1.0:
+            raise ValueError("propagation_probability must be between 0.0 and 1.0.")
+        if not 0.0 <= self.config.lambda_weight <= 1.0:
+            raise ValueError("lambda_weight must be between 0.0 and 1.0.")
 
-        for field_name in self._RATE_FIELDS:
-            value = float(getattr(self.config, field_name))
-            if not 0.0 <= value <= 1.0:
-                raise ValueError(f"{field_name} must be in the range [0, 1].")
-
-        missing_columns = self._REQUIRED_FEATURE_COLUMNS.difference(self.feature_frame.columns)
-        if missing_columns:
-            raise ValueError(
-                f"feature_frame is missing required columns: {sorted(missing_columns)}"
-            )
-
-        if self.feature_frame["node_id"].duplicated().any():
-            raise ValueError("feature_frame contains duplicate node_id values.")
-
-        if self.guidance_scores is not None and self.guidance_scores.empty:
-            raise ValueError("guidance_scores cannot be empty when provided.")
-
-        if not self.community_result.communities:
-            raise ValueError("community_result must contain at least one community.")
-
-    def _deduplicate_nodes(self, nodes: list[object] | tuple[object, ...]) -> list[object]:
-        # Preserve the first occurrence so candidate order remains reproducible.
-        unique_nodes: list[object] = []
-        seen: set[object] = set()
-        for node in nodes:
-            if node in seen:
-                continue
-            seen.add(node)
-            unique_nodes.append(node)
+    def _build_candidate_pool(self, candidate_nodes: Sequence[Any] | None) -> tuple[Any, ...]:
+        pool = self.dataset.graph.nodes() if candidate_nodes is None else candidate_nodes
+        unique_nodes = _normalize_seed_set(pool)
+        invalid_nodes = [node for node in unique_nodes if node not in self.dataset.graph]
+        if invalid_nodes:
+            raise ValueError(f"candidate_nodes contains graph-invalid nodes: {invalid_nodes[:5]}.")
+        if len(unique_nodes) < self.config.budget:
+            raise ValueError("candidate pool must contain at least budget unique nodes.")
         return unique_nodes
 
-    def _node_sort_key(self, node: object) -> tuple[int, str, str]:
-        # Avoid relying on direct node comparability because custom datasets may
-        # use heterogeneous or non-orderable node identifiers.
-        return (
-            self.node_order.get(node, len(self.node_order)),
-            type(node).__name__,
-            repr(node),
-        )
+    def _build_node_scores(self, node_scores: dict[Any, float] | None) -> dict[Any, float]:
+        if node_scores is None:
+            feature_frame = compute_node_features(
+                dataset=self.dataset,
+                protected_group_report=self.protected_group_report,
+                community_result=self.community_result,
+            )
+            node_scores = compute_structural_node_scores(feature_frame)
 
-    def _normalize_series(self, values: pd.Series) -> pd.Series:
-        # Min-max normalization lets heterogeneous feature scales contribute in
-        # one weighted priority score.
-        minimum = float(values.min())
-        maximum = float(values.max())
-        if maximum - minimum < 1e-12:
-            return pd.Series(1.0, index=values.index)
-        return (values - minimum) / (maximum - minimum)
+        missing_nodes = [node for node in self.candidate_pool if node not in node_scores]
+        if missing_nodes:
+            raise ValueError(f"node_scores is missing candidate nodes: {missing_nodes[:5]}.")
 
-    def _build_node_priority(self) -> dict[object, float]:
-        frame = self.feature_frame.set_index("node_id", drop=False).loc[self.candidate_pool].copy()
-
-        # This weighted score is a simple research-friendly heuristic combining
-        # structural influence proxies and community/fairness-aware features.
-        base_score = (
-            0.30 * self._normalize_series(frame["pagerank"]) +
-            0.20 * self._normalize_series(frame["degree"]) +
-            0.15 * self._normalize_series(frame["within_community_degree"]) +
-            0.15 * self._normalize_series(frame["cross_community_degree"]) +
-            0.10 * self._normalize_series(frame["community_size"]) +
-            0.10 * self._normalize_series(frame["minority_neighbor_ratio"])
-        )
-
-        if self.guidance_scores is not None:
-            # When ML guidance is available, blend it with the hand-crafted score
-            # instead of replacing the graph-based heuristic completely.
-            aligned = self.guidance_scores.reindex(frame.index).fillna(self.guidance_scores.min())
-            guidance = self._normalize_series(aligned)
-            base_score = 0.50 * base_score + 0.50 * guidance
-
-        return base_score.to_dict()
-
-    def _build_community_rankings(self) -> dict[int, list[object]]:
-        # Store each community's candidate nodes ordered by priority.
-        community_ranked_nodes: dict[int, list[object]] = {}
-        for comm_idx, nodes in enumerate(self.community_result.communities):
-            restricted_nodes = [node for node in nodes if node in self.candidate_pool]
-            ranked = sorted(restricted_nodes, key=lambda node: self.node_priority[node], reverse=True)
-            community_ranked_nodes[comm_idx] = ranked
-        return community_ranked_nodes
-
-    def _signature(self, seed_set: list[object] | tuple[object, ...]) -> tuple[object, ...]:
-        # Canonicalize seed sets so caching and comparisons are reliable.
-        return tuple(sorted(self._deduplicate_nodes(list(seed_set)), key=self._node_sort_key))
-
-    def _sample_from_sequence(
-        self,
-        nodes: list[object],
-        top_window: int = 10,
-        selected: set[object] | None = None,
-    ) -> object:
-        if not nodes:
-            raise ValueError("Cannot sample from an empty node list.")
-
-        # Sample from only the strongest part of the ranking to keep the search
-        # focused while remaining stochastic.
-        window = nodes[: min(len(nodes), top_window)]
-        deficits = self._group_deficits(selected) if selected is not None else None
-        scores = np.asarray(
-            [
-                self.node_priority[node] * self._fairness_priority_multiplier(node, selected, deficits)
-                for node in window
-            ],
-            dtype=float,
-        )
-        if scores.sum() <= 0:
-            scores = np.ones(len(window), dtype=float)
-        probabilities = scores / scores.sum()
-        choice_idx = int(self.rng.choice(len(window), p=probabilities))
-        return window[choice_idx]
-
-    def _available_node_from_community(
-        self,
-        community_idx: int,
-        selected: set[object],
-    ) -> Optional[object]:
-        # Choose an unused node from a specific community.
-        candidates: list[object] = []
-        for node in self.community_ranked_nodes.get(community_idx, []):
-            if node in selected:
-                continue
-            candidates.append(node)
-            if len(candidates) >= 10:
-                break
-        if not candidates:
-            return None
-        return self._sample_from_sequence(candidates, selected=selected)
-
-    def _available_global_node(self, selected: set[object]) -> Optional[object]:
-        # Choose an unused node from the full candidate pool.
-        candidates: list[object] = []
-        for node in self.global_ranked_nodes:
-            if node in selected:
-                continue
-            candidates.append(node)
-            if len(candidates) >= 10:
-                break
-        if not candidates:
-            return None
-        return self._sample_from_sequence(candidates, selected=selected)
-
-    def _community_search_order(
-        self,
-        selected: set[object],
-        excluded_community: int | None = None,
-    ) -> list[int]:
-        # Prefer communities that are not yet represented in the seed set.
-        represented = {self.partition[node] for node in selected}
-        community_order = [
-            comm_idx
-            for comm_idx, nodes in self.community_ranked_nodes.items()
-            if nodes and comm_idx != excluded_community
-        ]
-        self.rng.shuffle(community_order)
-        available_counts = {
-            comm_idx: sum(1 for node in self.community_ranked_nodes[comm_idx] if node not in selected)
-            for comm_idx in community_order
+        return {
+            node_id: float(node_scores[node_id])
+            for node_id in self.candidate_pool
         }
-        return sorted(
-            community_order,
-            key=lambda comm_idx: (
-                comm_idx in represented,
-                -available_counts[comm_idx],
-            ),
+
+    def _build_available_communities(self) -> dict[int, tuple[Any, ...]]:
+        communities: dict[int, tuple[Any, ...]] = {}
+        for community_id, community_nodes in self.community_result.communities.items():
+            filtered_nodes = tuple(
+                node for node in community_nodes
+                if node in self.candidate_pool_set
+            )
+            if filtered_nodes:
+                communities[community_id] = filtered_nodes
+
+        if not communities:
+            raise ValueError("No non-empty candidate communities are available for optimization.")
+        return communities
+
+    def _seed_sort_key(self, seed_set: tuple[Any, ...]) -> tuple[tuple[str, str], ...]:
+        return tuple(_sort_key(node) for node in seed_set)
+
+    def _candidate_rank_key(self, evaluation: CandidateEvaluation) -> tuple[float, float, tuple[tuple[str, str], ...]]:
+        return (
+            evaluation.score,
+            evaluation.total_spread_mean,
+            self._seed_sort_key(evaluation.seed_set),
         )
 
-    def _repair_seed_set(self, proposed_nodes: list[object]) -> tuple[object, ...]:
-        # Repair is central to the unified optimizer: crossover, mutation, and
-        # swarm moves can all propose invalid/duplicate/undersized seed sets.
-        repaired: list[object] = []
-        selected: set[object] = set()
+    def _selected_group_counts(self, seed_set: Sequence[Any]) -> dict[str, int]:
+        counts = {
+            group_name: 0
+            for group_name in self.protected_group_report.group_sizes
+        }
+        for node_id in seed_set:
+            counts[self.node_group_by_node[node_id]] += 1
+        return counts
+
+    def _selected_community_counts(self, seed_set: Sequence[Any]) -> dict[int, int]:
+        counts: dict[int, int] = {}
+        for node_id in seed_set:
+            community_id = self.community_result.community_id_by_node[node_id]
+            counts[community_id] = counts.get(community_id, 0) + 1
+        return counts
+
+    def _dynamic_candidate_score(
+        self,
+        node_id: Any,
+        group_counts: dict[str, int],
+        community_counts: dict[int, int],
+    ) -> float:
+        score = float(self.node_scores[node_id])
+        group_name = self.node_group_by_node[node_id]
+        community_id = self.community_result.community_id_by_node[node_id]
+        if group_counts.get(group_name, 0) == 0:
+            score += 0.20
+        if not self.config.disable_community_aware_mutation and community_counts.get(community_id, 0) == 0:
+            score += 0.20
+        return score
+
+    def _rank_external_candidates(self, seed_set: Sequence[Any]) -> list[Any]:
+        selected_nodes = set(seed_set)
+        group_counts = self._selected_group_counts(seed_set)
+        community_counts = self._selected_community_counts(seed_set)
+        return sorted(
+            (node_id for node_id in self.global_ranked_nodes if node_id not in selected_nodes),
+            key=lambda node_id: (-self._dynamic_candidate_score(node_id, group_counts, community_counts), _sort_key(node_id)),
+        )
+
+    def _rank_seed_nodes_for_replacement(self, seed_set: Sequence[Any]) -> list[Any]:
+        group_counts = self._selected_group_counts(seed_set)
+        community_counts = self._selected_community_counts(seed_set)
+
+        def replacement_priority(node_id: Any) -> tuple[float, tuple[str, str]]:
+            score = float(self.node_scores[node_id])
+            group_name = self.node_group_by_node[node_id]
+            community_id = self.community_result.community_id_by_node[node_id]
+            if group_counts.get(group_name, 0) <= 1:
+                score += 0.20
+            if not self.config.disable_community_aware_mutation and community_counts.get(community_id, 0) <= 1:
+                score += 0.20
+            return (score, _sort_key(node_id))
+
+        return sorted(seed_set, key=replacement_priority)
+
+    def _sample_unused_node(
+        self,
+        community_nodes: Sequence[Any],
+        used_nodes: set[Any],
+    ) -> Any | None:
+        available_nodes = tuple(
+            sorted(
+                (node for node in community_nodes if node not in used_nodes),
+                key=lambda node_id: (-float(self.node_scores[node_id]), _sort_key(node_id)),
+            )
+        )
+        if not available_nodes:
+            return None
+        top_candidates = available_nodes[: min(3, len(available_nodes))]
+        return sample_node_from_community(top_candidates, self.rng)
+
+    def _sample_repair_node(self, used_nodes: set[Any]) -> Any | None:
+        represented_communities = {
+            self.community_result.community_id_by_node[node_id]
+            for node_id in used_nodes
+            if node_id in self.community_result.community_id_by_node
+        }
+
+        preferred = {
+            community_id: community_nodes
+            for community_id, community_nodes in self.available_communities.items()
+            if community_id not in represented_communities
+            and any(node not in used_nodes for node in community_nodes)
+        }
+        candidate_communities = preferred
+        if not candidate_communities:
+            candidate_communities = {
+                community_id: community_nodes
+                for community_id, community_nodes in self.available_communities.items()
+                if any(node not in used_nodes for node in community_nodes)
+            }
+        if not candidate_communities:
+            return None
+
+        candidate_sizes = {
+            community_id: sum(1 for node in community_nodes if node not in used_nodes)
+            for community_id, community_nodes in candidate_communities.items()
+        }
+        community_id = sample_community(candidate_communities, candidate_sizes, self.rng)
+        return self._sample_unused_node(candidate_communities[community_id], used_nodes)
+
+    def _repair_seed_set(self, proposed_nodes: Sequence[Any]) -> tuple[Any, ...]:
+        cleaned: list[Any] = []
+        used_nodes: set[Any] = set()
 
         for node in proposed_nodes:
-            # Keep only candidate-pool nodes and remove duplicates.
-            if node not in self.candidate_pool_set or node in selected:
+            if node not in self.candidate_pool_set or node in used_nodes:
                 continue
-            repaired.append(node)
-            selected.add(node)
-            if len(repaired) == self.config.budget:
-                return self._validate_seed_set(self._signature(repaired))
+            cleaned.append(node)
+            used_nodes.add(node)
+            if len(cleaned) == self.config.budget:
+                return self._validate_seed_set(tuple(sorted(cleaned, key=_sort_key)))
 
-        if not self.config.disable_community_repair:
-            represented_communities = {self.partition[node] for node in repaired}
-            # First try to cover still-unrepresented communities to keep the search community-aware.
-            unrepresented = [
-                comm_idx
-                for comm_idx in range(len(self.community_result.communities))
-                if self.community_ranked_nodes.get(comm_idx) and comm_idx not in represented_communities
-            ]
-            self.rng.shuffle(unrepresented)
-
-            while len(repaired) < self.config.budget and unrepresented:
-                comm_idx = unrepresented.pop(0)
-                candidate = self._available_node_from_community(comm_idx, selected)
-                if candidate is None:
-                    continue
-                repaired.append(candidate)
-                selected.add(candidate)
-
-            community_indices = list(self.community_ranked_nodes.keys())
-            while len(repaired) < self.config.budget and community_indices:
-                # Prefer communities that still have more unused candidate nodes available.
-                weights = np.asarray(
-                    [
-                        max(
-                            1,
-                            len([node for node in self.community_ranked_nodes[comm_idx] if node not in selected]),
-                        )
-                        for comm_idx in community_indices
-                    ],
-                    dtype=float,
-                )
-                if weights.sum() <= 0:
-                    break
-                comm_idx = int(self.rng.choice(community_indices, p=weights / weights.sum()))
-                candidate = self._available_node_from_community(comm_idx, selected)
-                if candidate is None:
-                    community_indices = [idx for idx in community_indices if idx != comm_idx]
-                    continue
-                repaired.append(candidate)
-                selected.add(candidate)
-
-        while len(repaired) < self.config.budget:
-            # If community-aware filling still leaves gaps, fall back to the
-            # strongest remaining global candidates.
-            candidate = self._available_global_node(selected)
-            if candidate is None:
+        while len(cleaned) < self.config.budget:
+            replacement = self._sample_repair_node(used_nodes)
+            if replacement is None:
                 break
-            repaired.append(candidate)
-            selected.add(candidate)
+            cleaned.append(replacement)
+            used_nodes.add(replacement)
 
-        return self._validate_seed_set(self._signature(repaired))
+        if len(cleaned) < self.config.budget:
+            for node in self.global_ranked_nodes:
+                if node in used_nodes:
+                    continue
+                cleaned.append(node)
+                used_nodes.add(node)
+                if len(cleaned) == self.config.budget:
+                    break
 
-    def _validate_seed_set(self, seed_set: tuple[object, ...]) -> tuple[object, ...]:
-        # Keep every operator honest: all valid seed sets must be fixed-size,
-        # duplicate-free, and limited to the candidate pool.
+        return self._validate_seed_set(tuple(sorted(cleaned, key=_sort_key)))
+
+    def _validate_seed_set(self, seed_set: tuple[Any, ...]) -> tuple[Any, ...]:
         if len(seed_set) != self.config.budget:
             raise RuntimeError(
                 f"Invalid seed-set size {len(seed_set)} produced; expected {self.config.budget}."
@@ -508,301 +339,278 @@ class HybridSIEAOptimizer:
             raise RuntimeError("Seed set contains duplicate nodes after repair.")
         invalid_nodes = [node for node in seed_set if node not in self.candidate_pool_set]
         if invalid_nodes:
-            raise RuntimeError(f"Seed set contains invalid candidate nodes: {invalid_nodes[:5]}")
+            raise RuntimeError(f"Seed set contains invalid nodes after repair: {invalid_nodes[:5]}.")
         return seed_set
 
-    def _community_aware_seed_set(self) -> tuple[object, ...]:
-        # This initializer seeds the population with candidates spread across
-        # communities instead of collapsing onto one dense region of the graph.
-        seed_nodes: list[object] = []
-        selected: set[object] = set()
+    def _population_retry_limit(self) -> int:
+        return max(50, self.config.population_size * 10)
 
-        community_order = list(self.community_ranked_nodes.keys())
-        self.rng.shuffle(community_order)
-
-        for comm_idx in community_order:
-            candidate = self._available_node_from_community(comm_idx, selected)
-            if candidate is None:
-                continue
-            seed_nodes.append(candidate)
-            selected.add(candidate)
-            if len(seed_nodes) == self.config.budget:
-                break
+    def _initialize_individual(self) -> tuple[Any, ...]:
+        seed_nodes: list[Any] = []
+        used_nodes: set[Any] = set()
 
         while len(seed_nodes) < self.config.budget:
-            candidate = self._available_global_node(selected)
-            if candidate is None:
+            node_id = self._sample_repair_node(used_nodes)
+            if node_id is None:
                 break
-            seed_nodes.append(candidate)
-            selected.add(candidate)
+            seed_nodes.append(node_id)
+            used_nodes.add(node_id)
 
         return self._repair_seed_set(seed_nodes)
 
-    def _initialize_population(self) -> list[tuple[object, ...]]:
-        # Start with one strong deterministic candidate plus diverse stochastic ones.
-        population: list[tuple[object, ...]] = []
-        seen: set[tuple[object, ...]] = set()
-        if self.global_ranked_nodes:
-            strongest = self._validate_seed_set(
-                self._signature(self.global_ranked_nodes[: self.config.budget])
-            )
-            population.append(strongest)
-            seen.add(strongest)
+    def _initialize_population(self) -> list[tuple[Any, ...]]:
+        population: list[tuple[Any, ...]] = []
+        seen: set[tuple[Any, ...]] = set()
+        retry_count = 0
 
-        attempts = 0
-        max_attempts = max(self.config.population_size * 10, 10)
+        strongest = self._validate_seed_set(tuple(self.global_ranked_nodes[: self.config.budget]))
+        population.append(strongest)
+        seen.add(strongest)
+
         while len(population) < self.config.population_size:
-            candidate = self._community_aware_seed_set()
-            attempts += 1
-            if candidate in seen and attempts < max_attempts:
+            candidate = self._initialize_individual()
+            if candidate in seen and len(seen) < self.max_unique_seed_sets and retry_count < self._population_retry_limit():
+                retry_count += 1
                 continue
             population.append(candidate)
             seen.add(candidate)
-            attempts = 0
+            retry_count = 0
 
         return population
 
-    def _crossover(
-        self,
-        parent_a: tuple[object, ...],
-        parent_b: tuple[object, ...],
-    ) -> tuple[object, ...]:
-        # Uniform set-based crossover keeps the implementation simple and works
-        # naturally for unordered seed sets.
-        merged: list[object] = []
-        for node in parent_a:
-            if self.rng.random() < 0.5:
-                merged.append(node)
-        for node in parent_b:
-            if self.rng.random() < 0.5:
-                merged.append(node)
-        if not merged:
-            # Guarantee at least some inherited material from both parents.
-            merged.extend(parent_a[: max(1, self.config.budget // 2)])
-            merged.extend(parent_b[: max(1, self.config.budget // 2)])
-        return self._repair_seed_set(merged)
+    def _evaluate_seed_set(self, seed_set: tuple[Any, ...]) -> CandidateEvaluation:
+        normalized_seed_set = self._validate_seed_set(tuple(sorted(seed_set, key=_sort_key)))
+        if normalized_seed_set in self.evaluation_cache:
+            return self.evaluation_cache[normalized_seed_set]
 
-    def _mutate(self, candidate: tuple[object, ...]) -> tuple[object, ...]:
-        # Mutation tries to replace some nodes with alternatives from other
-        # communities to preserve diversity and fairness coverage.
-        mutated = list(candidate)
-        for idx in range(len(mutated)):
-            if self.rng.random() >= self.config.mutation_rate:
-                continue
-            community_idx = self.partition[mutated[idx]]
-            selected = set(mutated)
-            selected.remove(mutated[idx])
-
-            replacement: Optional[object] = None
-            for alt_comm_idx in self._community_search_order(
-                selected=selected,
-                excluded_community=community_idx,
-            ):
-                replacement = self._available_node_from_community(alt_comm_idx, selected)
-                if replacement is not None:
-                    break
-            if replacement is None:
-                replacement = self._available_global_node(selected)
-            if replacement is not None:
-                mutated[idx] = replacement
-
-        return self._repair_seed_set(mutated)
-
-    def _swarm_move(
-        self,
-        current: tuple[object, ...],
-        personal_best: tuple[object, ...],
-        global_best: tuple[object, ...],
-        elite_leader: tuple[object, ...],
-    ) -> tuple[object, ...]:
-        # Swarm movement combines four information sources:
-        # current state, personal best, global best, and elite leader.
-        if self.rng.random() < self.config.restart_rate:
-            # A true restart should inject a fresh community-aware candidate,
-            # not a near-copy of the current global leader.
-            return self._community_aware_seed_set()
-
-        seeds: list[object] = []
-
-        seeds.extend([node for node in current if self.rng.random() < self.config.swarm_inertia_rate])
-        seeds.extend([node for node in personal_best if self.rng.random() < self.config.swarm_cognitive_rate])
-        seeds.extend([node for node in global_best if self.rng.random() < self.config.swarm_social_rate])
-        seeds.extend([node for node in elite_leader if self.rng.random() < self.config.swarm_elite_rate])
-
-        if not seeds and global_best:
-            # Ensure the move does not become empty after stochastic filtering.
-            seeds.append(global_best[0])
-
-        return self._repair_seed_set(seeds)
-
-    def _evaluate(self, seed_set: tuple[object, ...]) -> CandidateEvaluation:
-        signature = self._validate_seed_set(self._signature(seed_set))
-        if signature in self.evaluation_cache:
-            # Cache Monte Carlo evaluations because they are the most expensive step.
-            return self.evaluation_cache[signature]
-
-        diffusion = self.simulator.simulate_many(
-            signature,
-            runs=self.mc_runs,
-            protected_attribute=self.fairness_config.protected_attribute,
-            compute_std=False,
-        )
-        fairness = evaluate_fairness(
-            group_spread=diffusion.group_spread_mean,
-            group_sizes=self.group_sizes,
-            lambda_weight=self.fairness_config.lambda_weight,
-            target_mode=self.fairness_config.target_mode,
-            total_spread=diffusion.total_spread_mean,
-            score_mode=self.fairness_config.score_mode,
+        evaluation_result = evaluate_seed_set(
+            dataset=self.dataset,
+            protected_group_report=self.protected_group_report,
+            seed_set=normalized_seed_set,
+            propagation_probability=self.config.propagation_probability,
+            mc_runs=self.config.mc_runs,
+            random_seed=self.config.random_seed,
+            lambda_weight=self.config.lambda_weight,
+            include_soft_mf=True,
         )
         evaluation = CandidateEvaluation(
-            seed_set=signature,
-            total_spread=diffusion.total_spread_mean,
-            fairness=fairness,
-            score=fairness.combined_score,
+            seed_set=evaluation_result.seed_set,
+            total_spread_mean=evaluation_result.total_spread_mean,
+            total_spread_std=evaluation_result.total_spread_std,
+            fairness=evaluation_result.fairness,
+            score=evaluation_result.f_score,
         )
-        self.evaluation_cache[signature] = evaluation
+        self.evaluation_cache[normalized_seed_set] = evaluation
         return evaluation
 
-    def _better(self, left: CandidateEvaluation, right: CandidateEvaluation) -> bool:
-        # Compare by fairness-aware score first, then break ties on total spread.
-        if left.score != right.score:
-            return left.score > right.score
-        return left.total_spread > right.total_spread
+    def _select_elites(self, evaluations: Sequence[CandidateEvaluation]) -> list[CandidateEvaluation]:
+        elite_count = max(1, int(np.ceil(self.config.population_size * self.config.elite_fraction)))
+        ranked = sorted(evaluations, key=self._candidate_rank_key, reverse=True)
+        return ranked[:elite_count]
 
-    def _elite_population(self, population: list[tuple[object, ...]], evaluations: list[CandidateEvaluation]) -> list[tuple[object, ...]]:
-        # Elites serve two roles: parents for crossover and leaders for swarm guidance.
-        elite_count = max(1, int(np.ceil(len(population) * self.config.elite_fraction)))
-        ranked_indices = sorted(
-            range(len(population)),
-            key=lambda idx: (evaluations[idx].score, evaluations[idx].total_spread),
-            reverse=True,
+    def _apply_leader_guidance(
+        self,
+        individual: tuple[Any, ...],
+        leader: tuple[Any, ...],
+    ) -> tuple[Any, ...]:
+        if self.config.leader_guidance_fraction <= 0.0:
+            return self._validate_seed_set(tuple(sorted(individual, key=_sort_key)))
+
+        replace_count = min(
+            self.config.budget,
+            int(np.ceil(self.config.budget * self.config.leader_guidance_fraction)),
         )
-        return [population[idx] for idx in ranked_indices[:elite_count]]
+        if replace_count == 0:
+            return self._validate_seed_set(tuple(sorted(individual, key=_sort_key)))
+
+        remove_indices = set(
+            int(index)
+            for index in self.rng.choice(
+                np.arange(len(individual)),
+                size=replace_count,
+                replace=False,
+            ).tolist()
+        )
+        guided_nodes = [
+            node for index, node in enumerate(individual)
+            if index not in remove_indices
+        ]
+        leader_nodes = [node for node in leader if node not in guided_nodes]
+        guided_nodes.extend(leader_nodes[:replace_count])
+        return self._repair_seed_set(guided_nodes)
+
+    def _crossover(
+        self,
+        parent_a: tuple[Any, ...],
+        parent_b: tuple[Any, ...],
+    ) -> tuple[Any, ...]:
+        merged_nodes: list[Any] = []
+        for node in parent_a:
+            if self.rng.random() < 0.5:
+                merged_nodes.append(node)
+        for node in parent_b:
+            if self.rng.random() < 0.5:
+                merged_nodes.append(node)
+        if not merged_nodes:
+            merged_nodes.extend(parent_a[: max(1, self.config.budget // 2)])
+            merged_nodes.extend(parent_b[: max(1, self.config.budget // 2)])
+        return self._repair_seed_set(merged_nodes)
+
+    def _mutate(self, individual: tuple[Any, ...]) -> tuple[Any, ...]:
+        mutated_nodes = list(individual)
+        for index, node_id in enumerate(list(mutated_nodes)):
+            if self.rng.random() >= self.config.mutation_probability:
+                continue
+
+            remaining = [node for idx, node in enumerate(mutated_nodes) if idx != index]
+            ranked_candidates = self._rank_external_candidates(remaining)
+            if not ranked_candidates:
+                continue
+            mutated_nodes[index] = ranked_candidates[0]
+
+        return self._repair_seed_set(mutated_nodes)
+
+    def _local_search(self, individual: tuple[Any, ...]) -> tuple[Any, ...]:
+        if self.config.disable_local_search or self.config.local_search_steps == 0:
+            return self._validate_seed_set(tuple(sorted(individual, key=_sort_key)))
+
+        current = self._validate_seed_set(tuple(sorted(individual, key=_sort_key)))
+        current_evaluation = self._evaluate_seed_set(current)
+
+        for _ in range(self.config.local_search_steps):
+            best_candidate = current
+            best_evaluation = current_evaluation
+            replacement_nodes = self._rank_seed_nodes_for_replacement(current)[: min(2, len(current))]
+            external_candidates = self._rank_external_candidates(current)[: max(4, self.config.budget * 2)]
+
+            for node_to_remove in replacement_nodes:
+                partial = [node_id for node_id in current if node_id != node_to_remove]
+                for node_to_add in external_candidates:
+                    candidate = self._repair_seed_set(partial + [node_to_add])
+                    evaluation = self._evaluate_seed_set(candidate)
+                    if self._candidate_rank_key(evaluation) > self._candidate_rank_key(best_evaluation):
+                        best_candidate = candidate
+                        best_evaluation = evaluation
+
+            if best_candidate == current:
+                break
+            current = best_candidate
+            current_evaluation = best_evaluation
+
+        return current
+
+    def _population_diversity(self, population: Sequence[tuple[Any, ...]]) -> float:
+        if len(population) < 2:
+            return 0.0
+
+        distances: list[float] = []
+        set_population = [set(individual) for individual in population]
+        for left_index in range(len(set_population)):
+            for right_index in range(left_index + 1, len(set_population)):
+                union = set_population[left_index] | set_population[right_index]
+                if not union:
+                    distances.append(0.0)
+                    continue
+                overlap = set_population[left_index] & set_population[right_index]
+                distances.append(1.0 - (len(overlap) / len(union)))
+        return float(np.mean(distances)) if distances else 0.0
+
+    def _survival_selection(
+        self,
+        population: Sequence[tuple[Any, ...]],
+        offspring: Sequence[tuple[Any, ...]],
+    ) -> list[CandidateEvaluation]:
+        pool = list(population) + list(offspring)
+        ranked_unique: dict[tuple[Any, ...], CandidateEvaluation] = {}
+        evaluated_pool: list[CandidateEvaluation] = []
+        for seed_set in pool:
+            evaluation = self._evaluate_seed_set(seed_set)
+            evaluated_pool.append(evaluation)
+            ranked_unique[evaluation.seed_set] = evaluation
+
+        ranked = sorted(ranked_unique.values(), key=self._candidate_rank_key, reverse=True)
+        if len(ranked) >= self.config.population_size:
+            return ranked[: self.config.population_size]
+
+        ranked_with_duplicates = sorted(evaluated_pool, key=self._candidate_rank_key, reverse=True)
+        return ranked_with_duplicates[: self.config.population_size]
 
     def optimize(self) -> HybridOptimizationResult:
-        """Run the unified hybrid SI+EA search."""
+        """Run the unified hybrid SI+EA optimizer end-to-end."""
 
         start = perf_counter()
-        # Initialize the current population and the best-known memories used by
-        # the swarm component.
         population = self._initialize_population()
-        current_evaluations = [self._evaluate(candidate) for candidate in population]
-        personal_bests = population.copy()
-        personal_best_evaluations = current_evaluations.copy()
-
-        best_idx = max(range(len(personal_bests)), key=lambda idx: (personal_best_evaluations[idx].score, personal_best_evaluations[idx].total_spread))
-        global_best = personal_bests[best_idx]
-        global_best_evaluation = personal_best_evaluations[best_idx]
-
-        history_records: list[dict[str, float | int]] = []
-        stagnant_generations = 0
+        history_records: list[dict[str, float | int | str]] = []
 
         for generation in range(self.config.generations):
-            # Each generation produces two offspring streams:
-            # one EA-style and one swarm-style.
-            elites = self._elite_population(population, current_evaluations)
-            evolutionary_population: list[tuple[object, ...]] = []
-            swarm_population: list[tuple[object, ...]] = []
+            current_evaluations = [self._evaluate_seed_set(individual) for individual in population]
+            elites = self._select_elites(current_evaluations)
+            leader_pool = [evaluation.seed_set for evaluation in elites]
+            ranked_current = sorted(current_evaluations, key=self._candidate_rank_key)
+            weak_count = max(1, len(ranked_current) // 2)
 
-            for idx, current in enumerate(population):
-                elite_leader = elites[idx % len(elites)]
-                mate = elites[int(self.rng.integers(len(elites)))]
+            offspring: list[tuple[Any, ...]] = []
+            for index, evaluation in enumerate(ranked_current):
+                current = evaluation.seed_set
+                leader = leader_pool[index % len(leader_pool)]
+                child = current
+                if not self.config.disable_swarm_guidance and index < weak_count:
+                    child = self._apply_leader_guidance(current, leader)
 
-                if not self.config.disable_crossover and self.rng.random() < self.config.crossover_rate:
-                    evolutionary_candidate = self._crossover(current, mate)
-                else:
-                    evolutionary_candidate = current
-                # Mutation is applied after crossover so both offspring streams
-                # retain local exploration ability.
-                evolutionary_candidate = self._mutate(evolutionary_candidate)
-                evolutionary_population.append(evolutionary_candidate)
+                if (
+                    not self.config.disable_crossover
+                    and self.rng.random() < self.config.crossover_probability
+                ):
+                    mate = leader_pool[int(self.rng.integers(len(leader_pool)))]
+                    child = self._crossover(child, mate)
 
-                if self.config.disable_swarm_guidance:
-                    swarm_candidate = current
-                else:
-                    swarm_candidate = self._swarm_move(
-                        current=current,
-                        personal_best=personal_bests[idx],
-                        global_best=global_best,
-                        elite_leader=elite_leader,
-                    )
-                    swarm_candidate = self._mutate(swarm_candidate)
-                swarm_population.append(swarm_candidate)
+                child = self._mutate(child)
+                child = self._local_search(child)
+                offspring.append(self._validate_seed_set(child))
 
-            # Evaluate both offspring streams with the same FIM objective.
-            evolutionary_evaluations = [self._evaluate(candidate) for candidate in evolutionary_population]
-            swarm_evaluations = [self._evaluate(candidate) for candidate in swarm_population]
+            next_evaluations = self._survival_selection(population, offspring)
+            population = [evaluation.seed_set for evaluation in next_evaluations]
+            for individual in population:
+                self._validate_seed_set(individual)
 
-            next_population: list[tuple[object, ...]] = []
-            next_evaluations: list[CandidateEvaluation] = []
-            for idx in range(self.config.population_size):
-                # Survivor selection is integrated: each slot keeps the best of
-                # current, EA offspring, swarm offspring, and personal memory.
-                candidates = [
-                    current_evaluations[idx],
-                    evolutionary_evaluations[idx],
-                    swarm_evaluations[idx],
-                    personal_best_evaluations[idx],
-                ]
-                best_candidate = max(candidates, key=lambda item: (item.score, item.total_spread))
-                next_population.append(best_candidate.seed_set)
-                next_evaluations.append(best_candidate)
-
-                if self._better(best_candidate, personal_best_evaluations[idx]):
-                    personal_bests[idx] = best_candidate.seed_set
-                    personal_best_evaluations[idx] = best_candidate
-
-            population = next_population
-            current_evaluations = next_evaluations
-
-            # Update the global swarm leader from the current personal-best archive.
-            previous_best = global_best_evaluation
-            best_idx = max(
-                range(len(personal_bests)),
-                key=lambda idx: (personal_best_evaluations[idx].score, personal_best_evaluations[idx].total_spread),
-            )
-            global_best = personal_bests[best_idx]
-            global_best_evaluation = personal_best_evaluations[best_idx]
-
-            if self._better(global_best_evaluation, previous_best):
-                stagnant_generations = 0
-            else:
-                stagnant_generations += 1
-
-            # Store a compact history for later plots and ablation analysis.
-            metadata = self._seed_metadata(global_best_evaluation.seed_set)
-            population_diversity = self._population_diversity(population)
+            best_evaluation = max(next_evaluations, key=self._candidate_rank_key)
+            average_score = float(np.mean([evaluation.score for evaluation in next_evaluations]))
+            diversity = self._population_diversity(population)
             history_records.append(
                 {
                     "generation": generation,
-                    "best_score": global_best_evaluation.score,
-                    "mean_score": float(np.mean([evaluation.score for evaluation in current_evaluations])),
-                    "best_spread": global_best_evaluation.total_spread,
-                    "best_mf": global_best_evaluation.fairness.mf,
-                    "best_mf_to_ideal": global_best_evaluation.fairness.mf_to_ideal_ratio,
-                    "best_dcv": global_best_evaluation.fairness.dcv,
-                    "population_diversity": population_diversity,
-                    **metadata,
+                    "best_score": best_evaluation.score,
+                    "best_spread": best_evaluation.total_spread_mean,
+                    "best_mf": best_evaluation.fairness.mf,
+                    "best_dcv": best_evaluation.fairness.dcv,
+                    "average_population_score": average_score,
+                    "population_diversity": diversity,
+                    "best_seed_set": str(list(best_evaluation.seed_set)),
                 }
             )
-            self._log_generation_diagnostics(generation, global_best_evaluation, population)
 
-            if (
-                self.config.convergence_patience is not None
-                and stagnant_generations >= self.config.convergence_patience
-            ):
-                # Optional early stopping when the best score stops improving.
-                break
+            if self.config.debug_logging:
+                print(
+                    "[hybrid_siea] "
+                    f"gen={generation} "
+                    f"best_score={best_evaluation.score:.6f} "
+                    f"best_spread={best_evaluation.total_spread_mean:.6f} "
+                    f"best_mf={best_evaluation.fairness.mf:.6f} "
+                    f"best_dcv={best_evaluation.fairness.dcv:.6f} "
+                    f"avg_score={average_score:.6f} "
+                    f"diversity={diversity:.6f}"
+                )
 
+        final_evaluations = [self._evaluate_seed_set(individual) for individual in population]
+        best_evaluation = max(final_evaluations, key=self._candidate_rank_key)
         runtime_seconds = perf_counter() - start
-        history = pd.DataFrame(history_records)
+
         return HybridOptimizationResult(
-            best_seed_set=list(global_best),
-            best_score=global_best_evaluation.score,
-            best_spread=global_best_evaluation.total_spread,
-            best_fairness=global_best_evaluation.fairness,
+            best_seed_set=best_evaluation.seed_set,
+            best_score=best_evaluation.score,
+            best_spread=best_evaluation.total_spread_mean,
+            best_fairness=best_evaluation.fairness,
             runtime_seconds=runtime_seconds,
             candidate_pool_size=len(self.candidate_pool),
-            history=history,
+            history=pd.DataFrame(history_records),
         )
