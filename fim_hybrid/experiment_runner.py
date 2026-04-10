@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import math
 from pathlib import Path
 import json
 from time import perf_counter
@@ -15,12 +14,39 @@ from .community_detection import CommunityQualityMetrics, compute_community_qual
 from .config import DatasetConfig
 from .data_loader import LoadedDataset, ProtectedGroupReport, load_dataset, verify_protected_groups
 from .diffusion import DEFAULT_DIFFUSION_MODEL, validate_diffusion_model
-from .evaluation import SeedSetEvaluation, evaluate_seed_set
+from .evaluation import SeedSetEvaluation
 from .feature_extraction import compute_node_features
 from .hybrid_optimizer import HybridOptimizationResult, HybridSIEAConfig, HybridSIEAOptimizer
 from .label_generation import NodeUtilityLabelResult, generate_singleton_node_utility_labels
 from .ml_training import MLTrainingResult, train_node_utility_model
-from .node2vec_embeddings import Node2VecConfig, build_node2vec_cache_path, generate_node2vec_embeddings
+_KEPT_ML_VARIANT_LABEL = "hybrid_siea_ml_two_tier_tuned_swap_local_search"
+_REMOVED_ML_VARIANT_LABELS = {
+    "hybrid_siea_ml_hard_filter",
+    "hybrid_siea_ml_soft_bias",
+    "hybrid_siea_ml_two_tier",
+    "hybrid_siea_ml_two_tier_tuned",
+    "hybrid_siea_ml_two_tier_tuned_fair_init",
+    "hybrid_siea_ml_two_tier_tuned_weak_mutation",
+    "hybrid_siea_ml_two_tier_tuned_fair_repair",
+    "hybrid_siea_ml_two_tier_tuned_worst_group_local_search",
+    "hybrid_siea_ml_two_tier_tuned_fairness_full",
+    "hybrid_siea_ml_two_tier_tuned_marginal_gain",
+    "hybrid_siea_ml_two_tier_tuned_urgency_weighted",
+    "hybrid_siea_ml_two_tier_tuned_overlap_penalty",
+    "hybrid_siea_ml_two_tier_tuned_refinement_full",
+    "hybrid_siea_ml_two_tier_tuned_marginal_gain_optimized",
+    "hybrid_siea_ml_two_tier_tuned_marginal_gain_balanced",
+    "hybrid_siea_ml_two_tier_tuned_marginal_gain_fast",
+    "hybrid_siea_ml_two_tier_tuned_swap_local_search_optimized",
+    "hybrid_siea_ml_two_tier_tuned_swap_local_search_first_improvement",
+    "hybrid_siea_ml_two_tier_tuned_swap_local_search_reduced_candidates",
+    "hybrid_siea_ml_two_tier_tuned_fairness_full_balanced",
+    "hybrid_siea_ml_two_tier_tuned_fairness_full_fast",
+    "hybrid_siea_ml_two_tier_tuned_node2vec",
+    "hybrid_siea_ml_two_tier_tuned_node2vec_diversity",
+    "ml_topk",
+    "ml_topk_node2vec",
+}
 
 _FAIRNESS_COMPARE_DEFAULTS: dict[str, object] = {
     "fairness_first_init_enabled": True,
@@ -205,23 +231,57 @@ def _dataset_output_dir(output_dir: Path | None, dataset_name: str) -> Path | No
     if output_dir is None:
         return None
 
-    dataset_dir = output_dir / dataset_name
-    dataset_dir.mkdir(parents=True, exist_ok=True)
-    return dataset_dir
+    return output_dir / dataset_name
 
 
-def _history_path(
+def _protected_attribute_output_component(protected_attribute: str) -> str:
+    sanitized = "".join(
+        character if character.isalnum() or character in {"-", "_", "."} else "_"
+        for character in protected_attribute.strip()
+    ).strip("._-")
+    return sanitized or "protected_attribute"
+
+
+def build_results_output_dir(
     output_dir: Path | None,
     dataset_name: str,
-    budget: int,
-    community_method: str,
-    label: str,
+    protected_attribute: str,
 ) -> Path | None:
     dataset_dir = _dataset_output_dir(output_dir, dataset_name)
     if dataset_dir is None:
         return None
 
-    path = dataset_dir / f"{dataset_name}_budget{budget}_{community_method}_{label}_history.csv"
+    return dataset_dir / _protected_attribute_output_component(protected_attribute)
+
+
+def _ensure_results_output_dir(
+    output_dir: Path | None,
+    dataset_name: str,
+    protected_attribute: str,
+) -> Path | None:
+    dataset_dir = _dataset_output_dir(output_dir, dataset_name)
+    if dataset_dir is None:
+        return None
+
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+    attribute_dir = dataset_dir / _protected_attribute_output_component(protected_attribute)
+    attribute_dir.mkdir(parents=True, exist_ok=True)
+    return attribute_dir
+
+
+def _history_path(
+    output_dir: Path | None,
+    dataset_name: str,
+    protected_attribute: str,
+    budget: int,
+    community_method: str,
+    label: str,
+) -> Path | None:
+    attribute_dir = _ensure_results_output_dir(output_dir, dataset_name, protected_attribute)
+    if attribute_dir is None:
+        return None
+
+    path = attribute_dir / f"{dataset_name}_budget{budget}_{community_method}_{label}_history.csv"
     return path
 
 
@@ -438,21 +498,12 @@ def _prepare_ml_training(
     community_result,
     settings: ExperimentSettings,
     label_result: NodeUtilityLabelResult,
-    use_node2vec: bool = False,
 ) -> tuple[MLTrainingResult, float]:
     start = perf_counter()
-    node2vec_config = _build_node2vec_config(settings) if use_node2vec else None
-    node2vec_cache_path = (
-        build_node2vec_cache_path(settings.output_dir, dataset.name, node2vec_config)
-        if node2vec_config is not None
-        else None
-    )
     feature_frame = compute_node_features(
         dataset=dataset,
         protected_group_report=protected_group_report,
         community_result=community_result,
-        node2vec_config=node2vec_config,
-        node2vec_cache_path=node2vec_cache_path,
     )
     training_result = train_node_utility_model(
         feature_frame=feature_frame,
@@ -467,30 +518,23 @@ def _prepare_ml_training(
     return training_result, perf_counter() - start
 
 
-def _selected_node2vec_variants(settings: ExperimentSettings) -> list[str]:
-    if not settings.use_node2vec:
-        return []
-    valid_modes = {"feature_concat", "diversity_signal", "both"}
-    if settings.node2vec_integration_mode not in valid_modes:
-        raise ValueError(f"node2vec_integration_mode must be one of {sorted(valid_modes)}.")
-    if settings.node2vec_integration_mode == "both":
-        return ["feature_concat", "diversity_signal"]
-    return [settings.node2vec_integration_mode]
-
-
 def _selected_ml_variants(settings: ExperimentSettings) -> list[tuple[str, str, bool]]:
     if not settings.use_ml:
         return []
-    if settings.ml_guidance_mode == "off":
-        return [
-            ("hybrid_siea_ml_hard_filter", "hard_filter", False),
-            ("hybrid_siea_ml_soft_bias", "soft_bias", False),
-            ("hybrid_siea_ml_two_tier", "two_tier", True),
-            ("hybrid_siea_ml_two_tier_tuned", "two_tier", False),
-        ]
-    if settings.ml_guidance_mode == "two_tier":
-        return [("hybrid_siea_ml_two_tier_tuned", "two_tier", False)]
-    return [(f"hybrid_siea_ml_{settings.ml_guidance_mode}", settings.ml_guidance_mode, False)]
+    return [(_KEPT_ML_VARIANT_LABEL, "two_tier", False)]
+
+
+def _resolved_kept_ml_overrides(settings: ExperimentSettings) -> dict[str, object]:
+    fairness_defaults = _resolved_fairness_compare_settings(settings)
+    refinement_defaults = _resolved_refinement_compare_settings(settings)
+    return {
+        **fairness_defaults,
+        "local_search_swap_trials": int(refinement_defaults["local_search_swap_trials"]),
+        "local_search_candidate_pool_size": int(refinement_defaults["local_search_candidate_pool_size"]),
+        "local_search_delta_mf_weight": float(refinement_defaults["local_search_delta_mf_weight"]),
+        "local_search_delta_dcv_weight": float(refinement_defaults["local_search_delta_dcv_weight"]),
+        "local_search_overlap_penalty_weight": float(refinement_defaults["local_search_overlap_penalty_weight"]),
+    }
 
 
 def _resolved_fairness_compare_settings(settings: ExperimentSettings) -> dict[str, object]:
@@ -998,38 +1042,52 @@ def run_loaded_experiment(
     settings: ExperimentSettings,
     community_methods: list[str] | None = None,
     baseline_methods: list[str] | None = None,
+    selected_methods: list[str] | None = None,
     include_ablations: bool = True,
 ) -> pd.DataFrame:
     """Run one or more method comparisons on a preloaded dataset."""
 
     validate_diffusion_model(settings.diffusion_model)
-    if settings.use_node2vec and not settings.use_ml:
-        raise ValueError("use_node2vec requires use_ml=True because Node2Vec is only used as an ML feature augmenter.")
-    if settings.use_node2vec and settings.ml_guidance_mode not in {"off", "two_tier"}:
-        raise ValueError("use_node2vec currently supports ml_guidance_mode='off' or 'two_tier' only.")
-    if settings.compare_fairness_variants and not settings.use_ml:
-        raise ValueError("compare_fairness_variants requires use_ml=True because the fairness comparison targets the tuned two-tier ML method.")
-    if settings.compare_fairness_variants and settings.ml_guidance_mode not in {"off", "two_tier"}:
-        raise ValueError("compare_fairness_variants currently supports ml_guidance_mode='off' or 'two_tier' only.")
-    if settings.compare_refinement_variants and not settings.use_ml:
-        raise ValueError("compare_refinement_variants requires use_ml=True because the refinement comparison targets the tuned two-tier ML method.")
-    if settings.compare_refinement_variants and settings.ml_guidance_mode not in {"off", "two_tier"}:
-        raise ValueError("compare_refinement_variants currently supports ml_guidance_mode='off' or 'two_tier' only.")
-    if settings.compare_runtime_variants and not settings.use_ml:
-        raise ValueError("compare_runtime_variants requires use_ml=True because the runtime comparison targets the tuned two-tier ML method.")
-    if settings.compare_runtime_variants and settings.ml_guidance_mode not in {"off", "two_tier"}:
-        raise ValueError("compare_runtime_variants currently supports ml_guidance_mode='off' or 'two_tier' only.")
-    if settings.compare_swap_runtime_variants and not settings.use_ml:
-        raise ValueError("compare_swap_runtime_variants requires use_ml=True because the swap-runtime comparison targets the tuned two-tier ML method.")
-    if settings.compare_swap_runtime_variants and settings.ml_guidance_mode not in {"off", "two_tier"}:
-        raise ValueError("compare_swap_runtime_variants currently supports ml_guidance_mode='off' or 'two_tier' only.")
-    if settings.compare_scalability_variants and not settings.use_ml:
-        raise ValueError("compare_scalability_variants requires use_ml=True because the scalability comparison targets the tuned two-tier ML method.")
-    if settings.compare_scalability_variants and settings.ml_guidance_mode not in {"off", "two_tier"}:
-        raise ValueError("compare_scalability_variants currently supports ml_guidance_mode='off' or 'two_tier' only.")
+    if settings.use_node2vec:
+        raise ValueError("Node2Vec ML variants were removed. use_node2vec is no longer supported.")
+    if settings.use_ml and settings.ml_guidance_mode not in {"off", "two_tier"}:
+        raise ValueError(
+            "Removed ML guidance mode requested. Only ml_guidance_mode='two_tier' is supported for ML runs."
+        )
+    if any(
+        [
+            settings.compare_fairness_variants,
+            settings.compare_refinement_variants,
+            settings.compare_runtime_variants,
+            settings.compare_swap_runtime_variants,
+            settings.compare_scalability_variants,
+        ]
+    ):
+        raise ValueError(
+            "Obsolete ML comparison families were removed. "
+            f"Use {_KEPT_ML_VARIANT_LABEL} as the single supported ML variant."
+        )
 
     methods = community_methods or [settings.community_method]
     baselines = baseline_methods or ["degree", "pagerank", "community_round_robin", "random"]
+    selected_method_set = {str(method) for method in selected_methods} if selected_methods else None
+    if selected_method_set is not None:
+        removed_requested = sorted(_REMOVED_ML_VARIANT_LABELS.intersection(selected_method_set))
+        if removed_requested:
+            removed_display = ", ".join(removed_requested)
+            raise ValueError(
+                "Removed ML variants are no longer supported: "
+                f"{removed_display}. Supported ML variant: {_KEPT_ML_VARIANT_LABEL}."
+            )
+
+    def is_selected(label: str) -> bool:
+        return selected_method_set is None or label in selected_method_set
+
+    def any_ml_methods_selected() -> bool:
+        if selected_method_set is None:
+            return True
+        return any(method.startswith("hybrid_siea_ml_") for method in selected_method_set)
+
     results: list[dict[str, object]] = []
 
     for community_method in methods:
@@ -1037,6 +1095,8 @@ def run_loaded_experiment(
         quality = compute_community_quality_metrics(dataset.graph, community_result)
 
         for baseline_name in baselines:
+            if not is_selected(baseline_name):
+                continue
             baseline_result = run_baseline(
                 dataset=dataset,
                 protected_group_report=protected_group_report,
@@ -1075,12 +1135,9 @@ def run_loaded_experiment(
                 ]
             )
 
+        hybrid_variants = [variant for variant in hybrid_variants if is_selected(variant[0])]
         for label, variant_type, note, overrides in hybrid_variants:
-            config = _build_optimizer_config(
-                settings,
-                include_fairness_parameters=not settings.compare_fairness_variants,
-                **overrides,
-            )
+            config = _build_optimizer_config(settings, **overrides)
             optimizer = HybridSIEAOptimizer(
                 dataset=dataset,
                 protected_group_report=protected_group_report,
@@ -1088,7 +1145,14 @@ def run_loaded_experiment(
                 config=config,
             )
             result = optimizer.optimize()
-            history_path = _history_path(settings.output_dir, dataset.name, settings.budget, community_method, label)
+            history_path = _history_path(
+                settings.output_dir,
+                dataset.name,
+                settings.protected_attribute,
+                settings.budget,
+                community_method,
+                label,
+            )
             if history_path is not None:
                 result.history.to_csv(history_path, index=False)
                 note = "; ".join(part for part in [note, f"history={history_path.name}"] if part)
@@ -1106,7 +1170,7 @@ def run_loaded_experiment(
                 )
             )
 
-        if settings.use_ml:
+        if settings.use_ml and any_ml_methods_selected():
             label_result, label_runtime = _generate_ml_labels(
                 dataset=dataset,
                 protected_group_report=protected_group_report,
@@ -1118,7 +1182,6 @@ def run_loaded_experiment(
                 community_result=community_result,
                 settings=settings,
                 label_result=label_result,
-                use_node2vec=False,
             )
             ml_preparation_runtime = label_runtime + base_ml_training_runtime
             ml_metrics = (
@@ -1127,66 +1190,30 @@ def run_loaded_experiment(
                 f"label_variance={label_result.label_variance:.6f}"
             )
 
-            ml_topk_evaluation = evaluate_seed_set(
-                dataset=dataset,
-                protected_group_report=protected_group_report,
-                seed_set=training_result.ranked_nodes[: settings.budget],
-                propagation_probability=settings.propagation_probability,
-                mc_runs=settings.mc_runs,
-                diffusion_model=settings.diffusion_model,
-                random_seed=settings.random_seed,
-                lambda_weight=settings.lambda_weight,
-                include_soft_mf=True,
-            )
-            results.append(
-                _ml_row(
-                    dataset=dataset,
-                    community_method=community_method,
-                    label="ml_topk",
-                    variant_type="ml_baseline",
-                    evaluation=ml_topk_evaluation,
-                    runtime_seconds=ml_preparation_runtime + ml_topk_evaluation.runtime_seconds,
-                    quality=quality,
-                    candidate_pool_size=dataset.graph.number_of_nodes(),
-                    validation_spearman=training_result.validation_spearman,
-                    validation_precision_at_budget=training_result.validation_precision_at_budget,
-                    guidance_mode="off",
-                    diffusion_model=settings.diffusion_model,
-                    note=f"ML ranking baseline; {ml_metrics}",
-                    node2vec_mode="off",
-                )
-            )
-
             for label, guidance_mode, use_legacy_two_tier in _selected_ml_variants(settings):
+                if not is_selected(label):
+                    continue
                 ml_config = _build_optimizer_config(
                     settings,
-                    include_fairness_parameters=not settings.compare_fairness_variants,
-                    ml_guidance_mode=guidance_mode,
-                    ml_use_legacy_two_tier=use_legacy_two_tier,
+                    include_fairness_parameters=False,
+                    ml_guidance_mode="two_tier",
+                    **_resolved_kept_ml_overrides(settings),
                 )
                 optimizer_kwargs: dict[str, object] = {
                     "dataset": dataset,
                     "protected_group_report": protected_group_report,
                     "community_result": community_result,
                     "config": ml_config,
+                    "ml_node_scores": training_result.predicted_scores,
                 }
-                pool_note = ""
-                if guidance_mode == "hard_filter":
-                    optimizer_kwargs["candidate_nodes"] = training_result.candidate_nodes
-                    optimizer_kwargs["node_scores"] = training_result.predicted_scores
-                    pool_note = f"candidate_pool={len(training_result.candidate_nodes)}"
-                else:
-                    optimizer_kwargs["ml_node_scores"] = training_result.predicted_scores
-                    pool_note = f"full_pool={dataset.graph.number_of_nodes()}"
-                    if guidance_mode == "two_tier":
-                        tier_policy = "legacy" if use_legacy_two_tier else "tuned"
-                        pool_note = f"{pool_note}; tier_policy={tier_policy}"
+                pool_note = f"full_pool={dataset.graph.number_of_nodes()}; tier_policy=tuned"
 
                 ml_optimizer = HybridSIEAOptimizer(**optimizer_kwargs)
                 ml_result = ml_optimizer.optimize()
                 ml_history_path = _history_path(
                     settings.output_dir,
                     dataset.name,
+                    settings.protected_attribute,
                     settings.budget,
                     community_method,
                     label,
@@ -1211,11 +1238,13 @@ def run_loaded_experiment(
                 ml_row["runtime_seconds"] = ml_preparation_runtime + ml_result.runtime_seconds
                 ml_row["ml_validation_spearman"] = training_result.validation_spearman
                 ml_row["ml_validation_precision_at_budget"] = training_result.validation_precision_at_budget
-                ml_row["ml_guidance_mode"] = guidance_mode
+                ml_row["ml_guidance_mode"] = "two_tier"
                 results.append(ml_row)
 
             if settings.compare_fairness_variants:
                 for label, fairness_note, fairness_overrides in _selected_fairness_variants(settings):
+                    if not is_selected(label):
+                        continue
                     fairness_config = _build_optimizer_config(
                         settings,
                         include_fairness_parameters=False,
@@ -1233,6 +1262,7 @@ def run_loaded_experiment(
                     fairness_history_path = _history_path(
                         settings.output_dir,
                         dataset.name,
+                        settings.protected_attribute,
                         settings.budget,
                         community_method,
                         label,
@@ -1282,6 +1312,8 @@ def run_loaded_experiment(
                     if row.get("community_method") == community_method
                 }
                 for label, scalability_note, scalability_overrides in _selected_scalability_variants(settings):
+                    if not is_selected(label):
+                        continue
                     if label in existing_scalability_methods:
                         continue
                     scalability_config = _build_optimizer_config(
@@ -1301,6 +1333,7 @@ def run_loaded_experiment(
                     scalability_history_path = _history_path(
                         settings.output_dir,
                         dataset.name,
+                        settings.protected_attribute,
                         settings.budget,
                         community_method,
                         label,
@@ -1349,7 +1382,7 @@ def run_loaded_experiment(
                 refinement_base_note = "Current best fairness-focused method before the new refinement study."
                 fairness_defaults = _resolved_fairness_compare_settings(settings)
 
-                if not settings.compare_fairness_variants:
+                if not settings.compare_fairness_variants and is_selected(refinement_base_label):
                     refinement_base_config = _build_optimizer_config(
                         settings,
                         include_fairness_parameters=False,
@@ -1367,6 +1400,7 @@ def run_loaded_experiment(
                     refinement_base_history_path = _history_path(
                         settings.output_dir,
                         dataset.name,
+                        settings.protected_attribute,
                         settings.budget,
                         community_method,
                         refinement_base_label,
@@ -1409,6 +1443,8 @@ def run_loaded_experiment(
                     results.append(refinement_base_row)
 
                 for label, refinement_note, refinement_overrides in _selected_refinement_variants(settings):
+                    if not is_selected(label):
+                        continue
                     refinement_config = _build_optimizer_config(
                         settings,
                         include_fairness_parameters=False,
@@ -1427,6 +1463,7 @@ def run_loaded_experiment(
                     refinement_history_path = _history_path(
                         settings.output_dir,
                         dataset.name,
+                        settings.protected_attribute,
                         settings.budget,
                         community_method,
                         label,
@@ -1486,6 +1523,8 @@ def run_loaded_experiment(
                 }
 
                 for label, swap_note, swap_overrides in _selected_swap_runtime_variants(settings):
+                    if not is_selected(label):
+                        continue
                     if label in existing_swap_methods:
                         continue
                     swap_config = _build_optimizer_config(
@@ -1507,6 +1546,7 @@ def run_loaded_experiment(
                     swap_history_path = _history_path(
                         settings.output_dir,
                         dataset.name,
+                        settings.protected_attribute,
                         settings.budget,
                         community_method,
                         label,
@@ -1565,6 +1605,8 @@ def run_loaded_experiment(
                 }
 
                 for label, runtime_note, runtime_overrides in _selected_runtime_variants(settings):
+                    if not is_selected(label):
+                        continue
                     if label in existing_runtime_methods:
                         continue
                     runtime_full_overrides = {
@@ -1589,6 +1631,7 @@ def run_loaded_experiment(
                     runtime_history_path = _history_path(
                         settings.output_dir,
                         dataset.name,
+                        settings.protected_attribute,
                         settings.budget,
                         community_method,
                         label,
@@ -1647,6 +1690,10 @@ def run_loaded_experiment(
 
                 for node2vec_variant in _selected_node2vec_variants(settings):
                     if node2vec_variant == "feature_concat":
+                        if not (
+                            is_selected("ml_topk_node2vec") or is_selected("hybrid_siea_ml_two_tier_tuned_node2vec")
+                        ):
+                            continue
                         node2vec_training_result, node2vec_training_runtime = _prepare_ml_training(
                             dataset=dataset,
                             protected_group_report=protected_group_report,
@@ -1674,74 +1721,79 @@ def run_loaded_experiment(
                             lambda_weight=settings.lambda_weight,
                             include_soft_mf=True,
                         )
-                        results.append(
-                            _ml_row(
+                        if is_selected("ml_topk_node2vec"):
+                            results.append(
+                                _ml_row(
+                                    dataset=dataset,
+                                    community_method=community_method,
+                                    label="ml_topk_node2vec",
+                                    variant_type="ml_baseline",
+                                    evaluation=ml_topk_node2vec_evaluation,
+                                    runtime_seconds=node2vec_preparation_runtime + ml_topk_node2vec_evaluation.runtime_seconds,
+                                    quality=quality,
+                                    candidate_pool_size=dataset.graph.number_of_nodes(),
+                                    validation_spearman=node2vec_training_result.validation_spearman,
+                                    validation_precision_at_budget=node2vec_training_result.validation_precision_at_budget,
+                                    guidance_mode="off",
+                                    diffusion_model=settings.diffusion_model,
+                                    note=f"ML ranking baseline with Node2Vec features; {node2vec_metrics}",
+                                    node2vec_enabled=True,
+                                    node2vec_mode="feature_concat",
+                                )
+                            )
+
+                        if is_selected("hybrid_siea_ml_two_tier_tuned_node2vec"):
+                            node2vec_optimizer_config = _build_optimizer_config(settings, ml_guidance_mode="two_tier")
+                            node2vec_optimizer = HybridSIEAOptimizer(
+                                dataset=dataset,
+                                protected_group_report=protected_group_report,
+                                community_result=community_result,
+                                config=node2vec_optimizer_config,
+                                ml_node_scores=node2vec_training_result.predicted_scores,
+                            )
+                            node2vec_result = node2vec_optimizer.optimize()
+                            node2vec_history_path = _history_path(
+                                settings.output_dir,
+                                dataset.name,
+                                settings.protected_attribute,
+                                settings.budget,
+                                community_method,
+                                "hybrid_siea_ml_two_tier_tuned_node2vec",
+                            )
+                            node2vec_note = (
+                                "ML guidance mode=two_tier; full_pool="
+                                f"{dataset.graph.number_of_nodes()}; tier_policy=tuned; {node2vec_metrics}"
+                            )
+                            if node2vec_history_path is not None:
+                                node2vec_result.history.to_csv(node2vec_history_path, index=False)
+                                node2vec_note = "; ".join(
+                                    part
+                                    for part in [node2vec_note, f"history={node2vec_history_path.name}"]
+                                    if part
+                                )
+
+                            node2vec_row = _hybrid_row(
                                 dataset=dataset,
                                 community_method=community_method,
-                                label="ml_topk_node2vec",
-                                variant_type="ml_baseline",
-                                evaluation=ml_topk_node2vec_evaluation,
-                                runtime_seconds=node2vec_preparation_runtime + ml_topk_node2vec_evaluation.runtime_seconds,
+                                label="hybrid_siea_ml_two_tier_tuned_node2vec",
+                                variant_type="ml_guided",
+                                result=node2vec_result,
+                                config=node2vec_optimizer_config,
                                 quality=quality,
-                                candidate_pool_size=dataset.graph.number_of_nodes(),
-                                validation_spearman=node2vec_training_result.validation_spearman,
-                                validation_precision_at_budget=node2vec_training_result.validation_precision_at_budget,
-                                guidance_mode="off",
                                 diffusion_model=settings.diffusion_model,
-                                note=f"ML ranking baseline with Node2Vec features; {node2vec_metrics}",
+                                note=node2vec_note,
                                 node2vec_enabled=True,
                                 node2vec_mode="feature_concat",
                             )
-                        )
-
-                        node2vec_optimizer_config = _build_optimizer_config(settings, ml_guidance_mode="two_tier")
-                        node2vec_optimizer = HybridSIEAOptimizer(
-                            dataset=dataset,
-                            protected_group_report=protected_group_report,
-                            community_result=community_result,
-                            config=node2vec_optimizer_config,
-                            ml_node_scores=node2vec_training_result.predicted_scores,
-                        )
-                        node2vec_result = node2vec_optimizer.optimize()
-                        node2vec_history_path = _history_path(
-                            settings.output_dir,
-                            dataset.name,
-                            settings.budget,
-                            community_method,
-                            "hybrid_siea_ml_two_tier_tuned_node2vec",
-                        )
-                        node2vec_note = (
-                            "ML guidance mode=two_tier; full_pool="
-                            f"{dataset.graph.number_of_nodes()}; tier_policy=tuned; {node2vec_metrics}"
-                        )
-                        if node2vec_history_path is not None:
-                            node2vec_result.history.to_csv(node2vec_history_path, index=False)
-                            node2vec_note = "; ".join(
-                                part
-                                for part in [node2vec_note, f"history={node2vec_history_path.name}"]
-                                if part
-                            )
-
-                        node2vec_row = _hybrid_row(
-                            dataset=dataset,
-                            community_method=community_method,
-                            label="hybrid_siea_ml_two_tier_tuned_node2vec",
-                            variant_type="ml_guided",
-                            result=node2vec_result,
-                            config=node2vec_optimizer_config,
-                            quality=quality,
-                            diffusion_model=settings.diffusion_model,
-                            note=node2vec_note,
-                            node2vec_enabled=True,
-                            node2vec_mode="feature_concat",
-                        )
-                        node2vec_row["runtime_seconds"] = node2vec_preparation_runtime + node2vec_result.runtime_seconds
-                        node2vec_row["ml_validation_spearman"] = node2vec_training_result.validation_spearman
-                        node2vec_row["ml_validation_precision_at_budget"] = node2vec_training_result.validation_precision_at_budget
-                        node2vec_row["ml_guidance_mode"] = "two_tier"
-                        results.append(node2vec_row)
+                            node2vec_row["runtime_seconds"] = node2vec_preparation_runtime + node2vec_result.runtime_seconds
+                            node2vec_row["ml_validation_spearman"] = node2vec_training_result.validation_spearman
+                            node2vec_row["ml_validation_precision_at_budget"] = node2vec_training_result.validation_precision_at_budget
+                            node2vec_row["ml_guidance_mode"] = "two_tier"
+                            results.append(node2vec_row)
 
                     if node2vec_variant == "diversity_signal":
+                        if not is_selected("hybrid_siea_ml_two_tier_tuned_node2vec_diversity"):
+                            continue
                         cache_path = build_node2vec_cache_path(settings.output_dir, dataset.name, node2vec_config)
                         embedding_result = generate_node2vec_embeddings(
                             graph=dataset.graph,
@@ -1781,6 +1833,7 @@ def run_loaded_experiment(
                         diversity_history_path = _history_path(
                             settings.output_dir,
                             dataset.name,
+                            settings.protected_attribute,
                             settings.budget,
                             community_method,
                             "hybrid_siea_ml_two_tier_tuned_node2vec_diversity",
@@ -1817,28 +1870,19 @@ def run_loaded_experiment(
                         results.append(diversity_row)
 
     result_frame = pd.DataFrame(results)
+    if selected_method_set is not None and result_frame.empty:
+        requested = ", ".join(sorted(selected_method_set))
+        raise ValueError(
+            "No methods matched the selected filter. "
+            f"Requested: {requested}. "
+            f"Supported ML variant: {_KEPT_ML_VARIANT_LABEL}."
+        )
     result_frame["comparison_baseline_method"] = "hybrid_siea"
     result_frame["delta_f_score"] = pd.NA
     if not result_frame.empty:
         for community_method in result_frame["community_method"].dropna().unique():
             community_mask = result_frame["community_method"] == community_method
             baseline_method = "hybrid_siea"
-            if settings.compare_refinement_variants and (
-                result_frame.loc[community_mask, "method"] == "hybrid_siea_ml_two_tier_tuned_fairness_full"
-            ).any():
-                baseline_method = "hybrid_siea_ml_two_tier_tuned_fairness_full"
-            if settings.compare_scalability_variants and (
-                result_frame.loc[community_mask, "method"] == "hybrid_siea_ml_two_tier_tuned_fairness_full"
-            ).any():
-                baseline_method = "hybrid_siea_ml_two_tier_tuned_fairness_full"
-            if settings.compare_runtime_variants and (
-                result_frame.loc[community_mask, "method"] == "hybrid_siea_ml_two_tier_tuned_marginal_gain"
-            ).any():
-                baseline_method = "hybrid_siea_ml_two_tier_tuned_marginal_gain"
-            if settings.compare_swap_runtime_variants and (
-                result_frame.loc[community_mask, "method"] == "hybrid_siea_ml_two_tier_tuned_swap_local_search"
-            ).any():
-                baseline_method = "hybrid_siea_ml_two_tier_tuned_swap_local_search"
             baseline_rows = result_frame.loc[community_mask & (result_frame["method"] == baseline_method)]
             if baseline_rows.empty:
                 continue
@@ -1847,9 +1891,9 @@ def run_loaded_experiment(
             result_frame.loc[community_mask, "delta_f_score"] = (
                 result_frame.loc[community_mask, "f_score"].astype(float) - baseline_f_score
             )
-    dataset_dir = _dataset_output_dir(settings.output_dir, dataset.name)
-    if dataset_dir is not None:
-        output_path = dataset_dir / f"{dataset.name}_budget{settings.budget}_results.csv"
+    attribute_dir = _ensure_results_output_dir(settings.output_dir, dataset.name, settings.protected_attribute)
+    if attribute_dir is not None:
+        output_path = attribute_dir / f"{dataset.name}_budget{settings.budget}_results.csv"
         result_frame.to_csv(output_path, index=False)
     return result_frame
 
@@ -1859,6 +1903,7 @@ def run_experiment(
     settings: ExperimentSettings,
     community_methods: list[str] | None = None,
     baseline_methods: list[str] | None = None,
+    selected_methods: list[str] | None = None,
     include_ablations: bool = True,
 ) -> pd.DataFrame:
     """Load a dataset and run the comparison experiment."""
@@ -1871,5 +1916,6 @@ def run_experiment(
         settings=settings,
         community_methods=community_methods,
         baseline_methods=baseline_methods,
+        selected_methods=selected_methods,
         include_ablations=include_ablations,
     )

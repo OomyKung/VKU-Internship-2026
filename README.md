@@ -84,7 +84,7 @@ python scripts\run_experiment.py --dataset custom_graph --edge-path data\custom_
 
 Each run saves:
 
-- a CSV result table under `results/`
+- a CSV result table under `results/<dataset>/<protected_attribute>/`
 - optional PNG plots for `f_score`, `total_spread`, and `runtime_seconds`
 
 ## Notes
