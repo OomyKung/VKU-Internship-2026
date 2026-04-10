@@ -31,7 +31,14 @@ from .data_loader import (
     verify_protected_groups,
     verify_dataset_phase1,
 )
-from .diffusion import DiffusionResult, simulate_independent_cascade, simulate_independent_cascade_once
+from .diffusion import (
+    DEFAULT_DIFFUSION_MODEL,
+    DiffusionResult,
+    SUPPORTED_DIFFUSION_MODELS,
+    simulate_independent_cascade,
+    simulate_independent_cascade_once,
+    validate_diffusion_model,
+)
 from .evaluation import SeedSetEvaluation, compute_f_score, evaluate_seed_set
 from .experiment_runner import ExperimentSettings, run_experiment, run_loaded_experiment
 from .feature_extraction import compute_node_features, compute_structural_node_scores
@@ -61,6 +68,7 @@ __all__ = [
     "CommunityQualityMetrics",
     "CommunityStats",
     "CommunityValidationReport",
+    "DEFAULT_DIFFUSION_MODEL",
     "DatasetConfig",
     "LoadedDataset",
     "ProtectedGroupReport",
@@ -106,7 +114,9 @@ __all__ = [
     "select_ml_candidate_nodes",
     "simulate_independent_cascade",
     "simulate_independent_cascade_once",
+    "SUPPORTED_DIFFUSION_MODELS",
     "train_node_utility_model",
+    "validate_diffusion_model",
     "build_node2vec_cache_path",
     "generate_node2vec_embeddings",
     "transform_node2vec_embeddings",

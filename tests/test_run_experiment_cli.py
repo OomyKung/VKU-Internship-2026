@@ -18,6 +18,7 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
             [
                 {
                     "dataset": "toy_graph",
+                    "diffusion_model": "ic",
                     "community_method": "leiden",
                     "method": "hybrid_siea_ml_two_tier_tuned",
                     "variant_type": "ml_guided",
@@ -27,6 +28,7 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "f_score": -0.012023,
                     "runtime_seconds": 6.376776,
                     "candidate_pool_size": 500,
+                    "optimization_mode": "balanced",
                     "node2vec_enabled": False,
                     "node2vec_mode": "off",
                     "ml_guidance_mode": "two_tier",
@@ -36,6 +38,7 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                 },
                 {
                     "dataset": "toy_graph",
+                    "diffusion_model": "ic",
                     "community_method": "leiden",
                     "method": "hybrid_siea",
                     "variant_type": "proposed",
@@ -45,6 +48,7 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "f_score": -0.014949,
                     "runtime_seconds": 3.157337,
                     "candidate_pool_size": 500,
+                    "optimization_mode": "full",
                     "node2vec_enabled": False,
                     "node2vec_mode": "off",
                     "ml_guidance_mode": "off",
@@ -54,6 +58,7 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                 },
                 {
                     "dataset": "toy_graph",
+                    "diffusion_model": "ic",
                     "community_method": "leiden",
                     "method": "hybrid_siea_ml_hard_filter",
                     "variant_type": "ml_guided",
@@ -63,6 +68,7 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "f_score": -0.014636,
                     "runtime_seconds": 3.796700,
                     "candidate_pool_size": 125,
+                    "optimization_mode": "fast",
                     "node2vec_enabled": False,
                     "node2vec_mode": "off",
                     "ml_guidance_mode": "hard_filter",
@@ -86,10 +92,12 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
         report = format_results_report(frame, settings)
 
         self.assertIn("Fair Influence Maximization Experiment Summary", report)
+        self.assertIn("Diffusion model: ic (Independent Cascade)", report)
         self.assertIn("Community: leiden", report)
         self.assertIn("Highlights", report)
         self.assertIn("Delta vs hybrid_siea", report)
         self.assertIn("hybrid_siea_ml_two_tier_tuned", report)
+        self.assertIn("balanced", report)
         self.assertIn("+0.002926", report)
         self.assertIn("0.302647", report)
 

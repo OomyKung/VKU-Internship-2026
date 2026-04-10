@@ -60,6 +60,7 @@ class EvaluationTestCase(unittest.TestCase):
             mc_runs=5,
             random_seed=7,
             lambda_weight=0.5,
+            diffusion_model="ic",
         )
 
         self.assertEqual(evaluation.seed_set, (1, 5))
@@ -67,6 +68,37 @@ class EvaluationTestCase(unittest.TestCase):
         self.assertEqual(evaluation.fairness.mf, 0.0)
         self.assertEqual(evaluation.fairness.dcv, 0.5)
         self.assertEqual(evaluation.f_score, -0.25)
+
+    def test_evaluate_seed_set_handles_empty_seed_set(self) -> None:
+        dataset, report = _toy_evaluation_dataset()
+
+        evaluation = evaluate_seed_set(
+            dataset=dataset,
+            protected_group_report=report,
+            seed_set=(),
+            propagation_probability=0.5,
+            mc_runs=3,
+            random_seed=7,
+            lambda_weight=0.5,
+            diffusion_model="ic",
+        )
+
+        self.assertEqual(evaluation.seed_set, ())
+        self.assertEqual(evaluation.total_spread_mean, 0.0)
+        self.assertEqual(evaluation.fairness.mf, 0.0)
+        self.assertEqual(evaluation.fairness.dcv, 0.0)
+        self.assertEqual(evaluation.f_score, 0.0)
+
+    def test_evaluate_seed_set_rejects_unsupported_diffusion_model(self) -> None:
+        dataset, report = _toy_evaluation_dataset()
+
+        with self.assertRaisesRegex(ValueError, "Unsupported diffusion_model"):
+            evaluate_seed_set(
+                dataset=dataset,
+                protected_group_report=report,
+                seed_set=(1,),
+                diffusion_model="lt",
+            )
 
 
 if __name__ == "__main__":

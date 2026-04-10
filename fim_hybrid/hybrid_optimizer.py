@@ -13,6 +13,7 @@ import pandas as pd
 
 from .community_detection import CommunityDetectionResult, get_community_stats, sample_community, sample_node_from_community
 from .data_loader import LoadedDataset, ProtectedGroupReport
+from .diffusion import DEFAULT_DIFFUSION_MODEL, validate_diffusion_model
 from .evaluation import evaluate_seed_set
 from .feature_extraction import compute_node_features, compute_structural_node_scores
 from .fairness import FairnessMetrics
@@ -31,6 +32,7 @@ class HybridSIEAConfig:
     leader_guidance_fraction: float = 0.34
     propagation_probability: float = 0.01
     mc_runs: int = 30
+    diffusion_model: str = DEFAULT_DIFFUSION_MODEL
     lambda_weight: float = 0.5
     random_seed: int = 42
     local_search_steps: int = 2
@@ -90,11 +92,18 @@ class HybridSIEAConfig:
     neighborhood_overlap_penalty_weight: float = 0.0
     marginal_candidate_pool_size: int = 0
     mutation_candidate_pool_size: int = 0
+    repair_candidate_pool_size: int = 0
+    candidate_prefilter_top_k: int = 0
     enable_fitness_cache: bool = True
     enable_marginal_cache: bool = False
     cache_max_size: int = 0
     local_search_early_stop_patience: int = 0
     local_search_use_prefilter: bool = False
+    local_search_elite_count: int = 0
+    local_search_every_n_generations: int = 1
+    use_staged_mc: bool = False
+    mc_runs_fast: int = 0
+    mc_runs_full: int = 0
     optimization_mode: str = "full"
     refinement_intensity: float = 1.0
     marginal_eval_fraction: float = 1.0
@@ -178,12 +187,18 @@ class HybridSIEAOptimizer:
         self.config = config
         self.rng = np.random.default_rng(config.random_seed)
         self.evaluation_cache: OrderedDict[tuple[Any, ...], CandidateEvaluation] = OrderedDict()
+        self.screening_evaluation_cache: OrderedDict[tuple[tuple[Any, ...], int], CandidateEvaluation] = OrderedDict()
         self.marginal_gain_cache: OrderedDict[tuple[Any, ...], tuple[float, float, float, float]] = OrderedDict()
-        self.swap_evaluation_cache: OrderedDict[tuple[tuple[Any, ...], Any], CandidateEvaluation] = OrderedDict()
+        self.swap_evaluation_cache: OrderedDict[Any, CandidateEvaluation] = OrderedDict()
         self.fitness_cache_hits = 0
         self.marginal_cache_hits = 0
         self.swap_cache_hits = 0
+        self.full_evaluation_calls = 0
+        self.screening_evaluation_calls = 0
+        self.last_screening_mc_runs = 0
+        self.last_full_mc_runs = 0
         self.last_local_search_swap_evaluations = 0
+        self.last_local_search_applied_count = 0
 
         self._validate_inputs()
         if self.config.ml_guidance_mode in {"soft_bias", "two_tier"} and ml_node_scores is None:
@@ -236,6 +251,7 @@ class HybridSIEAOptimizer:
         valid_ml_modes = {"off", "hard_filter", "soft_bias", "two_tier"}
         valid_local_search_modes = {"default", "worst_group"}
         valid_optimization_modes = {"full", "balanced", "fast"}
+        validate_diffusion_model(self.config.diffusion_model)
         if self.dataset.graph.number_of_nodes() == 0:
             raise ValueError("dataset.graph must contain at least one node.")
         if self.dataset.name != self.protected_group_report.dataset_name:
@@ -377,16 +393,38 @@ class HybridSIEAOptimizer:
             raise ValueError("marginal_candidate_pool_size must be non-negative.")
         if self.config.mutation_candidate_pool_size < 0:
             raise ValueError("mutation_candidate_pool_size must be non-negative.")
+        if self.config.repair_candidate_pool_size < 0:
+            raise ValueError("repair_candidate_pool_size must be non-negative.")
+        if self.config.candidate_prefilter_top_k < 0:
+            raise ValueError("candidate_prefilter_top_k must be non-negative.")
         if self.config.cache_max_size < 0:
             raise ValueError("cache_max_size must be non-negative.")
         if self.config.local_search_early_stop_patience < 0:
             raise ValueError("local_search_early_stop_patience must be non-negative.")
+        if self.config.local_search_elite_count < 0:
+            raise ValueError("local_search_elite_count must be non-negative.")
+        if self.config.local_search_every_n_generations < 1:
+            raise ValueError("local_search_every_n_generations must be at least 1.")
+        if self.config.mc_runs_fast < 0:
+            raise ValueError("mc_runs_fast must be non-negative.")
+        if self.config.mc_runs_full < 0:
+            raise ValueError("mc_runs_full must be non-negative.")
         if self.config.optimization_mode not in valid_optimization_modes:
             raise ValueError(f"optimization_mode must be one of {sorted(valid_optimization_modes)}.")
         if not 0.0 < self.config.refinement_intensity <= 1.0:
             raise ValueError("refinement_intensity must be in the interval (0.0, 1.0].")
         if not 0.0 < self.config.marginal_eval_fraction <= 1.0:
             raise ValueError("marginal_eval_fraction must be in the interval (0.0, 1.0].")
+        if self.config.mc_runs_full > 0 and self.config.mc_runs_full < 1:
+            raise ValueError("mc_runs_full must be at least 1 when provided.")
+        if self.config.use_staged_mc:
+            resolved_full_runs = self.config.mc_runs_full if self.config.mc_runs_full > 0 else self.config.mc_runs
+            if resolved_full_runs < 1:
+                raise ValueError("use_staged_mc requires a positive full MC budget.")
+            if self.config.mc_runs_fast <= 0:
+                raise ValueError("use_staged_mc requires mc_runs_fast to be set to a positive value.")
+            if self.config.mc_runs_fast >= resolved_full_runs:
+                raise ValueError("mc_runs_fast must be smaller than the full MC budget when use_staged_mc is enabled.")
 
     def _build_candidate_pool(self, candidate_nodes: Sequence[Any] | None) -> tuple[Any, ...]:
         pool = self.dataset.graph.nodes() if candidate_nodes is None else candidate_nodes
@@ -652,6 +690,23 @@ class HybridSIEAOptimizer:
         }[self.config.optimization_mode]
         return float(np.clip(self.config.refinement_intensity * mode_scale, 0.05, 1.0))
 
+    def _full_mc_runs(self) -> int:
+        return int(self.config.mc_runs_full) if self.config.mc_runs_full > 0 else int(self.config.mc_runs)
+
+    def _screening_mc_runs(self) -> int:
+        full_runs = self._full_mc_runs()
+        if not self.config.use_staged_mc:
+            return full_runs
+        if self.config.mc_runs_fast > 0:
+            return int(self.config.mc_runs_fast)
+        if full_runs <= 1:
+            return full_runs
+        derived_runs = int(math.ceil(full_runs * 0.35))
+        return max(1, min(full_runs - 1, derived_runs))
+
+    def _staged_mc_active(self) -> bool:
+        return self.config.use_staged_mc and self._screening_mc_runs() < self._full_mc_runs()
+
     def _effective_marginal_eval_fraction(self) -> float:
         mode_fraction = {
             "full": 1.0,
@@ -667,12 +722,14 @@ class HybridSIEAOptimizer:
             base_caps = {
                 "marginal": max(24, self.config.budget * 6),
                 "mutation": max(12, self.config.budget * 4),
+                "repair": max(16, self.config.budget * 4),
                 "local_search": max(6, self.config.budget * 2),
             }
         else:
             base_caps = {
                 "marginal": max(16, self.config.budget * 4),
                 "mutation": max(8, self.config.budget * 3),
+                "repair": max(10, self.config.budget * 3),
                 "local_search": max(4, self.config.budget + 1),
             }
         return max(1, int(math.ceil(base_caps[stage] * self._mode_scale())))
@@ -684,6 +741,7 @@ class HybridSIEAOptimizer:
         explicit_limit = {
             "marginal": self.config.marginal_candidate_pool_size,
             "mutation": self.config.mutation_candidate_pool_size,
+            "repair": self.config.repair_candidate_pool_size,
             "local_search": self.config.local_search_candidate_pool_size,
         }[stage]
         if (
@@ -714,6 +772,20 @@ class HybridSIEAOptimizer:
 
         return max(1, min(total_candidates, limit))
 
+    def _candidate_prefilter_limit(self, total_candidates: int, candidate_limit: int, stage: str) -> int:
+        if total_candidates <= 0:
+            return 0
+        minimum_limit = candidate_limit if 0 < candidate_limit < total_candidates else 0
+        explicit_prefilter = self.config.candidate_prefilter_top_k
+        if explicit_prefilter <= 0:
+            if minimum_limit > 0:
+                return max(1, min(total_candidates, minimum_limit))
+            return total_candidates
+        prefilter_limit = explicit_prefilter
+        if self.config.optimization_mode != "full":
+            prefilter_limit = max(1, int(math.ceil(prefilter_limit * self._mode_scale())))
+        return max(1, min(total_candidates, max(minimum_limit, prefilter_limit)))
+
     def _effective_local_search_budget(self) -> tuple[int, int]:
         candidate_pool_size = (
             self.config.local_search_candidate_pool_size
@@ -739,6 +811,21 @@ class HybridSIEAOptimizer:
         )
         patience = min(max_trials, max(1, int(math.ceil(patience * self._mode_scale()))))
         return candidate_pool_size, max_trials if max_trials > 0 else 1, patience
+
+    def _effective_local_search_elite_count(self) -> int:
+        if self.config.local_search_elite_count > 0:
+            return min(self.config.population_size, self.config.local_search_elite_count)
+        if self.config.optimization_mode == "full":
+            return self.config.population_size
+        if self.config.optimization_mode == "balanced":
+            return max(1, int(math.ceil(self.config.population_size * 0.5)))
+        return max(1, int(math.ceil(self.config.population_size * 0.34)))
+
+    def _should_run_local_search_generation(self, generation: int) -> bool:
+        interval = max(1, self.config.local_search_every_n_generations)
+        if generation == self.config.generations - 1:
+            return True
+        return generation % interval == 0
 
     def _effective_swap_stage_limits(self, candidate_pool_size: int) -> tuple[int, int, int]:
         swap_candidate_pool_size = (
@@ -1208,19 +1295,34 @@ class HybridSIEAOptimizer:
     def _evaluate_seed_set_with_cache_info(
         self,
         seed_set: tuple[Any, ...],
+        screening: bool = False,
     ) -> tuple[CandidateEvaluation, bool]:
         normalized_seed_set = self._validate_seed_set(tuple(sorted(seed_set, key=_sort_key)))
+        mc_runs = self._screening_mc_runs() if screening and self._staged_mc_active() else self._full_mc_runs()
+        cache_key: Any = normalized_seed_set
+        target_cache: OrderedDict[Any, CandidateEvaluation] = self.evaluation_cache
+        if mc_runs != self._full_mc_runs():
+            cache_key = (normalized_seed_set, mc_runs)
+            target_cache = self.screening_evaluation_cache
         if self.config.enable_fitness_cache:
-            cached = self._cache_lookup(self.evaluation_cache, normalized_seed_set, "fitness_cache_hits")
+            cached = self._cache_lookup(target_cache, cache_key, "fitness_cache_hits")
             if cached is not None:
                 return cached, True
+
+        if mc_runs == self._full_mc_runs():
+            self.full_evaluation_calls += 1
+            self.last_full_mc_runs = mc_runs
+        else:
+            self.screening_evaluation_calls += 1
+            self.last_screening_mc_runs = mc_runs
 
         evaluation_result = evaluate_seed_set(
             dataset=self.dataset,
             protected_group_report=self.protected_group_report,
             seed_set=normalized_seed_set,
             propagation_probability=self.config.propagation_probability,
-            mc_runs=self.config.mc_runs,
+            mc_runs=mc_runs,
+            diffusion_model=self.config.diffusion_model,
             random_seed=self.config.random_seed,
             lambda_weight=self.config.lambda_weight,
             include_soft_mf=True,
@@ -1233,23 +1335,27 @@ class HybridSIEAOptimizer:
             score=evaluation_result.f_score,
         )
         if self.config.enable_fitness_cache:
-            self._cache_store(self.evaluation_cache, normalized_seed_set, evaluation)
+            self._cache_store(target_cache, cache_key, evaluation)
         return evaluation, False
 
     def _evaluate_swap_candidate(
         self,
         partial_seed_set: Sequence[Any],
         candidate_node: Any,
+        screening: bool = False,
     ) -> tuple[CandidateEvaluation, bool]:
         partial_key = _normalize_seed_set(partial_seed_set)
-        cache_key = (partial_key, candidate_node)
+        screening_mc_runs = self._screening_mc_runs() if screening and self._staged_mc_active() else self._full_mc_runs()
+        cache_key: Any = (partial_key, candidate_node)
+        if screening_mc_runs != self._full_mc_runs():
+            cache_key = (partial_key, candidate_node, screening_mc_runs)
         if self.config.enable_swap_cache:
             cached = self._cache_lookup(self.swap_evaluation_cache, cache_key, "swap_cache_hits")
             if cached is not None:
                 return cached, True
 
         candidate_seed_set = self._repair_seed_set(list(partial_key) + [candidate_node])
-        evaluation, fitness_cache_hit = self._evaluate_seed_set_with_cache_info(candidate_seed_set)
+        evaluation, fitness_cache_hit = self._evaluate_seed_set_with_cache_info(candidate_seed_set, screening=screening)
         if self.config.enable_swap_cache:
             self._cache_store(self.swap_evaluation_cache, cache_key, evaluation)
         return evaluation, fitness_cache_hit
@@ -1478,6 +1584,34 @@ class HybridSIEAOptimizer:
             ),
         )
 
+    def _confirm_local_search_improvement(
+        self,
+        current_full_evaluation: CandidateEvaluation,
+        screening_candidates: Sequence[tuple[tuple[Any, ...], CandidateEvaluation]],
+    ) -> tuple[tuple[Any, ...], CandidateEvaluation] | None:
+        if not screening_candidates:
+            return None
+
+        unique_candidates: dict[tuple[Any, ...], CandidateEvaluation] = {}
+        for candidate_seed_set, screening_evaluation in screening_candidates:
+            unique_candidates[candidate_seed_set] = screening_evaluation
+
+        ranked_candidates = sorted(
+            unique_candidates.items(),
+            key=lambda item: (
+                self._local_search_rank_key(item[1]),
+                self._seed_sort_key(item[0]),
+            ),
+            reverse=True,
+        )
+        for candidate_seed_set, _ in ranked_candidates:
+            full_evaluation = self._evaluate_seed_set(candidate_seed_set, screening=False)
+            if self._local_search_rank_key(full_evaluation) > self._local_search_rank_key(current_full_evaluation):
+                return candidate_seed_set, full_evaluation
+            if self.config.local_search_first_improvement:
+                break
+        return None
+
     def _ml_bias_score(self, node_id: Any, weight: float) -> float:
         if weight <= 0.0:
             return 0.0
@@ -1628,6 +1762,7 @@ class HybridSIEAOptimizer:
         local_search_delta_dcv_weight: float = 0.0,
         local_search_overlap_penalty_weight: float = 0.0,
         candidate_limit: int | None = None,
+        prefilter_top_k: int | None = None,
     ) -> list[Any]:
         require_proxy_priors = (
             self._marginal_gain_scoring_active()
@@ -1641,10 +1776,15 @@ class HybridSIEAOptimizer:
             require_proxy=require_proxy_priors,
         )
         ranked_input = list(candidate_nodes)
-        if candidate_limit is not None and 0 < candidate_limit < len(ranked_input):
+        effective_prefilter_limit = 0
+        if prefilter_top_k is not None and prefilter_top_k > 0:
+            effective_prefilter_limit = prefilter_top_k
+        if candidate_limit is not None and candidate_limit > 0:
+            effective_prefilter_limit = max(effective_prefilter_limit, candidate_limit)
+        if 0 < effective_prefilter_limit < len(ranked_input):
             ranked_input = self._prefilter_candidate_nodes(
                 ranked_input,
-                limit=candidate_limit,
+                limit=effective_prefilter_limit,
                 group_counts=group_counts,
                 community_counts=community_counts,
                 ml_bias_weight=ml_bias_weight,
@@ -1722,13 +1862,16 @@ class HybridSIEAOptimizer:
                 if primary_rate is None
                 else primary_rate
             )
-            return self._order_two_tier_rankings(
+            ordered = self._order_two_tier_rankings(
                 primary_ranked,
                 secondary_ranked,
                 primary_rate=effective_primary_rate,
             )
+            if candidate_limit is not None and 0 < candidate_limit < len(ordered):
+                return ordered[:candidate_limit]
+            return ordered
 
-        return sorted(
+        ordered = sorted(
             ranked_input,
             key=lambda node_id: (
                 -self._dynamic_candidate_score(
@@ -1754,6 +1897,9 @@ class HybridSIEAOptimizer:
                 _sort_key(node_id),
             ),
         )
+        if candidate_limit is not None and 0 < candidate_limit < len(ordered):
+            return ordered[:candidate_limit]
+        return ordered
 
     def _rank_external_candidates(
         self,
@@ -1777,7 +1923,13 @@ class HybridSIEAOptimizer:
         group_counts = self._selected_group_counts(seed_set)
         community_counts = self._selected_community_counts(seed_set)
         available_nodes = [node_id for node_id in self.candidate_pool if node_id not in selected_nodes]
-        candidate_limit = self._candidate_pool_limit(len(available_nodes), stage=stage)
+        raw_candidate_limit = self._candidate_pool_limit(len(available_nodes), stage=stage)
+        prefilter_top_k = self._candidate_prefilter_limit(len(available_nodes), raw_candidate_limit, stage=stage)
+        candidate_limit = (
+            raw_candidate_limit
+            if 0 < raw_candidate_limit < len(available_nodes)
+            else None
+        )
         return self._rank_candidate_nodes(
             available_nodes,
             group_counts=group_counts,
@@ -1797,6 +1949,7 @@ class HybridSIEAOptimizer:
             local_search_delta_dcv_weight=local_search_delta_dcv_weight,
             local_search_overlap_penalty_weight=local_search_overlap_penalty_weight,
             candidate_limit=candidate_limit,
+            prefilter_top_k=prefilter_top_k,
         )
 
     def _rank_fairness_first_candidates(
@@ -1862,15 +2015,43 @@ class HybridSIEAOptimizer:
         bridge_weight: float = 0.0,
         centrality_weight: float = 0.0,
         diversity_weight: float = 0.0,
+        candidate_limit: int | None = None,
+        prefilter_top_k: int | None = None,
     ) -> Any | None:
         available_nodes = [node for node in community_nodes if node not in used_nodes]
         if not available_nodes:
             return None
 
+        used_seed_set = tuple(sorted(used_nodes, key=_sort_key))
+        raw_candidate_limit = (
+            self._candidate_pool_limit(len(available_nodes), stage="repair")
+            if candidate_limit is None
+            else max(1, min(len(available_nodes), candidate_limit))
+        )
+        effective_candidate_limit = (
+            raw_candidate_limit
+            if 0 < raw_candidate_limit < len(available_nodes)
+            else None
+        )
+        effective_prefilter_top_k = (
+            self._candidate_prefilter_limit(len(available_nodes), raw_candidate_limit, stage="repair")
+            if prefilter_top_k is None
+            else max(
+                1,
+                min(
+                    len(available_nodes),
+                    max(
+                        effective_candidate_limit if effective_candidate_limit is not None else 0,
+                        prefilter_top_k,
+                    ),
+                ),
+            )
+        )
+
         ranked_nodes = self._rank_candidate_nodes(
             available_nodes,
-            group_counts=self._selected_group_counts(tuple(sorted(used_nodes, key=_sort_key))),
-            community_counts=self._selected_community_counts(tuple(sorted(used_nodes, key=_sort_key))),
+            group_counts=self._selected_group_counts(used_seed_set),
+            community_counts=self._selected_community_counts(used_seed_set),
             ml_bias_weight=ml_bias_weight,
             primary_rate=primary_rate,
             reference_nodes=used_nodes,
@@ -1881,6 +2062,8 @@ class HybridSIEAOptimizer:
             bridge_weight=bridge_weight,
             centrality_weight=centrality_weight,
             diversity_weight=diversity_weight,
+            candidate_limit=effective_candidate_limit,
+            prefilter_top_k=effective_prefilter_top_k,
         )
 
         top_candidates = tuple(ranked_nodes[: min(3, len(ranked_nodes))])
@@ -1898,6 +2081,8 @@ class HybridSIEAOptimizer:
         bridge_weight: float = 0.0,
         centrality_weight: float = 0.0,
         diversity_weight: float = 0.0,
+        candidate_limit: int | None = None,
+        prefilter_top_k: int | None = None,
     ) -> Any | None:
         represented_communities = {
             self.community_result.community_id_by_node[node_id]
@@ -1938,6 +2123,8 @@ class HybridSIEAOptimizer:
             bridge_weight=bridge_weight,
             centrality_weight=centrality_weight,
             diversity_weight=diversity_weight,
+            candidate_limit=candidate_limit,
+            prefilter_top_k=prefilter_top_k,
         )
 
     def _repair_seed_set(
@@ -1957,6 +2144,15 @@ class HybridSIEAOptimizer:
                 return self._validate_seed_set(tuple(sorted(cleaned, key=_sort_key)))
 
         while len(cleaned) < self.config.budget:
+            repair_candidate_limit = self._candidate_pool_limit(
+                len(self.candidate_pool) - len(used_nodes),
+                stage="repair",
+            )
+            repair_prefilter_top_k = self._candidate_prefilter_limit(
+                len(self.candidate_pool) - len(used_nodes),
+                repair_candidate_limit,
+                stage="repair",
+            )
             repair_context = (
                 self._weak_group_context_for_seed_set(cleaned)
                 if self._fairness_repair_active()
@@ -1973,6 +2169,8 @@ class HybridSIEAOptimizer:
                 bridge_weight=self.config.repair_bridge_weight,
                 centrality_weight=self.config.repair_centrality_weight,
                 diversity_weight=self.config.repair_diversity_weight,
+                candidate_limit=repair_candidate_limit,
+                prefilter_top_k=repair_prefilter_top_k,
             )
             if replacement is None:
                 break
@@ -2073,8 +2271,8 @@ class HybridSIEAOptimizer:
 
         return population
 
-    def _evaluate_seed_set(self, seed_set: tuple[Any, ...]) -> CandidateEvaluation:
-        evaluation, _ = self._evaluate_seed_set_with_cache_info(seed_set)
+    def _evaluate_seed_set(self, seed_set: tuple[Any, ...], screening: bool = False) -> CandidateEvaluation:
+        evaluation, _ = self._evaluate_seed_set_with_cache_info(seed_set, screening=screening)
         return evaluation
 
     def _select_elites(self, evaluations: Sequence[CandidateEvaluation]) -> list[CandidateEvaluation]:
@@ -2180,12 +2378,18 @@ class HybridSIEAOptimizer:
             return self._validate_seed_set(tuple(sorted(individual, key=_sort_key)))
 
         current = self._validate_seed_set(tuple(sorted(individual, key=_sort_key)))
-        current_evaluation = self._evaluate_seed_set(current)
+        current_full_evaluation = self._evaluate_seed_set(current, screening=False)
+        current_evaluation = (
+            self._evaluate_seed_set(current, screening=True)
+            if self._staged_mc_active()
+            else current_full_evaluation
+        )
         self.last_local_search_swap_evaluations = 0
 
         for _ in range(self.config.local_search_steps):
             best_candidate = current
             best_evaluation = current_evaluation
+            screening_improvements: list[tuple[tuple[Any, ...], CandidateEvaluation]] = []
             weak_group_context = (
                 self._weak_group_context_for_seed_set(current, evaluation=current_evaluation)
                 if self._worst_group_local_search_active()
@@ -2228,13 +2432,17 @@ class HybridSIEAOptimizer:
                         if evaluated_trials >= max_trials or stale_trials >= failed_patience:
                             break
                         if self.config.enable_swap_cache:
-                            evaluation, was_cached = self._evaluate_swap_candidate(partial, node_to_add)
+                            evaluation, was_cached = self._evaluate_swap_candidate(
+                                partial,
+                                node_to_add,
+                                screening=self._staged_mc_active(),
+                            )
                             candidate = evaluation.seed_set
                         else:
                             candidate = self._repair_seed_set(partial + [node_to_add])
                             if candidate == current:
                                 continue
-                            evaluation = self._evaluate_seed_set(candidate)
+                            evaluation = self._evaluate_seed_set(candidate, screening=self._staged_mc_active())
                             was_cached = False
                         if candidate == current:
                             continue
@@ -2244,6 +2452,7 @@ class HybridSIEAOptimizer:
                         if self._local_search_rank_key(evaluation) > self._local_search_rank_key(best_evaluation):
                             best_candidate = candidate
                             best_evaluation = evaluation
+                            screening_improvements.append((candidate, evaluation))
                             stale_trials = 0
                         else:
                             stale_trials += 1
@@ -2252,8 +2461,19 @@ class HybridSIEAOptimizer:
 
                 if best_candidate == current:
                     break
+                if self._staged_mc_active():
+                    confirmed = self._confirm_local_search_improvement(
+                        current_full_evaluation,
+                        screening_improvements,
+                    )
+                    if confirmed is None:
+                        break
+                    current, current_full_evaluation = confirmed
+                    current_evaluation = current_full_evaluation
+                    continue
                 current = best_candidate
                 current_evaluation = best_evaluation
+                current_full_evaluation = best_evaluation
                 continue
 
             candidate_pool_size, max_trials, early_stop_patience = self._effective_local_search_budget()
@@ -2345,7 +2565,11 @@ class HybridSIEAOptimizer:
                 for node_to_add in swap_ranked_candidates[:full_eval_top_k]:
                     if evaluated_trials >= max_trials or stale_trials >= failed_patience:
                         break
-                    evaluation, was_cached = self._evaluate_swap_candidate(partial_seed_set, node_to_add)
+                    evaluation, was_cached = self._evaluate_swap_candidate(
+                        partial_seed_set,
+                        node_to_add,
+                        screening=self._staged_mc_active(),
+                    )
                     if evaluation.seed_set == current:
                         continue
                     if not was_cached:
@@ -2354,6 +2578,7 @@ class HybridSIEAOptimizer:
                     if self._local_search_rank_key(evaluation) > self._local_search_rank_key(best_evaluation):
                         best_candidate = evaluation.seed_set
                         best_evaluation = evaluation
+                        screening_improvements.append((evaluation.seed_set, evaluation))
                         stale_trials = 0
                         if self.config.local_search_first_improvement:
                             accepted_first_improvement = True
@@ -2367,8 +2592,19 @@ class HybridSIEAOptimizer:
 
             if best_candidate == current:
                 break
+            if self._staged_mc_active():
+                confirmed = self._confirm_local_search_improvement(
+                    current_full_evaluation,
+                    screening_improvements,
+                )
+                if confirmed is None:
+                    break
+                current, current_full_evaluation = confirmed
+                current_evaluation = current_full_evaluation
+                continue
             current = best_candidate
             current_evaluation = best_evaluation
+            current_full_evaluation = best_evaluation
 
         return current
 
@@ -2414,15 +2650,27 @@ class HybridSIEAOptimizer:
         start = perf_counter()
         population = self._initialize_population()
         history_records: list[dict[str, float | int | str]] = []
+        self.last_local_search_applied_count = 0
 
         for generation in range(self.config.generations):
+            generation_full_eval_calls_before = self.full_evaluation_calls
+            generation_screening_eval_calls_before = self.screening_evaluation_calls
             current_evaluations = [self._evaluate_seed_set(individual) for individual in population]
             elites = self._select_elites(current_evaluations)
             leader_pool = [evaluation.seed_set for evaluation in elites]
             ranked_current = sorted(current_evaluations, key=self._candidate_rank_key)
             weak_count = max(1, len(ranked_current) // 2)
+            local_search_seed_sets = {
+                evaluation.seed_set
+                for evaluation in sorted(current_evaluations, key=self._candidate_rank_key, reverse=True)[
+                    : self._effective_local_search_elite_count()
+                ]
+            }
+            run_local_search_this_generation = self._should_run_local_search_generation(generation)
 
             offspring: list[tuple[Any, ...]] = []
+            generation_local_search_applied_count = 0
+            generation_local_search_swap_evaluations = 0
             for index, evaluation in enumerate(ranked_current):
                 current = evaluation.seed_set
                 leader = leader_pool[index % len(leader_pool)]
@@ -2438,7 +2686,10 @@ class HybridSIEAOptimizer:
                     child = self._crossover(child, mate)
 
                 child = self._mutate(child)
-                child = self._local_search(child)
+                if run_local_search_this_generation and current in local_search_seed_sets:
+                    child = self._local_search(child)
+                    generation_local_search_applied_count += 1
+                    generation_local_search_swap_evaluations += self.last_local_search_swap_evaluations
                 offspring.append(self._validate_seed_set(child))
 
             next_evaluations = self._survival_selection(population, offspring)
@@ -2450,6 +2701,7 @@ class HybridSIEAOptimizer:
             average_score = float(np.mean([evaluation.score for evaluation in next_evaluations]))
             diversity = self._population_diversity(population)
             fairness_diagnostics = self._fairness_diagnostics(best_evaluation.fairness)
+            self.last_local_search_applied_count = generation_local_search_applied_count
             history_records.append(
                 {
                     "generation": generation,
@@ -2461,6 +2713,10 @@ class HybridSIEAOptimizer:
                     "average_population_score": average_score,
                     "population_diversity": diversity,
                     "best_seed_set": str(list(best_evaluation.seed_set)),
+                    "local_search_applied_count": generation_local_search_applied_count,
+                    "local_search_swap_evaluations": generation_local_search_swap_evaluations,
+                    "screening_evaluation_calls": self.screening_evaluation_calls - generation_screening_eval_calls_before,
+                    "full_evaluation_calls": self.full_evaluation_calls - generation_full_eval_calls_before,
                     **fairness_diagnostics,
                 }
             )

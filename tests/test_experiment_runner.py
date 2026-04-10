@@ -76,6 +76,8 @@ class ExperimentRunnerTestCase(unittest.TestCase):
 
         self.assertEqual(set(result_frame["method"]), {"degree", "random", "cea_fim", "hybrid_siea"})
         self.assertIn("f_score", result_frame.columns)
+        self.assertIn("diffusion_model", result_frame.columns)
+        self.assertIn("optimization_mode", result_frame.columns)
         self.assertIn("community_modularity", result_frame.columns)
         self.assertIn("ml_validation_spearman", result_frame.columns)
         self.assertIn("ml_validation_precision_at_budget", result_frame.columns)
@@ -85,6 +87,7 @@ class ExperimentRunnerTestCase(unittest.TestCase):
         self.assertIn("fraction_groups_covered", result_frame.columns)
         self.assertIn("weakest_groups_note", result_frame.columns)
         self.assertTrue((result_frame["community_method"] == "louvain").all())
+        self.assertTrue((result_frame["diffusion_model"] == "ic").all())
 
     def test_run_loaded_experiment_is_reproducible(self) -> None:
         dataset, protected_group_report = _toy_experiment_fixture()
@@ -137,6 +140,22 @@ class ExperimentRunnerTestCase(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "use_node2vec requires use_ml"):
+            run_loaded_experiment(
+                dataset=dataset,
+                protected_group_report=protected_group_report,
+                settings=settings,
+                include_ablations=False,
+            )
+
+    def test_run_loaded_experiment_rejects_unsupported_diffusion_model(self) -> None:
+        dataset, protected_group_report = _toy_experiment_fixture()
+        settings = ExperimentSettings(
+            protected_attribute="group",
+            budget=3,
+            diffusion_model="lt",
+        )
+
+        with self.assertRaisesRegex(ValueError, "Unsupported diffusion_model"):
             run_loaded_experiment(
                 dataset=dataset,
                 protected_group_report=protected_group_report,
@@ -501,6 +520,80 @@ class ExperimentRunnerTestCase(unittest.TestCase):
         self.assertEqual(set(runtime_rows["comparison_baseline_method"]), {"hybrid_siea_ml_two_tier_tuned_swap_local_search"})
         baseline_row = result_frame[result_frame["method"] == "hybrid_siea_ml_two_tier_tuned_swap_local_search"].iloc[0]
         self.assertAlmostEqual(float(baseline_row["delta_f_score"]), 0.0)
+
+    def test_run_loaded_experiment_with_scalability_compare_adds_rows(self) -> None:
+        dataset, protected_group_report = _toy_experiment_fixture()
+        settings = ExperimentSettings(
+            protected_attribute="group",
+            budget=3,
+            community_method="louvain",
+            propagation_probability=0.5,
+            mc_runs=3,
+            population_size=5,
+            generations=3,
+            random_seed=9,
+            use_ml=True,
+            ml_guidance_mode="two_tier",
+            ml_top_fraction=0.5,
+            ml_singleton_runs=3,
+            compare_scalability_variants=True,
+        )
+
+        result_frame = run_loaded_experiment(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            settings=settings,
+            community_methods=["louvain"],
+            baseline_methods=["degree", "random"],
+            include_ablations=False,
+        )
+
+        expected_methods = {
+            "hybrid_siea_ml_two_tier_tuned_fairness_full",
+            "hybrid_siea_ml_two_tier_tuned_fairness_full_balanced",
+            "hybrid_siea_ml_two_tier_tuned_fairness_full_fast",
+        }
+        self.assertTrue(expected_methods.issubset(set(result_frame["method"])))
+        scalability_rows = result_frame[result_frame["variant_type"].isin(["scalability_baseline", "scalability_variant"])]
+        self.assertEqual(set(scalability_rows["comparison_baseline_method"]), {"hybrid_siea_ml_two_tier_tuned_fairness_full"})
+        self.assertEqual(
+            set(scalability_rows["optimization_mode"]),
+            {"full", "balanced", "fast"},
+        )
+
+    def test_run_loaded_experiment_trains_ml_model_once_with_scalability_compare(self) -> None:
+        import fim_hybrid.experiment_runner as experiment_runner_module  # noqa: PLC0415
+
+        dataset, protected_group_report = _toy_experiment_fixture()
+        settings = ExperimentSettings(
+            protected_attribute="group",
+            budget=3,
+            community_method="louvain",
+            propagation_probability=0.5,
+            mc_runs=3,
+            population_size=5,
+            generations=3,
+            random_seed=9,
+            use_ml=True,
+            ml_guidance_mode="two_tier",
+            ml_top_fraction=0.5,
+            ml_singleton_runs=3,
+            compare_scalability_variants=True,
+        )
+        original_train = experiment_runner_module.train_node_utility_model
+
+        with patch("fim_hybrid.experiment_runner.train_node_utility_model") as mocked_train:
+            mocked_train.side_effect = original_train
+            run_loaded_experiment(
+                dataset=dataset,
+                protected_group_report=protected_group_report,
+                settings=settings,
+                community_methods=["louvain"],
+                baseline_methods=["degree", "random"],
+                include_ablations=False,
+            )
+
+        self.assertEqual(mocked_train.call_count, 1)
 
     def test_run_loaded_experiment_trains_ml_model_once_with_swap_runtime_compare(self) -> None:
         import fim_hybrid.experiment_runner as experiment_runner_module  # noqa: PLC0415

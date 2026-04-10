@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 import json
 from time import perf_counter
@@ -13,6 +14,7 @@ from .baselines import BaselineResult, run_baseline
 from .community_detection import CommunityQualityMetrics, compute_community_quality_metrics, detect_communities
 from .config import DatasetConfig
 from .data_loader import LoadedDataset, ProtectedGroupReport, load_dataset, verify_protected_groups
+from .diffusion import DEFAULT_DIFFUSION_MODEL, validate_diffusion_model
 from .evaluation import SeedSetEvaluation, evaluate_seed_set
 from .feature_extraction import compute_node_features
 from .hybrid_optimizer import HybridOptimizationResult, HybridSIEAConfig, HybridSIEAOptimizer
@@ -81,6 +83,15 @@ _SWAP_RUNTIME_COMPARE_DEFAULTS: dict[str, object] = {
     "proxy_score_weights": {},
 }
 
+_SCALABILITY_COMPARE_DEFAULTS: dict[str, object] = {
+    "enable_fitness_cache": True,
+    "enable_swap_cache": True,
+    "enable_marginal_cache": True,
+    "cache_max_size": 8192,
+    "local_search_use_prefilter": True,
+    "use_staged_mc": True,
+}
+
 
 @dataclass(slots=True)
 class ExperimentSettings:
@@ -88,6 +99,7 @@ class ExperimentSettings:
 
     protected_attribute: str
     budget: int
+    diffusion_model: str = DEFAULT_DIFFUSION_MODEL
     community_method: str = "leiden"
     propagation_probability: float = 0.01
     mc_runs: int = 20
@@ -169,16 +181,24 @@ class ExperimentSettings:
     compare_refinement_variants: bool = False
     marginal_candidate_pool_size: int = 0
     mutation_candidate_pool_size: int = 0
+    repair_candidate_pool_size: int = 0
+    candidate_prefilter_top_k: int = 0
     enable_fitness_cache: bool = True
     enable_marginal_cache: bool = False
     cache_max_size: int = 0
     local_search_early_stop_patience: int = 0
     local_search_use_prefilter: bool = False
+    local_search_elite_count: int = 0
+    local_search_every_n_generations: int = 1
+    use_staged_mc: bool = False
+    mc_runs_fast: int = 0
+    mc_runs_full: int = 0
     optimization_mode: str = "full"
     refinement_intensity: float = 1.0
     marginal_eval_fraction: float = 1.0
     compare_runtime_variants: bool = False
     compare_swap_runtime_variants: bool = False
+    compare_scalability_variants: bool = False
 
 
 def _dataset_output_dir(output_dir: Path | None, dataset_name: str) -> Path | None:
@@ -257,10 +277,12 @@ def _baseline_row(
     community_method: str,
     result: BaselineResult,
     quality: CommunityQualityMetrics,
+    diffusion_model: str,
 ) -> dict[str, object]:
     return {
         "dataset": dataset.name,
         "community_method": community_method,
+        "diffusion_model": diffusion_model,
         "method": result.method,
         "variant_type": "baseline",
         "seed_set": json.dumps(list(result.seed_set)),
@@ -270,6 +292,7 @@ def _baseline_row(
         "f_score": result.f_score,
         "runtime_seconds": result.runtime_seconds,
         "candidate_pool_size": dataset.graph.number_of_nodes(),
+        "optimization_mode": "full",
         "swarm_guidance": False,
         "crossover": False,
         "local_search": False,
@@ -291,6 +314,7 @@ def _hybrid_row(
     result: HybridOptimizationResult,
     config: HybridSIEAConfig,
     quality: CommunityQualityMetrics,
+    diffusion_model: str,
     note: str = "",
     node2vec_enabled: bool = False,
     node2vec_mode: str = "off",
@@ -298,6 +322,7 @@ def _hybrid_row(
     return {
         "dataset": dataset.name,
         "community_method": community_method,
+        "diffusion_model": diffusion_model,
         "method": label,
         "variant_type": variant_type,
         "seed_set": json.dumps(list(result.best_seed_set)),
@@ -307,6 +332,7 @@ def _hybrid_row(
         "f_score": result.best_score,
         "runtime_seconds": result.runtime_seconds,
         "candidate_pool_size": result.candidate_pool_size,
+        "optimization_mode": config.optimization_mode,
         "swarm_guidance": not config.disable_swarm_guidance,
         "crossover": not config.disable_crossover,
         "local_search": not config.disable_local_search,
@@ -335,6 +361,7 @@ def _ml_row(
     validation_spearman: float,
     validation_precision_at_budget: float,
     guidance_mode: str,
+    diffusion_model: str,
     note: str = "",
     node2vec_enabled: bool = False,
     node2vec_mode: str = "off",
@@ -342,6 +369,7 @@ def _ml_row(
     return {
         "dataset": dataset.name,
         "community_method": community_method,
+        "diffusion_model": diffusion_model,
         "method": label,
         "variant_type": variant_type,
         "seed_set": json.dumps(list(evaluation.seed_set)),
@@ -351,6 +379,7 @@ def _ml_row(
         "f_score": evaluation.f_score,
         "runtime_seconds": runtime_seconds,
         "candidate_pool_size": candidate_pool_size,
+        "optimization_mode": "full",
         "swarm_guidance": False,
         "crossover": False,
         "local_search": False,
@@ -396,6 +425,7 @@ def _generate_ml_labels(
         protected_group_report=protected_group_report,
         propagation_probability=settings.propagation_probability,
         mc_runs=settings.ml_singleton_runs,
+        diffusion_model=settings.diffusion_model,
         lambda_weight=settings.lambda_weight,
         random_seed=settings.random_seed,
     )
@@ -769,6 +799,109 @@ def _selected_swap_runtime_variants(settings: ExperimentSettings) -> list[tuple[
     ]
 
 
+def _resolved_scalability_compare_settings(settings: ExperimentSettings) -> dict[str, object]:
+    fairness_defaults = _resolved_fairness_compare_settings(settings)
+    resolved = {
+        **fairness_defaults,
+        **_SCALABILITY_COMPARE_DEFAULTS,
+    }
+    full_mc_runs = settings.mc_runs_full if settings.mc_runs_full > 0 else settings.mc_runs
+    if full_mc_runs <= 1:
+        fast_mc_runs = 1
+    elif settings.mc_runs_fast > 0:
+        fast_mc_runs = settings.mc_runs_fast
+    else:
+        fast_mc_runs = max(1, min(full_mc_runs - 1, int(math.ceil(full_mc_runs * 0.35))))
+
+    resolved["enable_fitness_cache"] = settings.enable_fitness_cache
+    resolved["enable_swap_cache"] = settings.enable_swap_cache or bool(_SCALABILITY_COMPARE_DEFAULTS["enable_swap_cache"])
+    resolved["enable_marginal_cache"] = settings.enable_marginal_cache or bool(_SCALABILITY_COMPARE_DEFAULTS["enable_marginal_cache"])
+    resolved["cache_max_size"] = settings.cache_max_size if settings.cache_max_size > 0 else int(_SCALABILITY_COMPARE_DEFAULTS["cache_max_size"])
+    resolved["mutation_candidate_pool_size"] = (
+        settings.mutation_candidate_pool_size
+        if settings.mutation_candidate_pool_size > 0
+        else max(12, settings.budget)
+    )
+    resolved["repair_candidate_pool_size"] = (
+        settings.repair_candidate_pool_size
+        if settings.repair_candidate_pool_size > 0
+        else max(16, settings.budget * 2)
+    )
+    resolved["swap_candidate_pool_size"] = (
+        settings.swap_candidate_pool_size
+        if settings.swap_candidate_pool_size > 0
+        else max(8, max(4, settings.budget // 2))
+    )
+    resolved["candidate_prefilter_top_k"] = (
+        settings.candidate_prefilter_top_k
+        if settings.candidate_prefilter_top_k > 0
+        else max(24, settings.budget * 2)
+    )
+    resolved["local_search_elite_count"] = (
+        settings.local_search_elite_count
+        if settings.local_search_elite_count > 0
+        else max(2, int(math.ceil(settings.population_size * 0.5)))
+    )
+    resolved["local_search_every_n_generations"] = max(1, settings.local_search_every_n_generations)
+    resolved["local_search_use_prefilter"] = (
+        settings.local_search_use_prefilter
+        or bool(_SCALABILITY_COMPARE_DEFAULTS["local_search_use_prefilter"])
+    )
+    resolved["local_search_failed_patience"] = (
+        settings.local_search_failed_patience
+        if settings.local_search_failed_patience > 0
+        else max(3, settings.local_search_max_trials if settings.local_search_max_trials > 0 else 4)
+    )
+    resolved["full_eval_top_k"] = (
+        settings.full_eval_top_k
+        if settings.full_eval_top_k > 0
+        else max(3, min(max(4, settings.budget // 4), 8))
+    )
+    resolved["use_staged_mc"] = settings.use_staged_mc or bool(_SCALABILITY_COMPARE_DEFAULTS["use_staged_mc"])
+    resolved["mc_runs_fast"] = fast_mc_runs
+    resolved["mc_runs_full"] = full_mc_runs
+    return resolved
+
+
+def _selected_scalability_variants(settings: ExperimentSettings) -> list[tuple[str, str, dict[str, object]]]:
+    fairness_defaults = _resolved_fairness_compare_settings(settings)
+    scalability_defaults = _resolved_scalability_compare_settings(settings)
+    fast_elite_count = max(1, int(math.ceil(int(scalability_defaults["local_search_elite_count"]) * 0.5)))
+    fast_swap_pool = max(4, min(int(scalability_defaults["swap_candidate_pool_size"]), max(4, settings.budget // 3)))
+    fast_prefilter_top_k = max(
+        fast_swap_pool,
+        min(int(scalability_defaults["candidate_prefilter_top_k"]), max(12, settings.budget)),
+    )
+    return [
+        (
+            "hybrid_siea_ml_two_tier_tuned_fairness_full",
+            "Current full-quality fairness-focused method without extra scalability pruning.",
+            fairness_defaults,
+        ),
+        (
+            "hybrid_siea_ml_two_tier_tuned_fairness_full_balanced",
+            "Balanced scalability mode: bounded shortlists, selective local search, caches, and staged MC screening.",
+            {
+                **scalability_defaults,
+                "optimization_mode": "balanced",
+            },
+        ),
+        (
+            "hybrid_siea_ml_two_tier_tuned_fairness_full_fast",
+            "Fast scalability mode: stronger shortlist reduction, periodic elite-only local search, and staged MC screening.",
+            {
+                **scalability_defaults,
+                "optimization_mode": "fast",
+                "local_search_elite_count": fast_elite_count,
+                "local_search_every_n_generations": max(2, int(scalability_defaults["local_search_every_n_generations"])),
+                "local_search_first_improvement": True,
+                "swap_candidate_pool_size": fast_swap_pool,
+                "candidate_prefilter_top_k": fast_prefilter_top_k,
+            },
+        ),
+    ]
+
+
 def _build_optimizer_config(
     settings: ExperimentSettings,
     include_fairness_parameters: bool = True,
@@ -776,6 +909,7 @@ def _build_optimizer_config(
 ) -> HybridSIEAConfig:
     config = HybridSIEAConfig(
         budget=settings.budget,
+        diffusion_model=settings.diffusion_model,
         population_size=settings.population_size,
         generations=settings.generations,
         crossover_probability=settings.crossover_probability,
@@ -838,11 +972,18 @@ def _build_optimizer_config(
         config.neighborhood_overlap_penalty_weight = settings.neighborhood_overlap_penalty_weight
     config.marginal_candidate_pool_size = settings.marginal_candidate_pool_size
     config.mutation_candidate_pool_size = settings.mutation_candidate_pool_size
+    config.repair_candidate_pool_size = settings.repair_candidate_pool_size
+    config.candidate_prefilter_top_k = settings.candidate_prefilter_top_k
     config.enable_fitness_cache = settings.enable_fitness_cache
     config.enable_marginal_cache = settings.enable_marginal_cache
     config.cache_max_size = settings.cache_max_size
     config.local_search_early_stop_patience = settings.local_search_early_stop_patience
     config.local_search_use_prefilter = settings.local_search_use_prefilter
+    config.local_search_elite_count = settings.local_search_elite_count
+    config.local_search_every_n_generations = settings.local_search_every_n_generations
+    config.use_staged_mc = settings.use_staged_mc
+    config.mc_runs_fast = settings.mc_runs_fast
+    config.mc_runs_full = settings.mc_runs_full
     config.optimization_mode = settings.optimization_mode
     config.refinement_intensity = settings.refinement_intensity
     config.marginal_eval_fraction = settings.marginal_eval_fraction
@@ -861,6 +1002,7 @@ def run_loaded_experiment(
 ) -> pd.DataFrame:
     """Run one or more method comparisons on a preloaded dataset."""
 
+    validate_diffusion_model(settings.diffusion_model)
     if settings.use_node2vec and not settings.use_ml:
         raise ValueError("use_node2vec requires use_ml=True because Node2Vec is only used as an ML feature augmenter.")
     if settings.use_node2vec and settings.ml_guidance_mode not in {"off", "two_tier"}:
@@ -881,6 +1023,10 @@ def run_loaded_experiment(
         raise ValueError("compare_swap_runtime_variants requires use_ml=True because the swap-runtime comparison targets the tuned two-tier ML method.")
     if settings.compare_swap_runtime_variants and settings.ml_guidance_mode not in {"off", "two_tier"}:
         raise ValueError("compare_swap_runtime_variants currently supports ml_guidance_mode='off' or 'two_tier' only.")
+    if settings.compare_scalability_variants and not settings.use_ml:
+        raise ValueError("compare_scalability_variants requires use_ml=True because the scalability comparison targets the tuned two-tier ML method.")
+    if settings.compare_scalability_variants and settings.ml_guidance_mode not in {"off", "two_tier"}:
+        raise ValueError("compare_scalability_variants currently supports ml_guidance_mode='off' or 'two_tier' only.")
 
     methods = community_methods or [settings.community_method]
     baselines = baseline_methods or ["degree", "pagerank", "community_round_robin", "random"]
@@ -898,11 +1044,12 @@ def run_loaded_experiment(
                 budget=settings.budget,
                 propagation_probability=settings.propagation_probability,
                 mc_runs=settings.mc_runs,
+                diffusion_model=settings.diffusion_model,
                 lambda_weight=settings.lambda_weight,
                 community_result=community_result,
                 random_seed=settings.random_seed,
             )
-            results.append(_baseline_row(dataset, community_method, baseline_result, quality))
+            results.append(_baseline_row(dataset, community_method, baseline_result, quality, settings.diffusion_model))
 
         hybrid_variants: list[tuple[str, str, str, dict[str, object]]] = [
             (
@@ -954,6 +1101,7 @@ def run_loaded_experiment(
                     result=result,
                     config=config,
                     quality=quality,
+                    diffusion_model=settings.diffusion_model,
                     note=note,
                 )
             )
@@ -985,6 +1133,7 @@ def run_loaded_experiment(
                 seed_set=training_result.ranked_nodes[: settings.budget],
                 propagation_probability=settings.propagation_probability,
                 mc_runs=settings.mc_runs,
+                diffusion_model=settings.diffusion_model,
                 random_seed=settings.random_seed,
                 lambda_weight=settings.lambda_weight,
                 include_soft_mf=True,
@@ -1002,6 +1151,7 @@ def run_loaded_experiment(
                     validation_spearman=training_result.validation_spearman,
                     validation_precision_at_budget=training_result.validation_precision_at_budget,
                     guidance_mode="off",
+                    diffusion_model=settings.diffusion_model,
                     note=f"ML ranking baseline; {ml_metrics}",
                     node2vec_mode="off",
                 )
@@ -1054,6 +1204,7 @@ def run_loaded_experiment(
                     result=ml_result,
                     config=ml_config,
                     quality=quality,
+                    diffusion_model=settings.diffusion_model,
                     note=ml_note,
                     node2vec_mode="off",
                 )
@@ -1114,6 +1265,7 @@ def run_loaded_experiment(
                         result=fairness_result,
                         config=fairness_config,
                         quality=quality,
+                        diffusion_model=settings.diffusion_model,
                         note=fairness_note_full,
                         node2vec_mode="off",
                     )
@@ -1122,6 +1274,75 @@ def run_loaded_experiment(
                     fairness_row["ml_validation_precision_at_budget"] = training_result.validation_precision_at_budget
                     fairness_row["ml_guidance_mode"] = "two_tier"
                     results.append(fairness_row)
+
+            if settings.compare_scalability_variants:
+                existing_scalability_methods = {
+                    str(row["method"])
+                    for row in results
+                    if row.get("community_method") == community_method
+                }
+                for label, scalability_note, scalability_overrides in _selected_scalability_variants(settings):
+                    if label in existing_scalability_methods:
+                        continue
+                    scalability_config = _build_optimizer_config(
+                        settings,
+                        include_fairness_parameters=False,
+                        ml_guidance_mode="two_tier",
+                        **scalability_overrides,
+                    )
+                    scalability_optimizer = HybridSIEAOptimizer(
+                        dataset=dataset,
+                        protected_group_report=protected_group_report,
+                        community_result=community_result,
+                        config=scalability_config,
+                        ml_node_scores=training_result.predicted_scores,
+                    )
+                    scalability_result = scalability_optimizer.optimize()
+                    scalability_history_path = _history_path(
+                        settings.output_dir,
+                        dataset.name,
+                        settings.budget,
+                        community_method,
+                        label,
+                    )
+                    scalability_note_full = "; ".join(
+                        part
+                        for part in [
+                            scalability_note,
+                            f"mode={scalability_config.optimization_mode}",
+                            f"staged_mc={int(scalability_config.use_staged_mc)}",
+                            f"full_pool={dataset.graph.number_of_nodes()}",
+                            f"spearman={training_result.validation_spearman:.6f}",
+                            f"precision_at_budget={training_result.validation_precision_at_budget:.6f}",
+                            f"label_variance={label_result.label_variance:.6f}",
+                        ]
+                        if part
+                    )
+                    if scalability_history_path is not None:
+                        scalability_result.history.to_csv(scalability_history_path, index=False)
+                        scalability_note_full = "; ".join(
+                            part
+                            for part in [scalability_note_full, f"history={scalability_history_path.name}"]
+                            if part
+                        )
+
+                    scalability_row = _hybrid_row(
+                        dataset=dataset,
+                        community_method=community_method,
+                        label=label,
+                        variant_type="scalability_baseline" if label == "hybrid_siea_ml_two_tier_tuned_fairness_full" else "scalability_variant",
+                        result=scalability_result,
+                        config=scalability_config,
+                        quality=quality,
+                        diffusion_model=settings.diffusion_model,
+                        note=scalability_note_full,
+                        node2vec_mode="off",
+                    )
+                    scalability_row["runtime_seconds"] = ml_preparation_runtime + scalability_result.runtime_seconds
+                    scalability_row["ml_validation_spearman"] = training_result.validation_spearman
+                    scalability_row["ml_validation_precision_at_budget"] = training_result.validation_precision_at_budget
+                    scalability_row["ml_guidance_mode"] = "two_tier"
+                    results.append(scalability_row)
 
             if settings.compare_refinement_variants:
                 refinement_base_label = "hybrid_siea_ml_two_tier_tuned_fairness_full"
@@ -1177,6 +1398,7 @@ def run_loaded_experiment(
                         result=refinement_base_result,
                         config=refinement_base_config,
                         quality=quality,
+                        diffusion_model=settings.diffusion_model,
                         note=refinement_base_note_full,
                         node2vec_mode="off",
                     )
@@ -1237,6 +1459,7 @@ def run_loaded_experiment(
                         result=refinement_result,
                         config=refinement_config,
                         quality=quality,
+                        diffusion_model=settings.diffusion_model,
                         note=refinement_note_full,
                         node2vec_mode="off",
                     )
@@ -1316,6 +1539,7 @@ def run_loaded_experiment(
                         result=swap_result,
                         config=swap_config,
                         quality=quality,
+                        diffusion_model=settings.diffusion_model,
                         note=swap_note_full,
                         node2vec_mode="off",
                     )
@@ -1397,6 +1621,7 @@ def run_loaded_experiment(
                         result=runtime_result,
                         config=runtime_config,
                         quality=quality,
+                        diffusion_model=settings.diffusion_model,
                         note=runtime_note_full,
                         node2vec_mode="off",
                     )
@@ -1444,6 +1669,7 @@ def run_loaded_experiment(
                             seed_set=node2vec_training_result.ranked_nodes[: settings.budget],
                             propagation_probability=settings.propagation_probability,
                             mc_runs=settings.mc_runs,
+                            diffusion_model=settings.diffusion_model,
                             random_seed=settings.random_seed,
                             lambda_weight=settings.lambda_weight,
                             include_soft_mf=True,
@@ -1461,6 +1687,7 @@ def run_loaded_experiment(
                                 validation_spearman=node2vec_training_result.validation_spearman,
                                 validation_precision_at_budget=node2vec_training_result.validation_precision_at_budget,
                                 guidance_mode="off",
+                                diffusion_model=settings.diffusion_model,
                                 note=f"ML ranking baseline with Node2Vec features; {node2vec_metrics}",
                                 node2vec_enabled=True,
                                 node2vec_mode="feature_concat",
@@ -1503,6 +1730,7 @@ def run_loaded_experiment(
                             result=node2vec_result,
                             config=node2vec_optimizer_config,
                             quality=quality,
+                            diffusion_model=settings.diffusion_model,
                             note=node2vec_note,
                             node2vec_enabled=True,
                             node2vec_mode="feature_concat",
@@ -1577,6 +1805,7 @@ def run_loaded_experiment(
                             result=diversity_result,
                             config=diversity_config,
                             quality=quality,
+                            diffusion_model=settings.diffusion_model,
                             note=diversity_note,
                             node2vec_enabled=True,
                             node2vec_mode="diversity_signal",
@@ -1595,6 +1824,10 @@ def run_loaded_experiment(
             community_mask = result_frame["community_method"] == community_method
             baseline_method = "hybrid_siea"
             if settings.compare_refinement_variants and (
+                result_frame.loc[community_mask, "method"] == "hybrid_siea_ml_two_tier_tuned_fairness_full"
+            ).any():
+                baseline_method = "hybrid_siea_ml_two_tier_tuned_fairness_full"
+            if settings.compare_scalability_variants and (
                 result_frame.loc[community_mask, "method"] == "hybrid_siea_ml_two_tier_tuned_fairness_full"
             ).any():
                 baseline_method = "hybrid_siea_ml_two_tier_tuned_fairness_full"

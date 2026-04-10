@@ -57,6 +57,7 @@ class BaselineTestCase(unittest.TestCase):
             propagation_probability=0.0,
             mc_runs=5,
             random_seed=11,
+            diffusion_model="ic",
         )
         second = run_baseline(
             dataset=dataset,
@@ -66,6 +67,7 @@ class BaselineTestCase(unittest.TestCase):
             propagation_probability=0.0,
             mc_runs=5,
             random_seed=11,
+            diffusion_model="ic",
         )
 
         self.assertEqual(first.seed_set, second.seed_set)
@@ -132,6 +134,18 @@ class BaselineTestCase(unittest.TestCase):
                 protected_group_report=report,
                 method="not_a_method",
                 budget=2,
+            )
+
+    def test_baseline_rejects_unsupported_diffusion_model(self) -> None:
+        dataset, report = _toy_baseline_dataset()
+
+        with self.assertRaisesRegex(ValueError, "Unsupported diffusion_model"):
+            run_baseline(
+                dataset=dataset,
+                protected_group_report=report,
+                method="degree",
+                budget=2,
+                diffusion_model="lt",
             )
 
 

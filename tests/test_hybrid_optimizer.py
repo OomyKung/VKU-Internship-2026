@@ -481,6 +481,19 @@ class HybridOptimizerTestCase(unittest.TestCase):
 
         self.assertLessEqual(len(ranked), 2)
 
+    def test_repair_candidate_pool_and_prefilter_controls_are_applied(self) -> None:
+        optimizer = self._build_optimizer(
+            repair_candidate_pool_size=2,
+            candidate_prefilter_top_k=4,
+            random_seed=7,
+        )
+
+        repair_limit = optimizer._candidate_pool_limit(len(optimizer.candidate_pool), stage="repair")  # noqa: SLF001
+        prefilter_limit = optimizer._candidate_prefilter_limit(len(optimizer.candidate_pool), repair_limit, stage="repair")  # noqa: SLF001
+
+        self.assertEqual(repair_limit, 2)
+        self.assertEqual(prefilter_limit, 4)
+
     def test_balanced_and_fast_modes_reduce_local_search_budget(self) -> None:
         full_optimizer = self._build_optimizer(
             local_search_focus_mode="worst_group",
@@ -550,6 +563,34 @@ class HybridOptimizerTestCase(unittest.TestCase):
         self.assertEqual(first_evaluation.seed_set, second_evaluation.seed_set)
         self.assertGreater(optimizer.swap_cache_hits, 0)
 
+    def test_staged_mc_uses_fast_screening_and_full_final_evaluation(self) -> None:
+        optimizer = self._build_optimizer(
+            local_search_focus_mode="worst_group",
+            local_search_swap_trials=6,
+            local_search_candidate_pool_size=4,
+            local_search_delta_mf_weight=0.8,
+            local_search_delta_dcv_weight=0.6,
+            swap_candidate_pool_size=4,
+            swap_prefilter_top_k=5,
+            full_eval_top_k=2,
+            use_staged_mc=True,
+            mc_runs=5,
+            mc_runs_fast=2,
+            mc_runs_full=5,
+            enable_swap_cache=True,
+            random_seed=7,
+        )
+
+        refined = optimizer._local_search((1, 2, 3))  # noqa: SLF001
+        final_evaluation = optimizer._evaluate_seed_set(refined)  # noqa: SLF001
+
+        self.assertEqual(len(refined), optimizer.config.budget)
+        self.assertEqual(final_evaluation.seed_set, refined)
+        self.assertGreater(optimizer.screening_evaluation_calls, 0)
+        self.assertGreater(optimizer.full_evaluation_calls, 0)
+        self.assertEqual(optimizer.last_screening_mc_runs, 2)
+        self.assertEqual(optimizer.last_full_mc_runs, 5)
+
     def test_swap_runtime_controls_reduce_expensive_local_search_evaluations(self) -> None:
         baseline_optimizer = self._build_optimizer(
             local_search_focus_mode="worst_group",
@@ -615,6 +656,36 @@ class HybridOptimizerTestCase(unittest.TestCase):
         self.assertLessEqual(
             first_improvement_optimizer.last_local_search_swap_evaluations,
             best_improvement_optimizer.last_local_search_swap_evaluations,
+        )
+
+    def test_selective_local_search_applies_to_fewer_individuals(self) -> None:
+        full_optimizer = self._build_optimizer(
+            local_search_focus_mode="worst_group",
+            local_search_swap_trials=6,
+            local_search_candidate_pool_size=4,
+            local_search_delta_mf_weight=0.8,
+            local_search_delta_dcv_weight=0.6,
+            random_seed=7,
+        )
+        selective_optimizer = self._build_optimizer(
+            local_search_focus_mode="worst_group",
+            local_search_swap_trials=6,
+            local_search_candidate_pool_size=4,
+            local_search_delta_mf_weight=0.8,
+            local_search_delta_dcv_weight=0.6,
+            local_search_elite_count=1,
+            local_search_every_n_generations=2,
+            random_seed=7,
+        )
+
+        full_result = full_optimizer.optimize()
+        selective_result = selective_optimizer.optimize()
+
+        self.assertIn("local_search_applied_count", full_result.history.columns)
+        self.assertIn("screening_evaluation_calls", selective_result.history.columns)
+        self.assertLess(
+            int(selective_result.history["local_search_applied_count"].sum()),
+            int(full_result.history["local_search_applied_count"].sum()),
         )
 
     def test_soft_bias_mode_preserves_full_candidate_pool(self) -> None:

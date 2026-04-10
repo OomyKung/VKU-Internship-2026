@@ -13,6 +13,9 @@ import numpy as np
 
 from .data_loader import LoadedDataset, ProtectedGroupReport
 
+DEFAULT_DIFFUSION_MODEL = "ic"
+SUPPORTED_DIFFUSION_MODELS = (DEFAULT_DIFFUSION_MODEL,)
+
 
 @dataclass(slots=True)
 class DiffusionResult:
@@ -33,13 +36,25 @@ def _sort_key(value: Any) -> tuple[str, str]:
 def _normalize_seed_set(seed_set: Iterable[Any]) -> tuple[Any, ...]:
     seed_values = list(seed_set)
     if not seed_values:
-        raise ValueError("seed_set must contain at least one node.")
+        return ()
 
     unique_seeds = set(seed_values)
     if len(unique_seeds) != len(seed_values):
         raise ValueError("seed_set must not contain duplicate nodes.")
 
     return tuple(sorted(unique_seeds, key=_sort_key))
+
+
+def validate_diffusion_model(diffusion_model: str = DEFAULT_DIFFUSION_MODEL) -> str:
+    """Validate and normalize the requested diffusion model name."""
+
+    normalized = str(diffusion_model).strip().lower()
+    if normalized not in SUPPORTED_DIFFUSION_MODELS:
+        supported = ", ".join(SUPPORTED_DIFFUSION_MODELS)
+        raise ValueError(
+            f"Unsupported diffusion_model '{diffusion_model}'. Supported models: {supported}."
+        )
+    return normalized
 
 
 def _validate_probability(propagation_probability: float) -> None:

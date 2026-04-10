@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from fim_hybrid.data_loader import resolve_builtin_dataset  # noqa: E402
+from fim_hybrid.diffusion import DEFAULT_DIFFUSION_MODEL  # noqa: E402
 from fim_hybrid.experiment_runner import ExperimentSettings, run_experiment  # noqa: E402
 
 
@@ -78,6 +79,7 @@ def _build_ranked_results_table(result_frame: pd.DataFrame) -> str:
             "DCV": ordered["dcv"].map(_format_float),
             "Runtime": ordered["runtime_seconds"].map(_format_runtime_seconds),
             "Pool": ordered["candidate_pool_size"].map(_format_int),
+            "Mode": ordered.get("optimization_mode", pd.Series(["full"] * len(ordered))),
             "ZeroCov": zero_cov.map(_format_int),
             "FracCov": fraction_covered.map(lambda value: _format_float(value, digits=3)),
             "Bottom3": bottom_3.map(lambda value: _format_float(value, digits=3)),
@@ -142,6 +144,7 @@ def _build_hybrid_delta_table(result_frame: pd.DataFrame) -> str | None:
             "Runtime": comparison_rows["runtime_seconds"].map(_format_runtime_seconds),
             "Delta T": comparison_rows["delta_runtime_seconds"].map(lambda value: f"{float(value):+0.3f}s"),
             "Pool": comparison_rows["candidate_pool_size"].map(_format_int),
+            "Mode": comparison_rows.get("optimization_mode", pd.Series(["full"] * len(comparison_rows))),
             "ZeroCov": comparison_rows.get("zero_covered_groups_count", pd.Series([float("nan")] * len(comparison_rows))).map(_format_int),
             "FracCov": comparison_rows.get("fraction_groups_covered", pd.Series([float("nan")] * len(comparison_rows))).map(lambda value: _format_float(value, digits=3)),
             "N2V": comparison_rows["node2vec_mode"],
@@ -167,6 +170,7 @@ def format_results_report(result_frame: pd.DataFrame, settings: ExperimentSettin
         "Fair Influence Maximization Experiment Summary",
         _rule("="),
         f"Dataset: {dataset_names}",
+        f"Diffusion model: {settings.diffusion_model} (Independent Cascade)",
         f"Protected attribute: {settings.protected_attribute}",
         f"Budget: {settings.budget} | MC runs: {settings.mc_runs} | Random seed: {settings.random_seed}",
         f"Community methods: {community_methods}",
@@ -237,6 +241,12 @@ def parse_args() -> argparse.Namespace:
         help="Baseline methods to compare.",
     )
     parser.add_argument("--budget", type=int, required=True, help="Fixed seed budget.")
+    parser.add_argument(
+        "--diffusion-model",
+        choices=[DEFAULT_DIFFUSION_MODEL],
+        default=DEFAULT_DIFFUSION_MODEL,
+        help="Primary diffusion model used across all experiments. IC is the only supported mainline model.",
+    )
     parser.add_argument("--propagation-prob", type=float, default=0.01, help="Independent Cascade propagation probability.")
     parser.add_argument("--mc-runs", type=int, default=20, help="Monte Carlo run count.")
     parser.add_argument("--lambda-weight", type=float, default=0.5, help="Lambda in F(S) = lambda*MF - (1-lambda)*DCV.")
@@ -304,11 +314,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--compare-refinement-variants", action="store_true", help="Compare the current best fairness-full method against marginal-gain, swap-local-search, urgency, overlap, and full combined refinement variants.")
     parser.add_argument("--marginal-candidate-pool-size", type=int, default=0, help="Optional shortlist size before expensive marginal-gain scoring.")
     parser.add_argument("--mutation-candidate-pool-size", type=int, default=0, help="Optional shortlist size before mutation candidate ranking.")
+    parser.add_argument("--repair-candidate-pool-size", type=int, default=0, help="Optional shortlist size before repair candidate ranking.")
+    parser.add_argument("--candidate-prefilter-top-k", type=int, default=0, help="Cheap prefilter size used before expensive mutation and repair scoring.")
     parser.add_argument("--enable-fitness-cache", action=argparse.BooleanOptionalAction, default=True, help="Enable seed-set evaluation caching.")
     parser.add_argument("--enable-marginal-cache", action="store_true", help="Enable bounded caching for marginal-gain proxy components.")
     parser.add_argument("--cache-max-size", type=int, default=0, help="Optional max size for fitness and marginal caches.")
     parser.add_argument("--local-search-early-stop-patience", type=int, default=0, help="Stop local search early after this many non-improving evaluated swaps.")
     parser.add_argument("--local-search-use-prefilter", action="store_true", help="Prefilter local-search external candidates before full ranking.")
+    parser.add_argument("--local-search-elite-count", type=int, default=0, help="Apply local search only to the top-N individuals each generation when set.")
+    parser.add_argument("--local-search-every-n-generations", type=int, default=1, help="Run local search every N generations; the final generation still refines.")
+    parser.add_argument("--use-staged-mc", action="store_true", help="Use a cheaper MC budget for refinement-time screening while keeping final scoring at full MC.")
+    parser.add_argument("--mc-runs-fast", type=int, default=0, help="MC runs used for staged refinement-time screening when --use-staged-mc is enabled.")
+    parser.add_argument("--mc-runs-full", type=int, default=0, help="Optional full MC budget override for final trusted evaluation.")
     parser.add_argument("--optimization-mode", choices=["full", "balanced", "fast"], default="full", help="Runtime/quality trade-off mode for refinement-heavy variants.")
     parser.add_argument("--refinement-intensity", type=float, default=1.0, help="Global multiplier for runtime-sensitive refinement budgets.")
     parser.add_argument("--marginal-eval-fraction", type=float, default=1.0, help="Fraction of external candidates kept before expensive marginal ranking.")
@@ -321,6 +338,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--full-eval-top-k", type=int, default=0, help="Number of top proxy-ranked swaps to fully evaluate per removal candidate.")
     parser.add_argument("--proxy-score-weights", default="{}", help="JSON object overriding cheap swap-proxy weights, e.g. '{\"delta_mf\":0.6,\"delta_dcv\":0.45}'.")
     parser.add_argument("--compare-swap-runtime-variants", action="store_true", help="Compare the current swap-local-search method against optimized, first-improvement, and reduced-candidate runtime variants.")
+    parser.add_argument("--compare-scalability-variants", action="store_true", help="Compare the current full-quality fairness-full method against balanced and fast scalability modes.")
     parser.add_argument("--use-node2vec", action="store_true", help="Request optional Node2Vec guidance.")
     parser.add_argument("--node2vec-dimensions", type=int, default=8, help="Node2Vec embedding dimensionality.")
     parser.add_argument("--node2vec-walk-length", type=int, default=20, help="Node2Vec random walk length.")
@@ -356,6 +374,7 @@ def main() -> None:
     settings = ExperimentSettings(
         protected_attribute=args.protected_attribute,
         budget=args.budget,
+        diffusion_model=args.diffusion_model,
         community_method=args.community_methods[0],
         propagation_probability=args.propagation_prob,
         mc_runs=args.mc_runs,
@@ -430,11 +449,18 @@ def main() -> None:
         compare_refinement_variants=args.compare_refinement_variants,
         marginal_candidate_pool_size=args.marginal_candidate_pool_size,
         mutation_candidate_pool_size=args.mutation_candidate_pool_size,
+        repair_candidate_pool_size=args.repair_candidate_pool_size,
+        candidate_prefilter_top_k=args.candidate_prefilter_top_k,
         enable_fitness_cache=args.enable_fitness_cache,
         enable_marginal_cache=args.enable_marginal_cache,
         cache_max_size=args.cache_max_size,
         local_search_early_stop_patience=args.local_search_early_stop_patience,
         local_search_use_prefilter=args.local_search_use_prefilter,
+        local_search_elite_count=args.local_search_elite_count,
+        local_search_every_n_generations=args.local_search_every_n_generations,
+        use_staged_mc=args.use_staged_mc,
+        mc_runs_fast=args.mc_runs_fast,
+        mc_runs_full=args.mc_runs_full,
         optimization_mode=args.optimization_mode,
         refinement_intensity=args.refinement_intensity,
         marginal_eval_fraction=args.marginal_eval_fraction,
@@ -447,6 +473,7 @@ def main() -> None:
         full_eval_top_k=args.full_eval_top_k,
         proxy_score_weights=proxy_score_weights,
         compare_swap_runtime_variants=args.compare_swap_runtime_variants,
+        compare_scalability_variants=args.compare_scalability_variants,
     )
     result_frame = run_experiment(
         dataset_config=dataset_config,
@@ -457,6 +484,7 @@ def main() -> None:
     )
     columns = [
         "dataset",
+        "diffusion_model",
         "community_method",
         "method",
         "variant_type",
@@ -467,6 +495,7 @@ def main() -> None:
         "delta_f_score",
         "runtime_seconds",
         "candidate_pool_size",
+        "optimization_mode",
         "zero_covered_groups_count",
         "bottom_3_avg_group_spread",
         "fraction_groups_covered",

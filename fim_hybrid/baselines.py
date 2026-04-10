@@ -11,6 +11,7 @@ import numpy as np
 
 from .community_detection import CommunityDetectionResult
 from .data_loader import LoadedDataset, ProtectedGroupReport
+from .diffusion import DEFAULT_DIFFUSION_MODEL
 from .evaluation import evaluate_seed_set
 
 
@@ -154,6 +155,7 @@ def run_baseline(
     lambda_weight: float = 0.5,
     community_result: CommunityDetectionResult | None = None,
     random_seed: int = 42,
+    diffusion_model: str = DEFAULT_DIFFUSION_MODEL,
 ) -> BaselineResult:
     """Select a seed set with one baseline and evaluate it with Phase 2 metrics."""
 
@@ -182,6 +184,7 @@ def run_baseline(
         random_seed=random_seed,
         lambda_weight=lambda_weight,
         include_soft_mf=True,
+        diffusion_model=diffusion_model,
     )
     runtime_seconds = perf_counter() - start
 
@@ -210,6 +213,7 @@ def run_baselines(
     lambda_weight: float = 0.5,
     community_result: CommunityDetectionResult | None = None,
     random_seed: int = 42,
+    diffusion_model: str = DEFAULT_DIFFUSION_MODEL,
 ) -> list[BaselineResult]:
     """Run multiple baselines end-to-end using the Phase 2 evaluation stack."""
 
@@ -224,6 +228,7 @@ def run_baselines(
             lambda_weight=lambda_weight,
             community_result=community_result,
             random_seed=random_seed,
+            diffusion_model=diffusion_model,
         )
         for method in methods
     ]

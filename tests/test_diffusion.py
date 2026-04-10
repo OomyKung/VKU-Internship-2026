@@ -12,6 +12,18 @@ from fim_hybrid.data_loader import LoadedDataset, ProtectedGroupReport, verify_p
 from fim_hybrid.diffusion import simulate_independent_cascade, simulate_independent_cascade_once
 
 
+class _CountingRng:
+    """Minimal RNG stub that counts activation attempts."""
+
+    def __init__(self, value: float = 0.0) -> None:
+        self.value = value
+        self.calls = 0
+
+    def random(self) -> float:
+        self.calls += 1
+        return self.value
+
+
 def _toy_dataset() -> tuple[LoadedDataset, ProtectedGroupReport]:
     graph = nx.DiGraph()
     graph.add_edge(1, 2)
@@ -50,6 +62,7 @@ class DiffusionTestCase(unittest.TestCase):
         )
 
         self.assertEqual(active_nodes, {1, 2, 3})
+        self.assertIsInstance(active_nodes, set)
 
     def test_simulate_once_with_probability_zero_only_keeps_seed(self) -> None:
         dataset, _ = _toy_dataset()
@@ -80,6 +93,24 @@ class DiffusionTestCase(unittest.TestCase):
         self.assertEqual(result.group_spread_mean["B"], 1.0)
         self.assertEqual(result.group_spread_mean["C"], 0.0)
         self.assertEqual(result.group_spread_std["C"], 0.0)
+
+    def test_empty_seed_set_returns_empty_activation_statistics(self) -> None:
+        dataset, report = _toy_dataset()
+
+        result = simulate_independent_cascade(
+            dataset=dataset,
+            protected_group_report=report,
+            seed_set=[],
+            propagation_probability=1.0,
+            mc_runs=4,
+            random_seed=42,
+        )
+
+        self.assertEqual(result.seed_set, ())
+        self.assertEqual(result.total_spread_mean, 0.0)
+        self.assertEqual(result.total_spread_std, 0.0)
+        self.assertTrue(all(spread == 0.0 for spread in result.group_spread_mean.values()))
+        self.assertTrue(all(spread == 0.0 for spread in result.group_spread_std.values()))
 
     def test_duplicate_seeds_raise(self) -> None:
         dataset, report = _toy_dataset()
@@ -128,6 +159,21 @@ class DiffusionTestCase(unittest.TestCase):
         self.assertEqual(first.total_spread_std, second.total_spread_std)
         self.assertEqual(first.group_spread_mean, second.group_spread_mean)
         self.assertEqual(first.group_spread_std, second.group_spread_std)
+
+    def test_each_active_node_gets_only_one_chance_per_inactive_neighbor(self) -> None:
+        graph = nx.DiGraph()
+        graph.add_edges_from([(1, 2), (1, 3), (2, 1), (3, 1)])
+        rng = _CountingRng(value=0.0)
+
+        active_nodes = simulate_independent_cascade_once(
+            graph=graph,
+            seed_set=[1],
+            propagation_probability=0.5,
+            rng=rng,
+        )
+
+        self.assertEqual(active_nodes, {1, 2, 3})
+        self.assertEqual(rng.calls, 2)
 
 
 if __name__ == "__main__":

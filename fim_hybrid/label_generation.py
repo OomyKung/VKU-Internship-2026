@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from .data_loader import LoadedDataset, ProtectedGroupReport
+from .diffusion import DEFAULT_DIFFUSION_MODEL
 from .evaluation import evaluate_seed_set
 
 
@@ -43,6 +44,7 @@ def generate_singleton_node_utility_labels(
     mc_runs: int = 20,
     lambda_weight: float = 0.5,
     random_seed: int = 42,
+    diffusion_model: str = DEFAULT_DIFFUSION_MODEL,
 ) -> NodeUtilityLabelResult:
     """Evaluate singleton seed sets and build a continuous fairness-aware label."""
 
@@ -61,6 +63,7 @@ def generate_singleton_node_utility_labels(
             random_seed=random_seed,
             lambda_weight=lambda_weight,
             include_soft_mf=True,
+            diffusion_model=diffusion_model,
         )
         soft_mf = evaluation.fairness.soft_mf
         if soft_mf is None:

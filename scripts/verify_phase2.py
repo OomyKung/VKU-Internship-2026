@@ -13,7 +13,7 @@ if str(ROOT) not in sys.path:
 
 from fim_hybrid.config import DatasetConfig  # noqa: E402
 from fim_hybrid.data_loader import load_dataset, resolve_builtin_dataset, verify_protected_groups  # noqa: E402
-from fim_hybrid.diffusion import simulate_independent_cascade  # noqa: E402
+from fim_hybrid.diffusion import DEFAULT_DIFFUSION_MODEL, simulate_independent_cascade  # noqa: E402
 from fim_hybrid.fairness import evaluate_fairness  # noqa: E402
 
 
@@ -111,6 +111,7 @@ def main() -> None:
     )
 
     print(f"dataset: {dataset.name}")
+    print(f"diffusion_model: {DEFAULT_DIFFUSION_MODEL}")
     print(f"protected_attribute: {protected_group_report.protected_attribute}")
     print(f"seed_set: {list(diffusion_result.seed_set)}")
     print(f"total_spread_mean: {diffusion_result.total_spread_mean:.6f}")
