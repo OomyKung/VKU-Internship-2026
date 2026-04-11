@@ -51,6 +51,10 @@ def _format_int(value: object) -> str:
     return str(int(value))
 
 
+def _format_top_k(value: int) -> str:
+    return "all" if int(value) <= 0 else str(int(value))
+
+
 def _display_ml_mode(method: str, ml_guidance_mode: object) -> str:
     if pd.isna(ml_guidance_mode) or ml_guidance_mode == "off":
         return "-"
@@ -93,12 +97,22 @@ def _filter_report_frame(result_frame: pd.DataFrame, report_focus: str) -> pd.Da
 
 def _build_ranked_results_table(result_frame: pd.DataFrame) -> str:
     ordered = result_frame.sort_values(["f_score", "runtime_seconds"], ascending=[False, True]).reset_index(drop=True)
+    extra_spread = ordered.get("extra_spread", pd.Series([float("nan")] * len(ordered)))
     zero_cov = ordered.get("zero_covered_groups_count", pd.Series([float("nan")] * len(ordered)))
     fraction_covered = ordered.get("fraction_groups_covered", pd.Series([float("nan")] * len(ordered)))
     bottom_3 = ordered.get("bottom_3_avg_group_spread", pd.Series([float("nan")] * len(ordered)))
     delta_f = ordered.get("delta_f_score", pd.Series([float("nan")] * len(ordered)))
     search_runtime = ordered.get("search_runtime_seconds", pd.Series([float("nan")] * len(ordered)))
     final_eval_runtime = ordered.get("final_eval_runtime_seconds", pd.Series([float("nan")] * len(ordered)))
+    final_recheck_applied = ordered.get("final_recheck_applied", pd.Series([False] * len(ordered)))
+    final_recheck_mc_runs = ordered.get("final_recheck_mc_runs_used", pd.Series([float("nan")] * len(ordered)))
+    final_recheck_rank = ordered.get("final_recheck_top_k_rank", pd.Series([float("nan")] * len(ordered)))
+    final_recheck_spread = ordered.get("final_recheck_total_spread", pd.Series([float("nan")] * len(ordered)))
+    final_recheck_extra = ordered.get("final_recheck_extra_spread", pd.Series([float("nan")] * len(ordered)))
+    final_recheck_mf = ordered.get("final_recheck_mf", pd.Series([float("nan")] * len(ordered)))
+    final_recheck_dcv = ordered.get("final_recheck_dcv", pd.Series([float("nan")] * len(ordered)))
+    final_recheck_f = ordered.get("final_recheck_f_score", pd.Series([float("nan")] * len(ordered)))
+    final_recheck_runtime = ordered.get("final_recheck_runtime_seconds", pd.Series([float("nan")] * len(ordered)))
     lines: list[str] = []
     for index, row in ordered.iterrows():
         mode = str(row.get("optimization_mode", "full"))
@@ -116,7 +130,8 @@ def _build_ranked_results_table(result_frame: pd.DataFrame) -> str:
             "   "
             f"F={_format_float(row['f_score'])} | dF={delta_f_text} | "
             f"runtime={_format_runtime_seconds(row['runtime_seconds'])} | "
-            f"spread={_format_float(row['total_spread'], digits=3)}"
+            f"spread={_format_float(row['total_spread'], digits=3)} | "
+            f"extra={_format_float(extra_spread.iloc[index], digits=3)}"
         )
         lines.append(
             "   "
@@ -140,6 +155,19 @@ def _build_ranked_results_table(result_frame: pd.DataFrame) -> str:
             f"N2V={row['node2vec_mode']} | "
             f"rho={rho_text} | p@k={pak_text}"
         )
+        if bool(final_recheck_applied.iloc[index]):
+            rank_text = _format_int(final_recheck_rank.iloc[index])
+            lines.append(
+                "   "
+                f"recheck@{_format_int(final_recheck_mc_runs.iloc[index])}MC"
+                f" [rank={rank_text}]"
+                f": F={_format_float(final_recheck_f.iloc[index])} | "
+                f"spread={_format_float(final_recheck_spread.iloc[index], digits=3)} | "
+                f"extra={_format_float(final_recheck_extra.iloc[index], digits=3)} | "
+                f"MF={_format_float(final_recheck_mf.iloc[index])} | "
+                f"DCV={_format_float(final_recheck_dcv.iloc[index])} | "
+                f"rt={_format_runtime_seconds(final_recheck_runtime.iloc[index])}"
+            )
         if index < len(ordered) - 1:
             lines.append("")
 
@@ -190,10 +218,14 @@ def _build_hybrid_delta_table(result_frame: pd.DataFrame, baseline_method: str =
         ascending=[False, True, True],
     ).reset_index(drop=True)
     lines: list[str] = []
+    extra_spread = comparison_rows.get("extra_spread", pd.Series([float("nan")] * len(comparison_rows)))
     zero_cov = comparison_rows.get("zero_covered_groups_count", pd.Series([float("nan")] * len(comparison_rows)))
     fraction_covered = comparison_rows.get("fraction_groups_covered", pd.Series([float("nan")] * len(comparison_rows)))
     search_runtime = comparison_rows.get("search_runtime_seconds", pd.Series([float("nan")] * len(comparison_rows)))
     final_eval_runtime = comparison_rows.get("final_eval_runtime_seconds", pd.Series([float("nan")] * len(comparison_rows)))
+    final_recheck_applied = comparison_rows.get("final_recheck_applied", pd.Series([False] * len(comparison_rows)))
+    final_recheck_mc_runs = comparison_rows.get("final_recheck_mc_runs_used", pd.Series([float("nan")] * len(comparison_rows)))
+    final_recheck_f = comparison_rows.get("final_recheck_f_score", pd.Series([float("nan")] * len(comparison_rows)))
     for index, row in comparison_rows.iterrows():
         mode = str(row.get("optimization_mode", "full"))
         delta_f_value = f"{float(row['delta_f_score']):+0.6f}"
@@ -210,10 +242,12 @@ def _build_hybrid_delta_table(result_frame: pd.DataFrame, baseline_method: str =
             "   "
             f"search={_format_runtime_seconds(search_runtime.iloc[index])} | "
             f"eval={_format_runtime_seconds(final_eval_runtime.iloc[index])} | "
-            f"pool={_format_int(row['candidate_pool_size'])}"
+            f"spread={_format_float(row['total_spread'], digits=3)} | "
+            f"extra={_format_float(extra_spread.iloc[index], digits=3)}"
         )
         lines.append(
             "   "
+            f"pool={_format_int(row['candidate_pool_size'])} | "
             f"ZeroCov={_format_int(zero_cov.iloc[index])} | "
             f"FracCov={_format_float(fraction_covered.iloc[index], digits=3)}"
         )
@@ -222,6 +256,12 @@ def _build_hybrid_delta_table(result_frame: pd.DataFrame, baseline_method: str =
             f"ML={_display_ml_mode(str(row['method']), row['ml_guidance_mode'])} | "
             f"N2V={row['node2vec_mode']}"
         )
+        if bool(final_recheck_applied.iloc[index]):
+            lines.append(
+                "   "
+                f"recheck@{_format_int(final_recheck_mc_runs.iloc[index])}MC"
+                f": F={_format_float(final_recheck_f.iloc[index])}"
+            )
         if index < len(comparison_rows) - 1:
             lines.append("")
     return "\n".join(lines)
@@ -258,6 +298,7 @@ def format_results_report(result_frame: pd.DataFrame, settings: ExperimentSettin
         f"Protected attribute: {settings.protected_attribute}",
         f"Budget: {settings.budget} | MC runs: search={search_mc_runs}, eval={eval_mc_runs} | Random seed: {settings.random_seed}",
         "Final evaluation seed: random_seed + 1000000",
+        "Spread semantics: total activated nodes including seed nodes; extra_spread = total_spread - budget",
         f"Community methods: {community_methods}",
         (
             f"ML: enabled | requested mode={settings.ml_guidance_mode} | "
@@ -266,6 +307,14 @@ def format_results_report(result_frame: pd.DataFrame, settings: ExperimentSettin
             else "ML: disabled"
         ),
     ]
+    if settings.enable_final_recheck:
+        lines.append(
+            "Final recheck: "
+            f"enabled | mc_runs={settings.final_recheck_mc_runs} | top_k={_format_top_k(settings.final_recheck_top_k)}"
+        )
+        lines.append("Final recheck seed: random_seed + 2000000")
+    else:
+        lines.append("Final recheck: disabled")
     if report_focus == "best_ml_vs_cea_fim":
         lines.append("Report focus: best ML method vs CEA-FIM only")
     lines.append("Node2Vec: removed from the supported ML experiment surface")
@@ -344,6 +393,23 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="MC runs used only for final reported spread and fairness evaluation.",
+    )
+    parser.add_argument(
+        "--enable-final-recheck",
+        action="store_true",
+        help="After the normal result table is built, re-evaluate shortlisted final seed sets with a larger MC budget.",
+    )
+    parser.add_argument(
+        "--final-recheck-mc-runs",
+        type=int,
+        default=1000,
+        help="MC runs used only for the optional post-hoc final recheck stage.",
+    )
+    parser.add_argument(
+        "--final-recheck-top-k",
+        type=int,
+        default=0,
+        help="Recheck only the top-k methods per community by normal-evaluation F-score. Use 0 for all methods.",
     )
     parser.add_argument("--lambda-weight", type=float, default=0.5, help="Lambda in F(S) = lambda*MF - (1-lambda)*DCV.")
     parser.add_argument("--population-size", type=int, default=12, help="Hybrid population size.")
@@ -471,6 +537,9 @@ def main() -> None:
         diffusion_model=args.diffusion_model,
         community_method=args.community_methods[0],
         propagation_probability=args.propagation_prob,
+        enable_final_recheck=args.enable_final_recheck,
+        final_recheck_mc_runs=args.final_recheck_mc_runs,
+        final_recheck_top_k=args.final_recheck_top_k,
         lambda_weight=args.lambda_weight,
         population_size=args.population_size,
         generations=args.generations,
@@ -568,6 +637,7 @@ def main() -> None:
         "method",
         "variant_type",
         "total_spread",
+        "extra_spread",
         "mf",
         "dcv",
         "f_score",
@@ -577,6 +647,17 @@ def main() -> None:
         "final_eval_runtime_seconds",
         "mc_runs_search",
         "mc_runs_eval",
+        "mc_runs_search_used",
+        "mc_runs_eval_used",
+        "final_recheck_applied",
+        "final_recheck_top_k_rank",
+        "final_recheck_mc_runs_used",
+        "final_recheck_total_spread",
+        "final_recheck_extra_spread",
+        "final_recheck_mf",
+        "final_recheck_dcv",
+        "final_recheck_f_score",
+        "final_recheck_runtime_seconds",
         "candidate_pool_size",
         "optimization_mode",
         "zero_covered_groups_count",

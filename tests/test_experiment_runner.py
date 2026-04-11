@@ -88,8 +88,14 @@ class ExperimentRunnerTestCase(unittest.TestCase):
         self.assertIn("delta_f_score", result_frame.columns)
         self.assertIn("mc_runs_search", result_frame.columns)
         self.assertIn("mc_runs_eval", result_frame.columns)
+        self.assertIn("mc_runs_search_used", result_frame.columns)
+        self.assertIn("mc_runs_eval_used", result_frame.columns)
         self.assertIn("search_runtime_seconds", result_frame.columns)
         self.assertIn("final_eval_runtime_seconds", result_frame.columns)
+        self.assertIn("extra_spread", result_frame.columns)
+        self.assertIn("spread_includes_seed_nodes", result_frame.columns)
+        self.assertIn("final_recheck_applied", result_frame.columns)
+        self.assertIn("final_recheck_mc_runs_used", result_frame.columns)
         self.assertIn("zero_covered_groups_count", result_frame.columns)
         self.assertIn("bottom_3_avg_group_spread", result_frame.columns)
         self.assertIn("fraction_groups_covered", result_frame.columns)
@@ -98,12 +104,17 @@ class ExperimentRunnerTestCase(unittest.TestCase):
         self.assertTrue((result_frame["diffusion_model"] == "ic").all())
         self.assertTrue((result_frame["mc_runs_search"] == 3).all())
         self.assertTrue((result_frame["mc_runs_eval"] == 5).all())
+        self.assertTrue((result_frame["mc_runs_search_used"] == 3).all())
+        self.assertTrue((result_frame["mc_runs_eval_used"] == 5).all())
+        self.assertTrue((result_frame["spread_includes_seed_nodes"]).all())
         for row in result_frame.itertuples(index=False):
             self.assertAlmostEqual(
                 float(row.runtime_seconds),
                 float(row.search_runtime_seconds) + float(row.final_eval_runtime_seconds),
                 places=9,
             )
+            self.assertAlmostEqual(float(row.extra_spread), float(row.total_spread) - settings.budget, places=9)
+            self.assertGreaterEqual(float(row.total_spread), float(settings.budget))
 
     def test_run_loaded_experiment_is_reproducible(self) -> None:
         dataset, protected_group_report = _toy_experiment_fixture()
@@ -296,6 +307,89 @@ class ExperimentRunnerTestCase(unittest.TestCase):
 
         self.assertEqual(set(result_frame["method"]), {"degree", "hybrid_siea"})
         self.assertEqual(captured_calls, [(7, 1_000_009), (7, 1_000_009)])
+
+    def test_run_loaded_experiment_can_apply_final_recheck_with_separate_budget(self) -> None:
+        import fim_hybrid.experiment_runner as experiment_runner_module  # noqa: PLC0415
+
+        dataset, protected_group_report = _toy_experiment_fixture()
+        settings = ExperimentSettings(
+            protected_attribute="group",
+            budget=3,
+            community_method="louvain",
+            propagation_probability=0.5,
+            mc_runs_search=3,
+            mc_runs_eval=7,
+            enable_final_recheck=True,
+            final_recheck_mc_runs=11,
+            final_recheck_top_k=0,
+            population_size=5,
+            generations=3,
+            random_seed=9,
+        )
+        original_evaluate = experiment_runner_module.evaluate_seed_set
+        captured_calls: list[tuple[int, int]] = []
+
+        def _recording_evaluate(*args, **kwargs):
+            captured_calls.append((int(kwargs["mc_runs"]), int(kwargs["random_seed"])))
+            return original_evaluate(*args, **kwargs)
+
+        with patch("fim_hybrid.experiment_runner.evaluate_seed_set", side_effect=_recording_evaluate):
+            result_frame = run_loaded_experiment(
+                dataset=dataset,
+                protected_group_report=protected_group_report,
+                settings=settings,
+                community_methods=["louvain"],
+                baseline_methods=["degree"],
+                selected_methods=["degree", "hybrid_siea"],
+                include_ablations=False,
+            )
+
+        self.assertEqual(
+            captured_calls,
+            [
+                (7, 1_000_009),
+                (7, 1_000_009),
+                (11, 2_000_009),
+                (11, 2_000_009),
+            ],
+        )
+        self.assertTrue(result_frame["final_recheck_applied"].all())
+        self.assertTrue((result_frame["final_recheck_mc_runs_used"] == 11).all())
+        self.assertTrue((result_frame["final_recheck_random_seed"] == 2_000_009).all())
+        self.assertTrue(result_frame["final_recheck_f_score"].notna().all())
+        self.assertTrue(result_frame["final_recheck_total_spread"].notna().all())
+        self.assertTrue(result_frame["final_recheck_extra_spread"].notna().all())
+
+    def test_run_loaded_experiment_can_limit_final_recheck_to_top_k(self) -> None:
+        dataset, protected_group_report = _toy_experiment_fixture()
+        settings = ExperimentSettings(
+            protected_attribute="group",
+            budget=3,
+            community_method="louvain",
+            propagation_probability=0.5,
+            mc_runs_search=3,
+            mc_runs_eval=7,
+            enable_final_recheck=True,
+            final_recheck_mc_runs=11,
+            final_recheck_top_k=1,
+            population_size=5,
+            generations=3,
+            random_seed=9,
+        )
+
+        result_frame = run_loaded_experiment(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            settings=settings,
+            community_methods=["louvain"],
+            baseline_methods=["degree", "random"],
+            selected_methods=["degree", "random", "hybrid_siea"],
+            include_ablations=False,
+        )
+
+        rechecked_rows = result_frame[result_frame["final_recheck_applied"]]
+        self.assertEqual(len(rechecked_rows), 1)
+        self.assertEqual(int(rechecked_rows.iloc[0]["final_recheck_top_k_rank"]), 1)
 
     def test_removed_ml_guidance_mode_errors(self) -> None:
         dataset, protected_group_report = _toy_experiment_fixture()

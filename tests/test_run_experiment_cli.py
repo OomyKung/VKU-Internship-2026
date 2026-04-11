@@ -27,6 +27,7 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "method": KEPT_ML_LABEL,
                     "variant_type": "ml_guided",
                     "total_spread": 4.95,
+                    "extra_spread": 0.95,
                     "mf": 0.009000,
                     "dcv": 0.030303,
                     "f_score": -0.010652,
@@ -35,6 +36,8 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "final_eval_runtime_seconds": 1.000000,
                     "mc_runs_search": 20,
                     "mc_runs_eval": 1000,
+                    "mc_runs_search_used": 20,
+                    "mc_runs_eval_used": 1000,
                     "candidate_pool_size": 500,
                     "optimization_mode": "full",
                     "node2vec_enabled": False,
@@ -48,6 +51,15 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "fraction_groups_covered": 1.0,
                     "weakest_groups_note": "A,B,C",
                     "delta_f_score": 0.004297,
+                    "final_recheck_applied": True,
+                    "final_recheck_top_k_rank": 1,
+                    "final_recheck_mc_runs_used": 1000,
+                    "final_recheck_total_spread": 5.02,
+                    "final_recheck_extra_spread": 1.02,
+                    "final_recheck_mf": 0.009100,
+                    "final_recheck_dcv": 0.029900,
+                    "final_recheck_f_score": -0.010400,
+                    "final_recheck_runtime_seconds": 1.750000,
                 },
                 {
                     "dataset": "toy_graph",
@@ -56,6 +68,7 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "method": "hybrid_siea",
                     "variant_type": "proposed",
                     "total_spread": 4.65,
+                    "extra_spread": 0.65,
                     "mf": 0.008333,
                     "dcv": 0.038232,
                     "f_score": -0.014949,
@@ -64,6 +77,8 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "final_eval_runtime_seconds": 0.500000,
                     "mc_runs_search": 20,
                     "mc_runs_eval": 1000,
+                    "mc_runs_search_used": 20,
+                    "mc_runs_eval_used": 1000,
                     "candidate_pool_size": 500,
                     "optimization_mode": "full",
                     "node2vec_enabled": False,
@@ -77,6 +92,7 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "fraction_groups_covered": 1.0,
                     "weakest_groups_note": "A,B,C",
                     "delta_f_score": 0.0,
+                    "final_recheck_applied": False,
                 },
                 {
                     "dataset": "toy_graph",
@@ -85,6 +101,7 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "method": "cea_fim",
                     "variant_type": "comparator",
                     "total_spread": 4.70,
+                    "extra_spread": 0.70,
                     "mf": 0.008500,
                     "dcv": 0.034000,
                     "f_score": -0.012750,
@@ -93,6 +110,8 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "final_eval_runtime_seconds": 0.750000,
                     "mc_runs_search": 20,
                     "mc_runs_eval": 1000,
+                    "mc_runs_search_used": 20,
+                    "mc_runs_eval_used": 1000,
                     "candidate_pool_size": 500,
                     "optimization_mode": "full",
                     "node2vec_enabled": False,
@@ -106,6 +125,7 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "fraction_groups_covered": 1.0,
                     "weakest_groups_note": "A,B,C",
                     "delta_f_score": 0.002199,
+                    "final_recheck_applied": False,
                 },
             ]
         )
@@ -115,6 +135,9 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
             community_method="leiden",
             mc_runs_search=20,
             mc_runs_eval=1000,
+            enable_final_recheck=True,
+            final_recheck_mc_runs=1000,
+            final_recheck_top_k=1,
             random_seed=42,
             use_ml=True,
             ml_guidance_mode="two_tier",
@@ -127,6 +150,9 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
         self.assertIn("Diffusion model: ic (Independent Cascade)", report)
         self.assertIn("MC runs: search=20, eval=1000", report)
         self.assertIn("Final evaluation seed: random_seed + 1000000", report)
+        self.assertIn("Spread semantics: total activated nodes including seed nodes; extra_spread = total_spread - budget", report)
+        self.assertIn("Final recheck: enabled | mc_runs=1000 | top_k=1", report)
+        self.assertIn("Final recheck seed: random_seed + 2000000", report)
         self.assertIn("Node2Vec: removed from the supported ML experiment surface", report)
         self.assertIn("Community: leiden", report)
         self.assertIn("Highlights", report)
@@ -136,6 +162,8 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
         self.assertIn("0.302647", report)
         self.assertIn("search=5.835s", report)
         self.assertIn("eval=1.000s", report)
+        self.assertIn("extra=0.950", report)
+        self.assertIn("recheck@1000MC [rank=1]", report)
 
     def test_format_results_report_includes_protected_attribute_output_path(self) -> None:
         frame = pd.DataFrame(
