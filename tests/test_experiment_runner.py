@@ -62,7 +62,8 @@ class ExperimentRunnerTestCase(unittest.TestCase):
             budget=3,
             community_method="louvain",
             propagation_probability=0.0,
-            mc_runs=3,
+            mc_runs_search=3,
+            mc_runs_eval=5,
             population_size=5,
             generations=3,
             random_seed=9,
@@ -85,12 +86,24 @@ class ExperimentRunnerTestCase(unittest.TestCase):
         self.assertIn("ml_validation_spearman", result_frame.columns)
         self.assertIn("ml_validation_precision_at_budget", result_frame.columns)
         self.assertIn("delta_f_score", result_frame.columns)
+        self.assertIn("mc_runs_search", result_frame.columns)
+        self.assertIn("mc_runs_eval", result_frame.columns)
+        self.assertIn("search_runtime_seconds", result_frame.columns)
+        self.assertIn("final_eval_runtime_seconds", result_frame.columns)
         self.assertIn("zero_covered_groups_count", result_frame.columns)
         self.assertIn("bottom_3_avg_group_spread", result_frame.columns)
         self.assertIn("fraction_groups_covered", result_frame.columns)
         self.assertIn("weakest_groups_note", result_frame.columns)
         self.assertTrue((result_frame["community_method"] == "louvain").all())
         self.assertTrue((result_frame["diffusion_model"] == "ic").all())
+        self.assertTrue((result_frame["mc_runs_search"] == 3).all())
+        self.assertTrue((result_frame["mc_runs_eval"] == 5).all())
+        for row in result_frame.itertuples(index=False):
+            self.assertAlmostEqual(
+                float(row.runtime_seconds),
+                float(row.search_runtime_seconds) + float(row.final_eval_runtime_seconds),
+                places=9,
+            )
 
     def test_run_loaded_experiment_is_reproducible(self) -> None:
         dataset, protected_group_report = _toy_experiment_fixture()
@@ -247,6 +260,42 @@ class ExperimentRunnerTestCase(unittest.TestCase):
             )
 
         self.assertEqual(mocked_train.call_count, 1)
+
+    def test_run_loaded_experiment_uses_eval_budget_and_seed_offset_for_reported_rows(self) -> None:
+        import fim_hybrid.experiment_runner as experiment_runner_module  # noqa: PLC0415
+
+        dataset, protected_group_report = _toy_experiment_fixture()
+        settings = ExperimentSettings(
+            protected_attribute="group",
+            budget=3,
+            community_method="louvain",
+            propagation_probability=0.5,
+            mc_runs_search=3,
+            mc_runs_eval=7,
+            population_size=5,
+            generations=3,
+            random_seed=9,
+        )
+        original_evaluate = experiment_runner_module.evaluate_seed_set
+        captured_calls: list[tuple[int, int]] = []
+
+        def _recording_evaluate(*args, **kwargs):
+            captured_calls.append((int(kwargs["mc_runs"]), int(kwargs["random_seed"])))
+            return original_evaluate(*args, **kwargs)
+
+        with patch("fim_hybrid.experiment_runner.evaluate_seed_set", side_effect=_recording_evaluate):
+            result_frame = run_loaded_experiment(
+                dataset=dataset,
+                protected_group_report=protected_group_report,
+                settings=settings,
+                community_methods=["louvain"],
+                baseline_methods=["degree"],
+                selected_methods=["degree", "hybrid_siea"],
+                include_ablations=False,
+            )
+
+        self.assertEqual(set(result_frame["method"]), {"degree", "hybrid_siea"})
+        self.assertEqual(captured_calls, [(7, 1_000_009), (7, 1_000_009)])
 
     def test_removed_ml_guidance_mode_errors(self) -> None:
         dataset, protected_group_report = _toy_experiment_fixture()

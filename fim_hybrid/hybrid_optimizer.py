@@ -421,6 +421,8 @@ class HybridSIEAOptimizer:
             resolved_full_runs = self.config.mc_runs_full if self.config.mc_runs_full > 0 else self.config.mc_runs
             if resolved_full_runs < 1:
                 raise ValueError("use_staged_mc requires a positive full MC budget.")
+            if resolved_full_runs > self.config.mc_runs:
+                raise ValueError("mc_runs_full cannot exceed the search-time mc_runs budget.")
             if self.config.mc_runs_fast <= 0:
                 raise ValueError("use_staged_mc requires mc_runs_fast to be set to a positive value.")
             if self.config.mc_runs_fast >= resolved_full_runs:

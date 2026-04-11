@@ -145,6 +145,34 @@ _BASELINE_SELECTORS: dict[str, Callable[[nx.Graph, int, int], list[Any]]] = {
 }
 
 
+def select_baseline_seed_set(
+    dataset: LoadedDataset,
+    method: str,
+    budget: int,
+    community_result: CommunityDetectionResult | None = None,
+    random_seed: int = 42,
+) -> tuple[Any, ...]:
+    """Select a baseline seed set without running diffusion or fairness evaluation."""
+
+    method_key = method.lower()
+    if method_key not in _BASELINE_SELECTORS:
+        supported = ", ".join(sorted(_BASELINE_SELECTORS))
+        raise ValueError(f"Unsupported baseline method '{method}'. Supported methods: {supported}.")
+
+    selector = _BASELINE_SELECTORS[method_key]
+    if method_key == "community_round_robin":
+        selected_seeds = select_community_round_robin_seed_set(
+            dataset.graph,
+            budget,
+            random_seed=random_seed,
+            community_result=community_result,
+        )
+    else:
+        selected_seeds = selector(dataset.graph, budget, random_seed)
+
+    return tuple(sorted(selected_seeds, key=_sort_key))
+
+
 def run_baseline(
     dataset: LoadedDataset,
     protected_group_report: ProtectedGroupReport,
@@ -159,22 +187,15 @@ def run_baseline(
 ) -> BaselineResult:
     """Select a seed set with one baseline and evaluate it with Phase 2 metrics."""
 
-    method_key = method.lower()
-    if method_key not in _BASELINE_SELECTORS:
-        supported = ", ".join(sorted(_BASELINE_SELECTORS))
-        raise ValueError(f"Unsupported baseline method '{method}'. Supported methods: {supported}.")
-
-    selector = _BASELINE_SELECTORS[method_key]
     start = perf_counter()
-    if method_key == "community_round_robin":
-        selected_seeds = select_community_round_robin_seed_set(
-            dataset.graph,
-            budget,
-            random_seed=random_seed,
-            community_result=community_result,
-        )
-    else:
-        selected_seeds = selector(dataset.graph, budget, random_seed)
+    method_key = method.lower()
+    selected_seeds = select_baseline_seed_set(
+        dataset=dataset,
+        method=method_key,
+        budget=budget,
+        community_result=community_result,
+        random_seed=random_seed,
+    )
     evaluation = evaluate_seed_set(
         dataset=dataset,
         protected_group_report=protected_group_report,

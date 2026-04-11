@@ -9,12 +9,12 @@ from time import perf_counter
 
 import pandas as pd
 
-from .baselines import BaselineResult, run_baseline
+from .baselines import select_baseline_seed_set
 from .community_detection import CommunityQualityMetrics, compute_community_quality_metrics, detect_communities
 from .config import DatasetConfig
 from .data_loader import LoadedDataset, ProtectedGroupReport, load_dataset, verify_protected_groups
 from .diffusion import DEFAULT_DIFFUSION_MODEL, validate_diffusion_model
-from .evaluation import SeedSetEvaluation
+from .evaluation import SeedSetEvaluation, evaluate_seed_set
 from .feature_extraction import compute_node_features
 from .hybrid_optimizer import HybridOptimizationResult, HybridSIEAConfig, HybridSIEAOptimizer
 from .label_generation import NodeUtilityLabelResult, generate_singleton_node_utility_labels
@@ -118,6 +118,8 @@ _SCALABILITY_COMPARE_DEFAULTS: dict[str, object] = {
     "use_staged_mc": True,
 }
 
+_FINAL_EVAL_RANDOM_SEED_OFFSET = 1_000_000
+
 
 @dataclass(slots=True)
 class ExperimentSettings:
@@ -128,7 +130,9 @@ class ExperimentSettings:
     diffusion_model: str = DEFAULT_DIFFUSION_MODEL
     community_method: str = "leiden"
     propagation_probability: float = 0.01
-    mc_runs: int = 20
+    mc_runs: int | None = 20
+    mc_runs_search: int | None = None
+    mc_runs_eval: int | None = None
     lambda_weight: float = 0.5
     population_size: int = 12
     generations: int = 10
@@ -225,6 +229,66 @@ class ExperimentSettings:
     compare_runtime_variants: bool = False
     compare_swap_runtime_variants: bool = False
     compare_scalability_variants: bool = False
+
+
+def _resolved_mc_runs_search(settings: ExperimentSettings) -> int:
+    """Resolve the search-time MC budget, preserving mc_runs as a compatibility alias."""
+
+    mc_runs_search = settings.mc_runs_search if settings.mc_runs_search is not None else settings.mc_runs
+    if mc_runs_search is None or int(mc_runs_search) < 1:
+        raise ValueError("mc_runs_search must resolve to an integer >= 1.")
+    return int(mc_runs_search)
+
+
+def _resolved_mc_runs_eval(settings: ExperimentSettings) -> int:
+    """Resolve the final evaluation MC budget."""
+
+    mc_runs_eval = settings.mc_runs_eval if settings.mc_runs_eval is not None else _resolved_mc_runs_search(settings)
+    if mc_runs_eval is None or int(mc_runs_eval) < 1:
+        raise ValueError("mc_runs_eval must resolve to an integer >= 1.")
+    return int(mc_runs_eval)
+
+
+def _resolved_eval_random_seed(settings: ExperimentSettings) -> int:
+    """Use a deterministic offset so final reporting is reproducible but independent from search-time streams."""
+
+    return int(settings.random_seed) + _FINAL_EVAL_RANDOM_SEED_OFFSET
+
+
+def _runtime_columns(
+    search_runtime_seconds: float,
+    final_eval_runtime_seconds: float,
+    mc_runs_search: int,
+    mc_runs_eval: int,
+) -> dict[str, float | int]:
+    return {
+        "search_runtime_seconds": float(search_runtime_seconds),
+        "final_eval_runtime_seconds": float(final_eval_runtime_seconds),
+        "runtime_seconds": float(search_runtime_seconds + final_eval_runtime_seconds),
+        "mc_runs_search": int(mc_runs_search),
+        "mc_runs_eval": int(mc_runs_eval),
+    }
+
+
+def _final_evaluate_seed_set(
+    dataset: LoadedDataset,
+    protected_group_report: ProtectedGroupReport,
+    settings: ExperimentSettings,
+    seed_set: tuple[object, ...],
+) -> SeedSetEvaluation:
+    """Run the authoritative final evaluation budget used for reported tables and CSV output."""
+
+    return evaluate_seed_set(
+        dataset=dataset,
+        protected_group_report=protected_group_report,
+        seed_set=seed_set,
+        propagation_probability=settings.propagation_probability,
+        mc_runs=_resolved_mc_runs_eval(settings),
+        random_seed=_resolved_eval_random_seed(settings),
+        lambda_weight=settings.lambda_weight,
+        include_soft_mf=True,
+        diffusion_model=settings.diffusion_model,
+    )
 
 
 def _dataset_output_dir(output_dir: Path | None, dataset_name: str) -> Path | None:
@@ -335,33 +399,45 @@ def _ml_columns(
 def _baseline_row(
     dataset: LoadedDataset,
     community_method: str,
-    result: BaselineResult,
+    method: str,
+    evaluation: SeedSetEvaluation,
+    search_runtime_seconds: float,
     quality: CommunityQualityMetrics,
     diffusion_model: str,
+    mc_runs_search: int,
+    mc_runs_eval: int,
 ) -> dict[str, object]:
     return {
         "dataset": dataset.name,
         "community_method": community_method,
         "diffusion_model": diffusion_model,
-        "method": result.method,
+        "method": method,
         "variant_type": "baseline",
-        "seed_set": json.dumps(list(result.seed_set)),
-        "total_spread": result.total_spread_mean,
-        "mf": result.mf,
-        "dcv": result.dcv,
-        "f_score": result.f_score,
-        "runtime_seconds": result.runtime_seconds,
+        "seed_set": json.dumps(list(evaluation.seed_set)),
+        "total_spread": evaluation.total_spread_mean,
+        "mf": evaluation.fairness.mf,
+        "dcv": evaluation.fairness.dcv,
+        "f_score": evaluation.f_score,
         "candidate_pool_size": dataset.graph.number_of_nodes(),
         "optimization_mode": "full",
         "swarm_guidance": False,
         "crossover": False,
         "local_search": False,
-        "community_aware_mutation": result.method == "community_round_robin",
+        "community_aware_mutation": method == "community_round_robin",
         "node2vec_enabled": False,
         "node2vec_mode": "off",
         "note": "",
+        **_runtime_columns(
+            search_runtime_seconds=search_runtime_seconds,
+            final_eval_runtime_seconds=evaluation.runtime_seconds,
+            mc_runs_search=mc_runs_search,
+            mc_runs_eval=mc_runs_eval,
+        ),
         **_ml_columns(guidance_mode="off"),
-        **_fairness_diagnostic_columns(result.group_spread, result.normalized_group_spread),
+        **_fairness_diagnostic_columns(
+            evaluation.fairness.group_spread,
+            evaluation.fairness.normalized_group_spread,
+        ),
         **_community_columns(quality),
     }
 
@@ -372,9 +448,13 @@ def _hybrid_row(
     label: str,
     variant_type: str,
     result: HybridOptimizationResult,
+    evaluation: SeedSetEvaluation,
+    search_runtime_seconds: float,
     config: HybridSIEAConfig,
     quality: CommunityQualityMetrics,
     diffusion_model: str,
+    mc_runs_search: int,
+    mc_runs_eval: int,
     note: str = "",
     node2vec_enabled: bool = False,
     node2vec_mode: str = "off",
@@ -385,12 +465,11 @@ def _hybrid_row(
         "diffusion_model": diffusion_model,
         "method": label,
         "variant_type": variant_type,
-        "seed_set": json.dumps(list(result.best_seed_set)),
-        "total_spread": result.best_spread,
-        "mf": result.best_fairness.mf,
-        "dcv": result.best_fairness.dcv,
-        "f_score": result.best_score,
-        "runtime_seconds": result.runtime_seconds,
+        "seed_set": json.dumps(list(evaluation.seed_set)),
+        "total_spread": evaluation.total_spread_mean,
+        "mf": evaluation.fairness.mf,
+        "dcv": evaluation.fairness.dcv,
+        "f_score": evaluation.f_score,
         "candidate_pool_size": result.candidate_pool_size,
         "optimization_mode": config.optimization_mode,
         "swarm_guidance": not config.disable_swarm_guidance,
@@ -400,10 +479,16 @@ def _hybrid_row(
         "node2vec_enabled": node2vec_enabled,
         "node2vec_mode": node2vec_mode,
         "note": note,
+        **_runtime_columns(
+            search_runtime_seconds=search_runtime_seconds,
+            final_eval_runtime_seconds=evaluation.runtime_seconds,
+            mc_runs_search=mc_runs_search,
+            mc_runs_eval=mc_runs_eval,
+        ),
         **_ml_columns(guidance_mode=config.ml_guidance_mode),
         **_fairness_diagnostic_columns(
-            result.best_fairness.group_spread,
-            result.best_fairness.normalized_group_spread,
+            evaluation.fairness.group_spread,
+            evaluation.fairness.normalized_group_spread,
         ),
         **_community_columns(quality),
     }
@@ -425,7 +510,13 @@ def _ml_row(
     note: str = "",
     node2vec_enabled: bool = False,
     node2vec_mode: str = "off",
+    search_runtime_seconds: float | None = None,
+    mc_runs_search: int | None = None,
+    mc_runs_eval: int | None = None,
 ) -> dict[str, object]:
+    resolved_search_runtime = runtime_seconds if search_runtime_seconds is None else search_runtime_seconds
+    resolved_mc_runs_search = 0 if mc_runs_search is None else int(mc_runs_search)
+    resolved_mc_runs_eval = 0 if mc_runs_eval is None else int(mc_runs_eval)
     return {
         "dataset": dataset.name,
         "community_method": community_method,
@@ -437,7 +528,6 @@ def _ml_row(
         "mf": evaluation.fairness.mf,
         "dcv": evaluation.fairness.dcv,
         "f_score": evaluation.f_score,
-        "runtime_seconds": runtime_seconds,
         "candidate_pool_size": candidate_pool_size,
         "optimization_mode": "full",
         "swarm_guidance": False,
@@ -447,6 +537,12 @@ def _ml_row(
         "node2vec_enabled": node2vec_enabled,
         "node2vec_mode": node2vec_mode,
         "note": note,
+        **_runtime_columns(
+            search_runtime_seconds=resolved_search_runtime,
+            final_eval_runtime_seconds=evaluation.runtime_seconds,
+            mc_runs_search=resolved_mc_runs_search,
+            mc_runs_eval=resolved_mc_runs_eval,
+        ),
         **_ml_columns(
             guidance_mode=guidance_mode,
             validation_spearman=validation_spearman,
@@ -951,6 +1047,7 @@ def _build_optimizer_config(
     include_fairness_parameters: bool = True,
     **overrides: object,
 ) -> HybridSIEAConfig:
+    mc_runs_search = _resolved_mc_runs_search(settings)
     config = HybridSIEAConfig(
         budget=settings.budget,
         diffusion_model=settings.diffusion_model,
@@ -961,7 +1058,7 @@ def _build_optimizer_config(
         elite_fraction=settings.elite_fraction,
         leader_guidance_fraction=settings.leader_guidance_fraction,
         propagation_probability=settings.propagation_probability,
-        mc_runs=settings.mc_runs,
+        mc_runs=mc_runs_search,
         lambda_weight=settings.lambda_weight,
         random_seed=settings.random_seed,
         local_search_steps=settings.local_search_steps,
@@ -1033,6 +1130,8 @@ def _build_optimizer_config(
     config.marginal_eval_fraction = settings.marginal_eval_fraction
     for key, value in overrides.items():
         setattr(config, key, value)
+    if config.mc_runs_full > config.mc_runs:
+        raise ValueError("mc_runs_full cannot exceed mc_runs_search for search-time optimization.")
     return config
 
 
@@ -1048,6 +1147,8 @@ def run_loaded_experiment(
     """Run one or more method comparisons on a preloaded dataset."""
 
     validate_diffusion_model(settings.diffusion_model)
+    mc_runs_search = _resolved_mc_runs_search(settings)
+    mc_runs_eval = _resolved_mc_runs_eval(settings)
     if settings.use_node2vec:
         raise ValueError("Node2Vec ML variants were removed. use_node2vec is no longer supported.")
     if settings.use_ml and settings.ml_guidance_mode not in {"off", "two_tier"}:
@@ -1097,19 +1198,34 @@ def run_loaded_experiment(
         for baseline_name in baselines:
             if not is_selected(baseline_name):
                 continue
-            baseline_result = run_baseline(
+            baseline_search_start = perf_counter()
+            baseline_seed_set = select_baseline_seed_set(
                 dataset=dataset,
-                protected_group_report=protected_group_report,
                 method=baseline_name,
                 budget=settings.budget,
-                propagation_probability=settings.propagation_probability,
-                mc_runs=settings.mc_runs,
-                diffusion_model=settings.diffusion_model,
-                lambda_weight=settings.lambda_weight,
                 community_result=community_result,
                 random_seed=settings.random_seed,
             )
-            results.append(_baseline_row(dataset, community_method, baseline_result, quality, settings.diffusion_model))
+            baseline_search_runtime = perf_counter() - baseline_search_start
+            baseline_evaluation = _final_evaluate_seed_set(
+                dataset=dataset,
+                protected_group_report=protected_group_report,
+                settings=settings,
+                seed_set=baseline_seed_set,
+            )
+            results.append(
+                _baseline_row(
+                    dataset=dataset,
+                    community_method=community_method,
+                    method=str(baseline_name).lower(),
+                    evaluation=baseline_evaluation,
+                    search_runtime_seconds=baseline_search_runtime,
+                    quality=quality,
+                    diffusion_model=settings.diffusion_model,
+                    mc_runs_search=mc_runs_search,
+                    mc_runs_eval=mc_runs_eval,
+                )
+            )
 
         hybrid_variants: list[tuple[str, str, str, dict[str, object]]] = [
             (
@@ -1145,6 +1261,12 @@ def run_loaded_experiment(
                 config=config,
             )
             result = optimizer.optimize()
+            final_evaluation = _final_evaluate_seed_set(
+                dataset=dataset,
+                protected_group_report=protected_group_report,
+                settings=settings,
+                seed_set=result.best_seed_set,
+            )
             history_path = _history_path(
                 settings.output_dir,
                 dataset.name,
@@ -1163,9 +1285,13 @@ def run_loaded_experiment(
                     label=label,
                     variant_type=variant_type,
                     result=result,
+                    evaluation=final_evaluation,
+                    search_runtime_seconds=result.runtime_seconds,
                     config=config,
                     quality=quality,
                     diffusion_model=settings.diffusion_model,
+                    mc_runs_search=mc_runs_search,
+                    mc_runs_eval=mc_runs_eval,
                     note=note,
                 )
             )
@@ -1210,6 +1336,12 @@ def run_loaded_experiment(
 
                 ml_optimizer = HybridSIEAOptimizer(**optimizer_kwargs)
                 ml_result = ml_optimizer.optimize()
+                ml_final_evaluation = _final_evaluate_seed_set(
+                    dataset=dataset,
+                    protected_group_report=protected_group_report,
+                    settings=settings,
+                    seed_set=ml_result.best_seed_set,
+                )
                 ml_history_path = _history_path(
                     settings.output_dir,
                     dataset.name,
@@ -1229,13 +1361,16 @@ def run_loaded_experiment(
                     label=label,
                     variant_type="ml_guided",
                     result=ml_result,
+                    evaluation=ml_final_evaluation,
+                    search_runtime_seconds=ml_preparation_runtime + ml_result.runtime_seconds,
                     config=ml_config,
                     quality=quality,
                     diffusion_model=settings.diffusion_model,
+                    mc_runs_search=mc_runs_search,
+                    mc_runs_eval=mc_runs_eval,
                     note=ml_note,
                     node2vec_mode="off",
                 )
-                ml_row["runtime_seconds"] = ml_preparation_runtime + ml_result.runtime_seconds
                 ml_row["ml_validation_spearman"] = training_result.validation_spearman
                 ml_row["ml_validation_precision_at_budget"] = training_result.validation_precision_at_budget
                 ml_row["ml_guidance_mode"] = "two_tier"

@@ -57,6 +57,18 @@ def _display_ml_mode(method: str, ml_guidance_mode: object) -> str:
     return str(ml_guidance_mode)
 
 
+def _resolved_report_mc_runs(
+    result_frame: pd.DataFrame,
+    column_name: str,
+    fallback: int | None,
+) -> str:
+    if column_name in result_frame and result_frame[column_name].notna().any():
+        return _format_int(result_frame[column_name].dropna().iloc[0])
+    if fallback is None:
+        return "-"
+    return str(int(fallback))
+
+
 def _filter_report_frame(result_frame: pd.DataFrame, report_focus: str) -> pd.DataFrame:
     if report_focus == "all":
         return result_frame
@@ -85,6 +97,8 @@ def _build_ranked_results_table(result_frame: pd.DataFrame) -> str:
     fraction_covered = ordered.get("fraction_groups_covered", pd.Series([float("nan")] * len(ordered)))
     bottom_3 = ordered.get("bottom_3_avg_group_spread", pd.Series([float("nan")] * len(ordered)))
     delta_f = ordered.get("delta_f_score", pd.Series([float("nan")] * len(ordered)))
+    search_runtime = ordered.get("search_runtime_seconds", pd.Series([float("nan")] * len(ordered)))
+    final_eval_runtime = ordered.get("final_eval_runtime_seconds", pd.Series([float("nan")] * len(ordered)))
     lines: list[str] = []
     for index, row in ordered.iterrows():
         mode = str(row.get("optimization_mode", "full"))
@@ -106,7 +120,12 @@ def _build_ranked_results_table(result_frame: pd.DataFrame) -> str:
         )
         lines.append(
             "   "
-            f"MF={_format_float(row['mf'])} | DCV={_format_float(row['dcv'])} | "
+            f"search={_format_runtime_seconds(search_runtime.iloc[index])} | "
+            f"eval={_format_runtime_seconds(final_eval_runtime.iloc[index])} | "
+            f"MF={_format_float(row['mf'])} | DCV={_format_float(row['dcv'])}"
+        )
+        lines.append(
+            "   "
             f"pool={_format_int(row['candidate_pool_size'])} | kind={row['variant_type']}"
         )
         lines.append(
@@ -173,6 +192,8 @@ def _build_hybrid_delta_table(result_frame: pd.DataFrame, baseline_method: str =
     lines: list[str] = []
     zero_cov = comparison_rows.get("zero_covered_groups_count", pd.Series([float("nan")] * len(comparison_rows)))
     fraction_covered = comparison_rows.get("fraction_groups_covered", pd.Series([float("nan")] * len(comparison_rows)))
+    search_runtime = comparison_rows.get("search_runtime_seconds", pd.Series([float("nan")] * len(comparison_rows)))
+    final_eval_runtime = comparison_rows.get("final_eval_runtime_seconds", pd.Series([float("nan")] * len(comparison_rows)))
     for index, row in comparison_rows.iterrows():
         mode = str(row.get("optimization_mode", "full"))
         delta_f_value = f"{float(row['delta_f_score']):+0.6f}"
@@ -187,7 +208,12 @@ def _build_hybrid_delta_table(result_frame: pd.DataFrame, baseline_method: str =
         )
         lines.append(
             "   "
-            f"pool={_format_int(row['candidate_pool_size'])} | "
+            f"search={_format_runtime_seconds(search_runtime.iloc[index])} | "
+            f"eval={_format_runtime_seconds(final_eval_runtime.iloc[index])} | "
+            f"pool={_format_int(row['candidate_pool_size'])}"
+        )
+        lines.append(
+            "   "
             f"ZeroCov={_format_int(zero_cov.iloc[index])} | "
             f"FracCov={_format_float(fraction_covered.iloc[index], digits=3)}"
         )
@@ -208,6 +234,18 @@ def format_results_report(result_frame: pd.DataFrame, settings: ExperimentSettin
         return "No experiment results were produced."
 
     report_frame = _filter_report_frame(result_frame, report_focus)
+    search_mc_runs = _resolved_report_mc_runs(
+        report_frame,
+        "mc_runs_search",
+        settings.mc_runs_search if settings.mc_runs_search is not None else settings.mc_runs,
+    )
+    eval_mc_runs = _resolved_report_mc_runs(
+        report_frame,
+        "mc_runs_eval",
+        settings.mc_runs_eval
+        if settings.mc_runs_eval is not None
+        else (settings.mc_runs_search if settings.mc_runs_search is not None else settings.mc_runs),
+    )
 
     dataset_names = ", ".join(sorted(str(value) for value in report_frame["dataset"].dropna().unique()))
     community_methods = ", ".join(sorted(str(value) for value in report_frame["community_method"].dropna().unique()))
@@ -218,7 +256,8 @@ def format_results_report(result_frame: pd.DataFrame, settings: ExperimentSettin
         f"Dataset: {dataset_names}",
         f"Diffusion model: {settings.diffusion_model} (Independent Cascade)",
         f"Protected attribute: {settings.protected_attribute}",
-        f"Budget: {settings.budget} | MC runs: {settings.mc_runs} | Random seed: {settings.random_seed}",
+        f"Budget: {settings.budget} | MC runs: search={search_mc_runs}, eval={eval_mc_runs} | Random seed: {settings.random_seed}",
+        "Final evaluation seed: random_seed + 1000000",
         f"Community methods: {community_methods}",
         (
             f"ML: enabled | requested mode={settings.ml_guidance_mode} | "
@@ -288,7 +327,24 @@ def parse_args() -> argparse.Namespace:
         help="Primary diffusion model used across all experiments. IC is the only supported mainline model.",
     )
     parser.add_argument("--propagation-prob", type=float, default=0.01, help="Independent Cascade propagation probability.")
-    parser.add_argument("--mc-runs", type=int, default=20, help="Monte Carlo run count.")
+    parser.add_argument(
+        "--mc-runs",
+        type=int,
+        default=None,
+        help="Deprecated shorthand that sets both search-time and final evaluation MC budgets when the split flags are absent.",
+    )
+    parser.add_argument(
+        "--mc-runs-search",
+        type=int,
+        default=None,
+        help="MC runs used during optimization, mutation, repair, local search, and search-time scoring.",
+    )
+    parser.add_argument(
+        "--mc-runs-eval",
+        type=int,
+        default=None,
+        help="MC runs used only for final reported spread and fairness evaluation.",
+    )
     parser.add_argument("--lambda-weight", type=float, default=0.5, help="Lambda in F(S) = lambda*MF - (1-lambda)*DCV.")
     parser.add_argument("--population-size", type=int, default=12, help="Hybrid population size.")
     parser.add_argument("--generations", type=int, default=10, help="Hybrid generation count.")
@@ -402,13 +458,19 @@ def main() -> None:
     proxy_score_weights = json.loads(args.proxy_score_weights)
     if not isinstance(proxy_score_weights, dict):
         raise ValueError("--proxy-score-weights must parse to a JSON object.")
+    settings_kwargs: dict[str, object] = {}
+    if args.mc_runs is not None:
+        settings_kwargs["mc_runs"] = args.mc_runs
+    if args.mc_runs_search is not None:
+        settings_kwargs["mc_runs_search"] = args.mc_runs_search
+    if args.mc_runs_eval is not None:
+        settings_kwargs["mc_runs_eval"] = args.mc_runs_eval
     settings = ExperimentSettings(
         protected_attribute=args.protected_attribute,
         budget=args.budget,
         diffusion_model=args.diffusion_model,
         community_method=args.community_methods[0],
         propagation_probability=args.propagation_prob,
-        mc_runs=args.mc_runs,
         lambda_weight=args.lambda_weight,
         population_size=args.population_size,
         generations=args.generations,
@@ -489,6 +551,7 @@ def main() -> None:
         local_search_first_improvement=args.local_search_first_improvement,
         full_eval_top_k=args.full_eval_top_k,
         proxy_score_weights=proxy_score_weights,
+        **settings_kwargs,
     )
     result_frame = run_experiment(
         dataset_config=dataset_config,
@@ -510,6 +573,10 @@ def main() -> None:
         "f_score",
         "delta_f_score",
         "runtime_seconds",
+        "search_runtime_seconds",
+        "final_eval_runtime_seconds",
+        "mc_runs_search",
+        "mc_runs_eval",
         "candidate_pool_size",
         "optimization_mode",
         "zero_covered_groups_count",

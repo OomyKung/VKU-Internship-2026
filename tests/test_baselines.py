@@ -7,7 +7,7 @@ import unittest
 import networkx as nx
 import pandas as pd
 
-from fim_hybrid.baselines import run_baseline
+from fim_hybrid.baselines import run_baseline, select_baseline_seed_set
 from fim_hybrid.data_loader import LoadedDataset, ProtectedGroupReport, verify_protected_groups
 
 
@@ -45,6 +45,18 @@ def _toy_baseline_dataset() -> tuple[LoadedDataset, ProtectedGroupReport]:
 
 class BaselineTestCase(unittest.TestCase):
     """Check Phase 3 baseline selection and end-to-end evaluation."""
+
+    def test_select_baseline_seed_set_returns_deterministic_selection_only(self) -> None:
+        dataset, _ = _toy_baseline_dataset()
+
+        seed_set = select_baseline_seed_set(
+            dataset=dataset,
+            method="degree",
+            budget=2,
+            random_seed=7,
+        )
+
+        self.assertEqual(seed_set, (1, 5))
 
     def test_random_baseline_is_deterministic_for_same_seed(self) -> None:
         dataset, report = _toy_baseline_dataset()

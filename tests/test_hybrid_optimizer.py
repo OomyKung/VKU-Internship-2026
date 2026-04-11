@@ -591,6 +591,15 @@ class HybridOptimizerTestCase(unittest.TestCase):
         self.assertEqual(optimizer.last_screening_mc_runs, 2)
         self.assertEqual(optimizer.last_full_mc_runs, 5)
 
+    def test_staged_mc_rejects_full_budget_above_search_budget(self) -> None:
+        with self.assertRaisesRegex(ValueError, "mc_runs_full cannot exceed"):
+            self._build_optimizer(
+                use_staged_mc=True,
+                mc_runs=5,
+                mc_runs_fast=2,
+                mc_runs_full=6,
+            )
+
     def test_swap_runtime_controls_reduce_expensive_local_search_evaluations(self) -> None:
         baseline_optimizer = self._build_optimizer(
             local_search_focus_mode="worst_group",

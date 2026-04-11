@@ -31,6 +31,10 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "dcv": 0.030303,
                     "f_score": -0.010652,
                     "runtime_seconds": 6.835000,
+                    "search_runtime_seconds": 5.835000,
+                    "final_eval_runtime_seconds": 1.000000,
+                    "mc_runs_search": 20,
+                    "mc_runs_eval": 1000,
                     "candidate_pool_size": 500,
                     "optimization_mode": "full",
                     "node2vec_enabled": False,
@@ -56,6 +60,10 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "dcv": 0.038232,
                     "f_score": -0.014949,
                     "runtime_seconds": 3.157337,
+                    "search_runtime_seconds": 2.657337,
+                    "final_eval_runtime_seconds": 0.500000,
+                    "mc_runs_search": 20,
+                    "mc_runs_eval": 1000,
                     "candidate_pool_size": 500,
                     "optimization_mode": "full",
                     "node2vec_enabled": False,
@@ -81,6 +89,10 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "dcv": 0.034000,
                     "f_score": -0.012750,
                     "runtime_seconds": 4.000000,
+                    "search_runtime_seconds": 3.250000,
+                    "final_eval_runtime_seconds": 0.750000,
+                    "mc_runs_search": 20,
+                    "mc_runs_eval": 1000,
                     "candidate_pool_size": 500,
                     "optimization_mode": "full",
                     "node2vec_enabled": False,
@@ -101,7 +113,8 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
             protected_attribute="group",
             budget=4,
             community_method="leiden",
-            mc_runs=20,
+            mc_runs_search=20,
+            mc_runs_eval=1000,
             random_seed=42,
             use_ml=True,
             ml_guidance_mode="two_tier",
@@ -112,6 +125,8 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
 
         self.assertIn("Fair Influence Maximization Experiment Summary", report)
         self.assertIn("Diffusion model: ic (Independent Cascade)", report)
+        self.assertIn("MC runs: search=20, eval=1000", report)
+        self.assertIn("Final evaluation seed: random_seed + 1000000", report)
         self.assertIn("Node2Vec: removed from the supported ML experiment surface", report)
         self.assertIn("Community: leiden", report)
         self.assertIn("Highlights", report)
@@ -119,6 +134,8 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
         self.assertIn(KEPT_ML_LABEL, report)
         self.assertIn("two_tier", report)
         self.assertIn("0.302647", report)
+        self.assertIn("search=5.835s", report)
+        self.assertIn("eval=1.000s", report)
 
     def test_format_results_report_includes_protected_attribute_output_path(self) -> None:
         frame = pd.DataFrame(
@@ -134,6 +151,10 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "dcv": 0.038232,
                     "f_score": -0.014949,
                     "runtime_seconds": 3.157337,
+                    "search_runtime_seconds": 2.657337,
+                    "final_eval_runtime_seconds": 0.500000,
+                    "mc_runs_search": 20,
+                    "mc_runs_eval": 20,
                     "candidate_pool_size": 500,
                     "optimization_mode": "full",
                     "node2vec_enabled": False,
@@ -154,7 +175,8 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
             protected_attribute="group/name",
             budget=4,
             community_method="leiden",
-            mc_runs=20,
+            mc_runs_search=20,
+            mc_runs_eval=20,
             random_seed=42,
             output_dir=Path("results"),
         )
@@ -177,6 +199,10 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "dcv": 0.034000,
                     "f_score": -0.012750,
                     "runtime_seconds": 4.000000,
+                    "search_runtime_seconds": 3.250000,
+                    "final_eval_runtime_seconds": 0.750000,
+                    "mc_runs_search": 20,
+                    "mc_runs_eval": 1000,
                     "candidate_pool_size": 500,
                     "optimization_mode": "full",
                     "node2vec_enabled": False,
@@ -202,6 +228,10 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "dcv": 0.030303,
                     "f_score": -0.010652,
                     "runtime_seconds": 6.835000,
+                    "search_runtime_seconds": 5.835000,
+                    "final_eval_runtime_seconds": 1.000000,
+                    "mc_runs_search": 20,
+                    "mc_runs_eval": 1000,
                     "candidate_pool_size": 500,
                     "optimization_mode": "full",
                     "node2vec_enabled": False,
@@ -227,6 +257,10 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "dcv": 0.038232,
                     "f_score": -0.014949,
                     "runtime_seconds": 3.157337,
+                    "search_runtime_seconds": 2.657337,
+                    "final_eval_runtime_seconds": 0.500000,
+                    "mc_runs_search": 20,
+                    "mc_runs_eval": 1000,
                     "candidate_pool_size": 500,
                     "optimization_mode": "full",
                     "node2vec_enabled": False,
@@ -247,7 +281,8 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
             protected_attribute="group",
             budget=4,
             community_method="leiden",
-            mc_runs=20,
+            mc_runs_search=20,
+            mc_runs_eval=1000,
             random_seed=42,
             use_ml=True,
             ml_guidance_mode="two_tier",
