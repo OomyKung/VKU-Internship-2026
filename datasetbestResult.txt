@@ -1,3 +1,84 @@
 rice_subset : ML Two tier tuned urgency weighted = 0.06
 synth2 : ML two tire full refinement = 0.023
 synth3 : ML Two tier tuned = 0.021
+
+Result : email_Eu_core
+======================================================================================================================
+Fair Influence Maximization Experiment Summary
+======================================================================================================================
+Dataset: email_Eu_core
+Diffusion model: ic (Independent Cascade)
+Protected attribute: department
+Budget: 40 | MC runs: search=30, eval=1000 | Random seed: 42
+Final evaluation seed: random_seed + 1000000
+Spread semantics: total activated nodes including seed nodes; extra_spread = total_spread - budget
+Community methods: leiden
+ML: enabled | requested mode=two_tier | backend=gnn_ris | singleton label runs=15
+GNN config: type=gcn | hidden_dim=64 | layers=2 | dropout=0.2 | lr=0.001 | weight_decay=0.0005 | epochs=100 | node2vec_mode=compare
+Node2Vec config: dimensions=8 | walk_length=20 | num_walks=10 | window=5 | p=1.0 | q=1.0 | scale=False | pca=None     
+RIS config: num_rr_sets=256 | random_seed=42 | reuse_rr_sets=True | mode=weak_group_weighted
+Guidance weights: gnn=1.0 | ris=1.0 | fairness=0.25 | diversity=0.15
+Final recheck: enabled | mc_runs=1000 | top_k=2
+Final recheck seed: random_seed + 2000000
+Node2Vec: supported only as an optional GNN input feature source
+
+----------------------------------------------------------------------------------------------------------------------
+Community: leiden
+----------------------------------------------------------------------------------------------------------------------
+Modes present: full
+
+1. hybrid_siea_ml_gnn_ris_node2vec_two_tier_tuned_swap_local_search [full]
+   F=-0.065762 | dF=+0.030630 | runtime=409.364s | spread=85.944 | extra=45.944
+   search=402.400s | eval=6.963s | MF=0.025000 | DCV=0.156523
+   pool=1005 | kind=ml_guided
+   ZeroCov=0 | FracCov=1.000 | Bottom3=0.177
+   ML=two_tier | backend=gnn_ris | GNN=gcn | N2V=input_concat | RIS=weak_group_weighted | rho=-0.498583 | p@k=0.025000
+   recheck@1000MC [rank=1]: F=-0.064911 | spread=86.102 | extra=46.102 | MF=0.028000 | DCV=0.157821 | rt=5.432s       
+
+2. hybrid_siea_ml_gnn_ris_two_tier_tuned_swap_local_search [full]
+   F=-0.069885 | dF=+0.026507 | runtime=467.581s | spread=87.460 | extra=47.460
+   search=461.750s | eval=5.831s | MF=0.031500 | DCV=0.171269
+   pool=1005 | kind=ml_guided
+   ZeroCov=0 | FracCov=1.000 | Bottom3=0.131
+   ML=two_tier | backend=gnn_ris | GNN=gcn | N2V=off | RIS=weak_group_weighted | rho=0.432734 | p@k=0.500000
+   recheck@1000MC [rank=2]: F=-0.069179 | spread=87.646 | extra=47.646 | MF=0.033000 | DCV=0.171358 | rt=5.532s       
+
+3. hybrid_siea [full]
+   F=-0.096391 | dF=+0.000000 | runtime=3804.955s | spread=93.629 | extra=53.629
+   search=3797.168s | eval=7.788s | MF=0.002000 | DCV=0.194783
+   pool=1005 | kind=proposed
+   ZeroCov=0 | FracCov=1.000 | Bottom3=0.014
+   ML=- | backend=none | GNN=- | N2V=off | RIS=off | rho=- | p@k=-
+
+4. cea_fim [full]
+   F=-0.105942 | dF=-0.009551 | runtime=51.075s | spread=90.519 | extra=50.519
+   search=42.634s | eval=8.440s | MF=0.002000 | DCV=0.213885
+   pool=1005 | kind=comparator
+   ZeroCov=0 | FracCov=1.000 | Bottom3=0.022
+   ML=- | backend=none | GNN=- | N2V=off | RIS=off | rho=- | p@k=-
+
+Highlights
+  Best F-score: hybrid_siea_ml_gnn_ris_node2vec_two_tier_tuned_swap_local_search (-0.065762)
+  Fastest run : cea_fim (51.075s)
+  Best ML run: hybrid_siea_ml_gnn_ris_node2vec_two_tier_tuned_swap_local_search (F-score=-0.065762, runtime=409.364s) 
+
+Delta vs hybrid_siea
+hybrid_siea_ml_gnn_ris_node2vec_two_tier_tuned_swap_local_search [full]
+   dF=+0.030630 | dT=-3395.592s | F=-0.065762 | runtime=409.364s
+   search=402.400s | eval=6.963s | spread=85.944 | extra=45.944
+   pool=1005 | ZeroCov=0 | FracCov=1.000
+   ML=two_tier | backend=gnn_ris | GNN=gcn | N2V=input_concat | RIS=weak_group_weighted
+   recheck@1000MC: F=-0.064911
+
+hybrid_siea_ml_gnn_ris_two_tier_tuned_swap_local_search [full]
+   dF=+0.026507 | dT=-3337.374s | F=-0.069885 | runtime=467.581s
+   search=461.750s | eval=5.831s | spread=87.460 | extra=47.460
+   pool=1005 | ZeroCov=0 | FracCov=1.000
+   ML=two_tier | backend=gnn_ris | GNN=gcn | N2V=off | RIS=weak_group_weighted
+   recheck@1000MC: F=-0.069179
+
+hybrid_siea [full]
+   dF=+0.000000 | dT=+0.000s | F=-0.096391 | runtime=3804.955s
+   search=3797.168s | eval=7.788s | spread=93.629 | extra=53.629
+   pool=1005 | ZeroCov=0 | FracCov=1.000
+   ML=- | backend=none | GNN=- | N2V=off | RIS=off

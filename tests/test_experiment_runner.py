@@ -10,9 +10,10 @@ from unittest.mock import patch
 import networkx as nx
 import pandas as pd
 
+from fim_hybrid.config import DatasetConfig
 from fim_hybrid.data_loader import LoadedDataset, verify_protected_groups
 from fim_hybrid.gnn_training import gnn_dependencies_available
-from fim_hybrid.experiment_runner import ExperimentSettings, run_loaded_experiment
+from fim_hybrid.experiment_runner import ExperimentSettings, run_experiment, run_loaded_experiment
 
 
 KEPT_ML_LABEL = "hybrid_siea_ml_two_tier_tuned_swap_local_search"
@@ -217,6 +218,42 @@ class ExperimentRunnerTestCase(unittest.TestCase):
         self.assertEqual(ml_row["ml_guidance_mode"], "two_tier")
         self.assertEqual(ml_row["ml_backend"], "tabular")
         self.assertTrue(pd.isna(ml_row["gnn_model_type"]))
+
+    def test_run_experiment_loads_custom_dataset_config_end_to_end(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            edge_path = temp_path / "edges.txt"
+            attribute_path = temp_path / "attributes.csv"
+            edge_path.write_text("1 2\n2 3\n3 4\n4 1\n", encoding="utf-8")
+            attribute_path.write_text("node_id,group\n1,A\n2,A\n3,B\n4,B\n", encoding="utf-8")
+
+            settings = ExperimentSettings(
+                protected_attribute="group",
+                budget=2,
+                community_method="louvain",
+                propagation_probability=0.0,
+                mc_runs_search=2,
+                mc_runs_eval=3,
+                population_size=4,
+                generations=2,
+                random_seed=7,
+            )
+
+            result_frame = run_experiment(
+                dataset_config=DatasetConfig(
+                    name="custom_dataset",
+                    edge_path=edge_path,
+                    attribute_path=attribute_path,
+                ),
+                settings=settings,
+                community_methods=["louvain"],
+                baseline_methods=["degree"],
+                include_ablations=False,
+            )
+
+            self.assertIn("cea_fim", set(result_frame["method"]))
+            self.assertIn("hybrid_siea", set(result_frame["method"]))
+            self.assertTrue((result_frame["dataset"] == "custom_dataset").all())
 
     def test_run_loaded_experiment_treats_ml_off_as_single_supported_ml_path(self) -> None:
         dataset, protected_group_report = _toy_experiment_fixture()

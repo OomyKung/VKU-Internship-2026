@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import json
+from argparse import Namespace
 from pathlib import Path
+import tempfile
 import unittest
 
 import pandas as pd
 
 from fim_hybrid.experiment_runner import ExperimentSettings
-from scripts.run_experiment import format_results_report
+from scripts.run_experiment import build_dataset_config, format_results_report
 
 
 KEPT_ML_LABEL = "hybrid_siea_ml_two_tier_tuned_swap_local_search"
@@ -551,6 +554,64 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
         self.assertIn(KEPT_ML_LABEL, report)
         self.assertIn("cea_fim", report)
         self.assertNotIn("hybrid_siea [full]", report)
+
+    def test_build_dataset_config_supports_custom_graph_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            edge_path = Path(temp_dir) / "custom_edges.txt"
+            edge_path.write_text("1 2\n2 3\n", encoding="utf-8")
+            args = Namespace(
+                dataset="graph_spa_500_0",
+                graph_path=str(edge_path),
+                attributes_path=None,
+                dataset_format="auto",
+                dataset_config=None,
+                directed=False,
+                source_col=None,
+                target_col=None,
+                node_id_col=None,
+            )
+
+            config = build_dataset_config(args)
+
+            self.assertEqual(config.edge_path, edge_path)
+            self.assertFalse(config.directed)
+            self.assertEqual(config.name, "custom_edges")
+
+    def test_build_dataset_config_supports_json_dataset_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            edge_path = temp_path / "edges.csv"
+            config_path = temp_path / "dataset.json"
+            edge_path.write_text("src,dst\n1,2\n2,3\n", encoding="utf-8")
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "name": "json_cli_dataset",
+                        "graph_path": "edges.csv",
+                        "dataset_format": "csv",
+                        "source_col": "src",
+                        "target_col": "dst",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = Namespace(
+                dataset="graph_spa_500_0",
+                graph_path=None,
+                attributes_path=None,
+                dataset_format="auto",
+                dataset_config=str(config_path),
+                directed=None,
+                source_col=None,
+                target_col=None,
+                node_id_col=None,
+            )
+
+            config = build_dataset_config(args)
+
+            self.assertEqual(config.name, "json_cli_dataset")
+            self.assertEqual(config.edge_path, edge_path)
+            self.assertEqual(config.dataset_format, "csv")
 
 
 if __name__ == "__main__":

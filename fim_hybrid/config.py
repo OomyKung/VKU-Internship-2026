@@ -14,6 +14,9 @@ class DatasetConfig:
     edge_path: Path | None = None
     pickle_path: Path | None = None
     attribute_path: Path | None = None
+    dataset_format: str | None = None
     directed: bool = True
     delimiter: str | None = None
+    source_column: str = "source"
+    target_column: str = "target"
     node_id_column: str = "node_id"

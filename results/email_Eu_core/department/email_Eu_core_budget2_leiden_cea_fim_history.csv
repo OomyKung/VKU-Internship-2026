@@ -1,0 +1,3 @@
+generation,best_score,best_f_score,best_spread,best_mf,best_dcv,average_population_score,population_diversity,best_seed_set,local_search_applied_count,local_search_swap_evaluations,screening_evaluation_calls,full_evaluation_calls,zero_covered_groups_count,bottom_3_avg_group_spread,fraction_groups_covered,weakest_groups_note
+0,-0.29678899775267503,-0.29678899775267503,23.0,0.0,0.5935779955053501,-0.3704408866466696,0.7222222222222223,"[160, 5]",4,0,0,9,23,0.0,0.4523809523809524,"0,10,12"
+1,-0.29678899775267503,-0.29678899775267503,23.0,0.0,0.5935779955053501,-0.3704408866466696,0.7222222222222223,"[160, 5]",4,0,0,0,23,0.0,0.4523809523809524,"0,10,12"

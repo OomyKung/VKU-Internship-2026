@@ -14,7 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from fim_hybrid.data_loader import resolve_builtin_dataset  # noqa: E402
+from fim_hybrid.config import DatasetConfig  # noqa: E402
+from fim_hybrid.data_loader import resolve_dataset_config  # noqa: E402
 from fim_hybrid.diffusion import DEFAULT_DIFFUSION_MODEL  # noqa: E402
 from fim_hybrid.experiment_runner import ExperimentSettings, build_results_output_dir, run_experiment  # noqa: E402
 
@@ -424,9 +425,49 @@ def format_results_report(result_frame: pd.DataFrame, settings: ExperimentSettin
     return "\n".join(lines)
 
 
+def build_dataset_config(args: argparse.Namespace) -> DatasetConfig:
+    """Resolve CLI dataset arguments into the shared internal dataset config."""
+
+    dataset_format = None if getattr(args, "dataset_format", None) in {None, "auto"} else args.dataset_format
+    return resolve_dataset_config(
+        args.dataset,
+        base_dir=ROOT,
+        graph_path=args.graph_path,
+        attributes_path=args.attributes_path,
+        dataset_format=dataset_format,
+        dataset_config=args.dataset_config,
+        directed=args.directed,
+        source_col=args.source_col,
+        target_col=args.target_col,
+        node_id_col=args.node_id_col,
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run comparable Fair Influence Maximization experiments.")
-    parser.add_argument("--dataset", default="graph_spa_500_0", help="Built-in dataset name.")
+    parser.add_argument(
+        "--dataset",
+        default="graph_spa_500_0",
+        help="Built-in dataset name, a supported custom dataset file path, or a dataset stem under networks/.",
+    )
+    parser.add_argument("--graph-path", default=None, help="Path to an external graph file.")
+    parser.add_argument("--attributes-path", "--attribute-path", dest="attributes_path", default=None, help="Optional path to a separate node-attribute file.")
+    parser.add_argument(
+        "--dataset-format",
+        choices=["auto", "pickle", "pkl", "txt", "csv"],
+        default="auto",
+        help="External graph format. Use 'auto' to infer from the file extension.",
+    )
+    parser.add_argument("--dataset-config", default=None, help="Optional JSON dataset config file.")
+    parser.add_argument(
+        "--directed",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Treat external edge-list datasets as directed. Pickled graphs keep their stored graph type.",
+    )
+    parser.add_argument("--source-col", default=None, help="Source column name for CSV edge lists.")
+    parser.add_argument("--target-col", default=None, help="Target column name for CSV edge lists.")
+    parser.add_argument("--node-id-col", default=None, help="Node ID column name for separate attribute files.")
     parser.add_argument("--protected-attribute", required=True, help="Protected attribute for fairness metrics.")
     parser.add_argument("--community-methods", nargs="+", default=["leiden"], help="Community detection methods to compare.")
     parser.add_argument(
@@ -626,7 +667,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    dataset_config = resolve_builtin_dataset(args.dataset, ROOT)
+    dataset_config = build_dataset_config(args)
     output_dir = _resolve_repo_path(args.output_dir)
     proxy_score_weights = json.loads(args.proxy_score_weights)
     if not isinstance(proxy_score_weights, dict):

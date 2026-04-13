@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import gzip
+import json
 import pickle
 from pathlib import Path
 import tempfile
@@ -10,7 +12,13 @@ import unittest
 import networkx as nx
 
 from fim_hybrid.config import DatasetConfig
-from fim_hybrid.data_loader import load_dataset, resolve_builtin_dataset, verify_protected_groups
+from fim_hybrid.data_loader import (
+    load_dataset,
+    load_dataset_config_file,
+    resolve_builtin_dataset,
+    resolve_dataset_config,
+    verify_protected_groups,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +36,17 @@ class Phase1DataLoaderTestCase(unittest.TestCase):
         self.assertEqual(report.edge_count, 1689)
         self.assertEqual(sum(report.group_sizes.values()), 500)
         self.assertEqual(set(report.group_sizes), {"asian", "black", "latino", "other", "white"})
+
+    def test_builtin_email_eu_core_department_verification(self) -> None:
+        config = resolve_builtin_dataset("email_Eu_core", REPO_ROOT)
+        dataset = load_dataset(config)
+        report = verify_protected_groups(dataset, "department")
+
+        self.assertEqual(report.node_count, 1005)
+        self.assertEqual(report.edge_count, 25571)
+        self.assertIn("department", dataset.node_attributes.columns)
+        self.assertGreaterEqual(len(report.group_sizes), 2)
+        self.assertEqual(sum(report.group_sizes.values()), 1005)
 
     def test_missing_protected_attribute_raises(self) -> None:
         config = resolve_builtin_dataset("graph_spa_500_0", REPO_ROOT)
@@ -68,6 +87,145 @@ class Phase1DataLoaderTestCase(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "Inconsistent node ID types"):
                 load_dataset(config)
+
+    def test_external_pickle_graph_loads_correctly(self) -> None:
+        graph = nx.DiGraph()
+        graph.add_edge(1, 2)
+        graph.nodes[1]["group"] = "A"
+        graph.nodes[2]["group"] = "B"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pickle_path = Path(temp_dir) / "graph.pkl"
+            with pickle_path.open("wb") as handle:
+                pickle.dump(graph, handle)
+
+            dataset = load_dataset(DatasetConfig(name="custom_pickle", pickle_path=pickle_path, dataset_format="pickle"))
+
+            self.assertEqual(dataset.graph.number_of_nodes(), 2)
+            self.assertEqual(dataset.graph.number_of_edges(), 1)
+            self.assertIn("group", dataset.node_attributes.columns)
+
+    def test_external_txt_edge_list_loads_correctly(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            edge_path = Path(temp_dir) / "edges.txt"
+            edge_path.write_text("1 2\n2 3\n", encoding="utf-8")
+
+            dataset = load_dataset(DatasetConfig(name="custom_txt", edge_path=edge_path, dataset_format="txt"))
+
+            self.assertEqual(dataset.graph.number_of_nodes(), 3)
+            self.assertEqual(dataset.graph.number_of_edges(), 2)
+            self.assertTrue(dataset.graph.is_directed())
+
+    def test_external_txt_gz_edge_list_loads_correctly(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            edge_path = Path(temp_dir) / "edges.txt.gz"
+            with gzip.open(edge_path, "wt", encoding="utf-8") as handle:
+                handle.write("1 2\n2 3\n")
+
+            dataset = load_dataset(DatasetConfig(name="custom_txt_gz", edge_path=edge_path))
+
+            self.assertEqual(dataset.graph.number_of_nodes(), 3)
+            self.assertEqual(dataset.graph.number_of_edges(), 2)
+
+    def test_external_csv_edge_list_loads_correctly(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            edge_path = Path(temp_dir) / "edges.csv"
+            edge_path.write_text("src,dst\n1,2\n2,3\n", encoding="utf-8")
+
+            dataset = load_dataset(
+                DatasetConfig(
+                    name="custom_csv",
+                    edge_path=edge_path,
+                    dataset_format="csv",
+                    source_column="src",
+                    target_column="dst",
+                    directed=False,
+                )
+            )
+
+            self.assertEqual(dataset.graph.number_of_nodes(), 3)
+            self.assertEqual(dataset.graph.number_of_edges(), 2)
+            self.assertFalse(dataset.graph.is_directed())
+
+    def test_csv_edge_list_missing_columns_raises_clear_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            edge_path = Path(temp_dir) / "edges.csv"
+            edge_path.write_text("u,v\n1,2\n2,3\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "must contain source column 'source' and target column 'target'"):
+                load_dataset(DatasetConfig(name="custom_csv", edge_path=edge_path, dataset_format="csv"))
+
+    def test_separate_attribute_file_can_be_attached(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            edge_path = temp_path / "edges.txt"
+            attribute_path = temp_path / "attributes.csv"
+            edge_path.write_text("1 2\n2 3\n", encoding="utf-8")
+            attribute_path.write_text("node_id,group\n1,A\n2,B\n3,C\n", encoding="utf-8")
+
+            dataset = load_dataset(
+                DatasetConfig(
+                    name="custom_with_attrs",
+                    edge_path=edge_path,
+                    attribute_path=attribute_path,
+                )
+            )
+
+            self.assertEqual(dataset.node_attributes.loc[1, "group"], "A")
+            self.assertEqual(dataset.graph.nodes[3]["group"], "C")
+
+    def test_attribute_file_with_missing_graph_nodes_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            edge_path = temp_path / "edges.txt"
+            attribute_path = temp_path / "attributes.csv"
+            edge_path.write_text("1 2\n2 3\n", encoding="utf-8")
+            attribute_path.write_text("node_id,group\n1,A\n2,B\n4,C\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "not present in the graph"):
+                load_dataset(
+                    DatasetConfig(
+                        name="custom_with_bad_attrs",
+                        edge_path=edge_path,
+                        attribute_path=attribute_path,
+                    )
+                )
+
+    def test_load_dataset_config_file_resolves_relative_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            edge_path = temp_path / "edges.csv"
+            config_path = temp_path / "dataset.json"
+            edge_path.write_text("src,dst\n1,2\n2,3\n", encoding="utf-8")
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "name": "json_dataset",
+                        "graph_path": "edges.csv",
+                        "dataset_format": "csv",
+                        "source_col": "src",
+                        "target_col": "dst",
+                        "directed": False,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            config = load_dataset_config_file(config_path)
+            dataset = load_dataset(config)
+
+            self.assertEqual(config.name, "json_dataset")
+            self.assertEqual(config.edge_path, edge_path)
+            self.assertFalse(config.directed)
+            self.assertEqual(dataset.graph.number_of_edges(), 2)
+
+    def test_resolve_dataset_config_supports_builtin_and_custom_stem_lookup(self) -> None:
+        builtin = resolve_dataset_config("graph_spa_500_0", base_dir=REPO_ROOT)
+        custom = resolve_dataset_config("email_Eu_core", base_dir=REPO_ROOT)
+
+        self.assertEqual(builtin.name, "graph_spa_500_0")
+        self.assertTrue(Path(custom.pickle_path or custom.edge_path).exists())
+        self.assertEqual(custom.name, "email_Eu_core")
 
 
 if __name__ == "__main__":
