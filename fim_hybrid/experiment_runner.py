@@ -22,10 +22,14 @@ from .hybrid_optimizer import HybridOptimizationResult, HybridSIEAConfig, Hybrid
 from .label_generation import NodeUtilityLabelResult, generate_singleton_node_utility_labels
 from .ml_training import MLTrainingResult, train_node_utility_model
 from .node2vec_embeddings import Node2VecConfig, build_node2vec_cache_path
+from .ris_guidance import RISConfig, RISGuidanceResult, generate_ris_guidance
 
 _KEPT_ML_VARIANT_LABEL = "hybrid_siea_ml_two_tier_tuned_swap_local_search"
 _KEPT_GNN_ML_VARIANT_LABEL = "hybrid_siea_ml_gnn_two_tier_tuned_swap_local_search"
 _KEPT_GNN_NODE2VEC_ML_VARIANT_LABEL = "hybrid_siea_ml_gnn_node2vec_two_tier_tuned_swap_local_search"
+_KEPT_RIS_ML_VARIANT_LABEL = "hybrid_siea_ml_ris_two_tier_tuned_swap_local_search"
+_KEPT_GNN_RIS_ML_VARIANT_LABEL = "hybrid_siea_ml_gnn_ris_two_tier_tuned_swap_local_search"
+_KEPT_GNN_RIS_NODE2VEC_ML_VARIANT_LABEL = "hybrid_siea_ml_gnn_ris_node2vec_two_tier_tuned_swap_local_search"
 _REMOVED_ML_VARIANT_LABELS = {
     "hybrid_siea_ml_hard_filter",
     "hybrid_siea_ml_soft_bias",
@@ -145,6 +149,14 @@ class ExperimentSettings:
     gnn_learning_rate: float = 1e-3
     gnn_weight_decay: float = 5e-4
     gnn_epochs: int = 100
+    ris_num_rr_sets: int = 256
+    ris_random_seed: int | None = None
+    ris_reuse_rr_sets: bool = True
+    ris_mode: str = "global"
+    gnn_weight: float = 1.0
+    ris_weight: float = 1.0
+    fairness_urgency_weight: float = 0.0
+    diversity_weight: float = 0.0
     ml_primary_pool_ratio: float = 0.25
     ml_secondary_exploration_rate: float = 0.10
     ml_initialization_bias: float = 0.25
@@ -428,6 +440,8 @@ def _ml_columns(
     guidance_mode: str = "off",
     ml_backend: str = "none",
     gnn_model_type: str | None = None,
+    ris_enabled: bool = False,
+    ris_mode: str = "off",
     validation_spearman: float | None = None,
     validation_precision_at_budget: float | None = None,
 ) -> dict[str, object]:
@@ -435,6 +449,8 @@ def _ml_columns(
         "ml_guidance_mode": guidance_mode,
         "ml_backend": ml_backend,
         "gnn_model_type": gnn_model_type,
+        "ris_enabled": bool(ris_enabled),
+        "ris_mode": ris_mode,
         "ml_validation_spearman": validation_spearman,
         "ml_validation_precision_at_budget": validation_precision_at_budget,
     }
@@ -553,6 +569,8 @@ def _ml_row(
     candidate_pool_size: int,
     ml_backend: str,
     gnn_model_type: str | None,
+    ris_enabled: bool,
+    ris_mode: str,
     validation_spearman: float,
     validation_precision_at_budget: float,
     guidance_mode: str,
@@ -598,6 +616,8 @@ def _ml_row(
             guidance_mode=guidance_mode,
             ml_backend=ml_backend,
             gnn_model_type=gnn_model_type,
+            ris_enabled=ris_enabled,
+            ris_mode=ris_mode,
             validation_spearman=validation_spearman,
             validation_precision_at_budget=validation_precision_at_budget,
         ),
@@ -631,10 +651,13 @@ def _resolve_ml_backends(settings: ExperimentSettings) -> tuple[str, ...]:
     valid_backends = {
         "tabular": ("tabular",),
         "gnn": ("gnn",),
+        "ris": ("ris",),
+        "gnn_ris": ("gnn_ris",),
         "both": ("tabular", "gnn"),
+        "all": ("tabular", "gnn", "ris", "gnn_ris"),
     }
     if settings.ml_backend not in valid_backends:
-        raise ValueError("ml_backend must be one of ['tabular', 'gnn', 'both'].")
+        raise ValueError("ml_backend must be one of ['tabular', 'gnn', 'ris', 'gnn_ris', 'both', 'all'].")
     return valid_backends[settings.ml_backend]
 
 
@@ -688,7 +711,7 @@ def _compute_ml_feature_frame(
         community_result=community_result,
     )
     feature_frames = {"plain": plain_frame}
-    if settings.use_ml and "gnn" in _resolve_ml_backends(settings):
+    if settings.use_ml and any(backend in {"gnn", "gnn_ris"} for backend in _resolve_ml_backends(settings)):
         if "input_concat" in _resolve_gnn_node2vec_modes(settings):
             feature_frames["input_concat"] = compute_node_features(
                 dataset=dataset,
@@ -759,6 +782,192 @@ def _build_gnn_label_frame(
     if label_variance <= 1e-12:
         raise ValueError("gnn_label_score is degenerate; adjust label construction or dataset settings.")
     return label_frame, perf_counter() - start
+
+
+def _normalize_score_map(scores: dict[object, float]) -> dict[object, float]:
+    if not scores:
+        return {}
+    values = pd.Series(scores, dtype=float)
+    minimum = float(values.min())
+    maximum = float(values.max())
+    if maximum <= minimum:
+        return {node_id: 0.0 for node_id in scores}
+    return {
+        node_id: float((float(score) - minimum) / (maximum - minimum))
+        for node_id, score in scores.items()
+    }
+
+
+def _combine_weighted_score_maps(
+    component_maps: list[tuple[dict[object, float], float]],
+    node_ids: list[object],
+) -> dict[object, float]:
+    combined = {node_id: 0.0 for node_id in node_ids}
+    active_components = 0
+    for component_map, weight in component_maps:
+        if weight <= 0.0:
+            continue
+        active_components += 1
+        normalized_component = _normalize_score_map(component_map)
+        for node_id in node_ids:
+            combined[node_id] += float(weight) * float(normalized_component.get(node_id, 0.0))
+    if active_components == 0:
+        raise ValueError("At least one positive guidance component weight is required to build node scores.")
+    return _normalize_score_map(combined)
+
+
+def _static_fairness_urgency_scores(feature_frame: pd.DataFrame) -> dict[object, float]:
+    required_columns = {
+        "node_id",
+        "fraction_neighbors_in_undercovered_groups",
+        "inverse_group_size",
+        "minority_group_indicator",
+    }
+    missing = required_columns.difference(feature_frame.columns)
+    if missing:
+        raise ValueError(f"feature_frame is missing fairness urgency columns: {sorted(missing)}.")
+    frame = feature_frame.loc[:, list(required_columns)].copy()
+    frame["fairness_prior"] = (
+        0.50 * frame["fraction_neighbors_in_undercovered_groups"].astype(float)
+        + 0.35 * frame["inverse_group_size"].astype(float)
+        + 0.15 * frame["minority_group_indicator"].astype(float)
+    )
+    return _normalize_score_map(
+        {
+            row.node_id: float(row.fairness_prior)
+            for row in frame.itertuples(index=False)
+        }
+    )
+
+
+def _static_diversity_scores(feature_frame: pd.DataFrame) -> dict[object, float]:
+    required_columns = {
+        "node_id",
+        "cross_community_degree",
+        "neighboring_communities",
+        "neighborhood_group_entropy",
+        "clustering_coefficient",
+    }
+    missing = required_columns.difference(feature_frame.columns)
+    if missing:
+        raise ValueError(f"feature_frame is missing diversity columns: {sorted(missing)}.")
+    frame = feature_frame.loc[:, list(required_columns)].copy()
+    frame["diversity_prior"] = (
+        0.35 * frame["cross_community_degree"].astype(float)
+        + 0.30 * frame["neighboring_communities"].astype(float)
+        + 0.25 * frame["neighborhood_group_entropy"].astype(float)
+        + 0.10 * (1.0 - frame["clustering_coefficient"].astype(float))
+    )
+    return _normalize_score_map(
+        {
+            row.node_id: float(row.diversity_prior)
+            for row in frame.itertuples(index=False)
+        }
+    )
+
+
+def _ris_group_weights(
+    feature_frame: pd.DataFrame,
+    protected_group_report: ProtectedGroupReport,
+) -> dict[str, float]:
+    required_columns = {
+        "protected_group",
+        "fraction_neighbors_in_undercovered_groups",
+        "inverse_group_size",
+        "minority_group_indicator",
+    }
+    missing = required_columns.difference(feature_frame.columns)
+    if missing:
+        raise ValueError(f"feature_frame is missing RIS group-weight columns: {sorted(missing)}.")
+    group_frame = (
+        feature_frame
+        .groupby("protected_group", sort=True)
+        .agg(
+            avg_undercovered_neighbors=("fraction_neighbors_in_undercovered_groups", "mean"),
+            avg_inverse_group_size=("inverse_group_size", "mean"),
+            avg_minority_indicator=("minority_group_indicator", "mean"),
+        )
+        .reset_index()
+    )
+    group_frame["raw_weight"] = (
+        0.45 * group_frame["avg_undercovered_neighbors"].astype(float)
+        + 0.40 * group_frame["avg_inverse_group_size"].astype(float)
+        + 0.15 * group_frame["avg_minority_indicator"].astype(float)
+    )
+    normalized_weights = _normalize_score_map(
+        {
+            row.protected_group: float(row.raw_weight)
+            for row in group_frame.itertuples(index=False)
+        }
+    )
+    return {
+        group_name: 1.0 + float(normalized_weights.get(group_name, 0.0))
+        for group_name in protected_group_report.group_sizes
+    }
+
+
+def _ris_config(settings: ExperimentSettings) -> RISConfig:
+    return RISConfig(
+        num_rr_sets=int(settings.ris_num_rr_sets),
+        random_seed=(
+            int(settings.random_seed)
+            if settings.ris_random_seed is None
+            else int(settings.ris_random_seed)
+        ),
+        reuse_rr_sets=bool(settings.ris_reuse_rr_sets),
+        mode=settings.ris_mode,
+    )
+
+
+def _prepare_ris_guidance(
+    dataset: LoadedDataset,
+    protected_group_report: ProtectedGroupReport,
+    settings: ExperimentSettings,
+) -> tuple[RISGuidanceResult, float]:
+    start = perf_counter()
+    ris_result = generate_ris_guidance(
+        dataset=dataset,
+        protected_group_report=protected_group_report,
+        propagation_probability=settings.propagation_probability,
+        config=_ris_config(settings),
+    )
+    return ris_result, perf_counter() - start
+
+
+def _select_ris_scores(
+    ris_result: RISGuidanceResult,
+    feature_frame: pd.DataFrame,
+    protected_group_report: ProtectedGroupReport,
+    settings: ExperimentSettings,
+) -> dict[object, float]:
+    if settings.ris_mode == "global":
+        return dict(ris_result.global_node_scores)
+    if settings.ris_mode == "weak_group_weighted":
+        return ris_result.weighted_node_scores(
+            _ris_group_weights(feature_frame, protected_group_report)
+        )
+    raise ValueError("ris_mode must be one of ['global', 'weak_group_weighted'].")
+
+
+def _build_guidance_score_map(
+    node_ids: list[object],
+    settings: ExperimentSettings,
+    *,
+    gnn_scores: dict[object, float] | None = None,
+    ris_scores: dict[object, float] | None = None,
+    fairness_scores: dict[object, float] | None = None,
+    diversity_scores: dict[object, float] | None = None,
+) -> dict[object, float]:
+    component_maps: list[tuple[dict[object, float], float]] = []
+    if gnn_scores is not None:
+        component_maps.append((gnn_scores, float(settings.gnn_weight)))
+    if ris_scores is not None:
+        component_maps.append((ris_scores, float(settings.ris_weight)))
+    if fairness_scores is not None:
+        component_maps.append((fairness_scores, float(settings.fairness_urgency_weight)))
+    if diversity_scores is not None:
+        component_maps.append((diversity_scores, float(settings.diversity_weight)))
+    return _combine_weighted_score_maps(component_maps, node_ids=node_ids)
 
 
 def _prepare_tabular_ml_training(
@@ -876,14 +1085,14 @@ def _prepare_gnn_training(
     return training_result, perf_counter() - start
 
 
-def _selected_ml_variants(settings: ExperimentSettings) -> list[tuple[str, str, str, str]]:
+def _selected_ml_variants(settings: ExperimentSettings) -> list[tuple[str, str, str, str, bool]]:
     if not settings.use_ml:
         return []
 
-    selected: list[tuple[str, str, str, str]] = []
+    selected: list[tuple[str, str, str, str, bool]] = []
     for backend in _resolve_ml_backends(settings):
         if backend == "tabular":
-            selected.append((_KEPT_ML_VARIANT_LABEL, "two_tier", "tabular", "off"))
+            selected.append((_KEPT_ML_VARIANT_LABEL, "two_tier", "tabular", "off", False))
         elif backend == "gnn":
             for node2vec_mode in _resolve_gnn_node2vec_modes(settings):
                 label = (
@@ -891,7 +1100,17 @@ def _selected_ml_variants(settings: ExperimentSettings) -> list[tuple[str, str, 
                     if node2vec_mode == "input_concat"
                     else _KEPT_GNN_ML_VARIANT_LABEL
                 )
-                selected.append((label, "two_tier", "gnn", node2vec_mode))
+                selected.append((label, "two_tier", "gnn", node2vec_mode, False))
+        elif backend == "ris":
+            selected.append((_KEPT_RIS_ML_VARIANT_LABEL, "two_tier", "ris", "off", True))
+        elif backend == "gnn_ris":
+            for node2vec_mode in _resolve_gnn_node2vec_modes(settings):
+                label = (
+                    _KEPT_GNN_RIS_NODE2VEC_ML_VARIANT_LABEL
+                    if node2vec_mode == "input_concat"
+                    else _KEPT_GNN_RIS_ML_VARIANT_LABEL
+                )
+                selected.append((label, "two_tier", "gnn_ris", node2vec_mode, True))
     return selected
 
 
@@ -1138,14 +1357,19 @@ def run_loaded_experiment(
     resolved_ml_backends = _resolve_ml_backends(settings) if settings.use_ml else ()
     if settings.use_node2vec:
         raise ValueError("Node2Vec ML variants were removed. use_node2vec is no longer supported.")
-    if settings.gnn_node2vec_mode != "off" and "gnn" not in resolved_ml_backends:
-        raise ValueError("gnn_node2vec_mode requires ml_backend='gnn' or ml_backend='both'.")
+    if settings.gnn_node2vec_mode != "off" and not any(
+        backend in {"gnn", "gnn_ris"}
+        for backend in resolved_ml_backends
+    ):
+        raise ValueError("gnn_node2vec_mode requires a GNN-capable backend such as 'gnn', 'gnn_ris', 'both', or 'all'.")
     if settings.use_ml and settings.ml_guidance_mode not in {"off", "two_tier"}:
         raise ValueError(
             "Removed ML guidance mode requested. Only ml_guidance_mode='two_tier' is supported for ML runs."
         )
-    if settings.use_ml and any(backend == "gnn" for backend in resolved_ml_backends):
+    if settings.use_ml and any(backend in {"gnn", "gnn_ris"} for backend in resolved_ml_backends):
         require_gnn_dependencies()
+    if settings.use_ml and any(backend in {"ris", "gnn_ris"} for backend in resolved_ml_backends):
+        _ris_config(settings)
     if any(
         [
             settings.compare_fairness_variants,
@@ -1158,8 +1382,10 @@ def run_loaded_experiment(
         raise ValueError(
             "Obsolete ML comparison families were removed. "
             "Use "
-            f"{_KEPT_ML_VARIANT_LABEL}, {_KEPT_GNN_ML_VARIANT_LABEL}, and/or "
-            f"{_KEPT_GNN_NODE2VEC_ML_VARIANT_LABEL} as the supported ML variants."
+            f"{_KEPT_ML_VARIANT_LABEL}, {_KEPT_GNN_ML_VARIANT_LABEL}, "
+            f"{_KEPT_GNN_NODE2VEC_ML_VARIANT_LABEL}, {_KEPT_RIS_ML_VARIANT_LABEL}, "
+            f"{_KEPT_GNN_RIS_ML_VARIANT_LABEL}, and/or {_KEPT_GNN_RIS_NODE2VEC_ML_VARIANT_LABEL} "
+            "as the supported ML variants."
         )
 
     methods = community_methods or [settings.community_method]
@@ -1172,7 +1398,9 @@ def run_loaded_experiment(
             raise ValueError(
                 "Removed ML variants are no longer supported: "
                 f"{removed_display}. Supported ML variants: {_KEPT_ML_VARIANT_LABEL}, "
-                f"{_KEPT_GNN_ML_VARIANT_LABEL}, {_KEPT_GNN_NODE2VEC_ML_VARIANT_LABEL}."
+                f"{_KEPT_GNN_ML_VARIANT_LABEL}, {_KEPT_GNN_NODE2VEC_ML_VARIANT_LABEL}, "
+                f"{_KEPT_RIS_ML_VARIANT_LABEL}, {_KEPT_GNN_RIS_ML_VARIANT_LABEL}, "
+                f"{_KEPT_GNN_RIS_NODE2VEC_ML_VARIANT_LABEL}."
             )
 
     def is_selected(label: str) -> bool:
@@ -1297,21 +1525,39 @@ def run_loaded_experiment(
             if is_selected(variant[0])
         ]
         if settings.use_ml and selected_ml_variants and any_ml_methods_selected():
-            label_result, label_runtime = _generate_ml_labels(
-                dataset=dataset,
-                protected_group_report=protected_group_report,
-                settings=settings,
-            )
             feature_frames, feature_runtime = _compute_ml_feature_frame(
                 dataset=dataset,
                 protected_group_report=protected_group_report,
                 community_result=community_result,
                 settings=settings,
             )
+            plain_feature_frame = feature_frames["plain"]
+            node_ids = plain_feature_frame["node_id"].tolist()
+            fairness_scores = (
+                _static_fairness_urgency_scores(plain_feature_frame)
+                if settings.fairness_urgency_weight > 0.0
+                else None
+            )
+            diversity_scores = (
+                _static_diversity_scores(plain_feature_frame)
+                if settings.diversity_weight > 0.0
+                else None
+            )
+
+            label_result: NodeUtilityLabelResult | None = None
+            label_runtime = 0.0
+            if any(variant[2] in {"tabular", "gnn", "gnn_ris"} for variant in selected_ml_variants):
+                label_result, label_runtime = _generate_ml_labels(
+                    dataset=dataset,
+                    protected_group_report=protected_group_report,
+                    settings=settings,
+                )
             gnn_label_frame: pd.DataFrame | None = None
             gnn_label_runtime = 0.0
             gnn_label_variance: float | None = None
-            if any(variant[2] == "gnn" for variant in selected_ml_variants):
+            if any(variant[2] in {"gnn", "gnn_ris"} for variant in selected_ml_variants):
+                if label_result is None:
+                    raise ValueError("label_result was not prepared for the selected GNN variant.")
                 gnn_label_frame, gnn_label_runtime = _build_gnn_label_frame(
                     dataset=dataset,
                     protected_group_report=protected_group_report,
@@ -1320,19 +1566,21 @@ def run_loaded_experiment(
                     label_result=label_result,
                 )
                 gnn_label_variance = float(gnn_label_frame["gnn_label_score"].var(ddof=0))
-            shared_ml_preparation_runtime = label_runtime + feature_runtime + gnn_label_runtime
             training_results_by_variant: dict[tuple[str, str], tuple[MLTrainingResult | GNNTrainingResult, float]] = {}
-
-            for _, _, ml_backend, node2vec_mode in selected_ml_variants:
+            for _, _, ml_backend, node2vec_mode, _ in selected_ml_variants:
                 variant_key = (ml_backend, node2vec_mode)
                 if variant_key in training_results_by_variant:
                     continue
                 if ml_backend == "tabular":
+                    if label_result is None:
+                        raise ValueError("label_result was not prepared for the selected tabular variant.")
                     training_results_by_variant[variant_key] = _prepare_tabular_ml_training(
-                        feature_frame=feature_frames["plain"],
+                        feature_frame=plain_feature_frame,
                         settings=settings,
                         label_result=label_result,
                     )
+                    continue
+                if ml_backend not in {"gnn", "gnn_ris"}:
                     continue
                 if gnn_label_frame is None:
                     raise ValueError("gnn_label_frame was not prepared for the selected GNN variant.")
@@ -1347,32 +1595,98 @@ def run_loaded_experiment(
                     node2vec_mode=node2vec_mode,
                 )
 
-            for label, guidance_mode, ml_backend, node2vec_mode in selected_ml_variants:
-                training_result, backend_training_runtime = training_results_by_variant[(ml_backend, node2vec_mode)]
-                ml_metrics = (
-                    f"backend={ml_backend}; "
-                    f"spearman={training_result.validation_spearman:.6f}; "
-                    f"precision_at_budget={training_result.validation_precision_at_budget:.6f}; "
-                    f"label_variance={label_result.label_variance:.6f}"
+            shared_ris_result: RISGuidanceResult | None = None
+            shared_ris_runtime = 0.0
+            if settings.ris_reuse_rr_sets and any(variant[4] for variant in selected_ml_variants):
+                shared_ris_result, shared_ris_runtime = _prepare_ris_guidance(
+                    dataset=dataset,
+                    protected_group_report=protected_group_report,
+                    settings=settings,
                 )
+
+            for label, guidance_mode, ml_backend, node2vec_mode, uses_ris in selected_ml_variants:
+                guidance_scores: dict[object, float]
+                backend_preparation_runtime = feature_runtime
+                validation_spearman: float | object = pd.NA
+                validation_precision_at_budget: float | object = pd.NA
+                gnn_model_type: str | object = pd.NA
+                guidance_note_parts = [
+                    f"backend={ml_backend}",
+                    f"weights=(gnn={settings.gnn_weight:.3f}, ris={settings.ris_weight:.3f}, "
+                    f"fairness={settings.fairness_urgency_weight:.3f}, diversity={settings.diversity_weight:.3f})",
+                ]
+
                 if ml_backend == "tabular":
-                    ml_metrics = f"{ml_metrics}; model_type={settings.ml_model_type}"
+                    training_result, backend_training_runtime = training_results_by_variant[(ml_backend, node2vec_mode)]
+                    backend_preparation_runtime += label_runtime + backend_training_runtime
+                    guidance_scores = dict(training_result.predicted_scores)
+                    validation_spearman = training_result.validation_spearman
+                    validation_precision_at_budget = training_result.validation_precision_at_budget
+                    if label_result is not None:
+                        guidance_note_parts.append(f"label_variance={label_result.label_variance:.6f}")
+                    guidance_note_parts.append(f"model_type={settings.ml_model_type}")
                 else:
-                    cache_status = "hit" if training_result.loaded_from_cache else "miss"
-                    target_variance = (
-                        float(gnn_label_variance)
-                        if gnn_label_variance is not None
-                        else float("nan")
+                    base_gnn_scores: dict[object, float] | None = None
+                    if ml_backend in {"gnn", "gnn_ris"}:
+                        training_result, backend_training_runtime = training_results_by_variant[(ml_backend, node2vec_mode)]
+                        backend_preparation_runtime += label_runtime + gnn_label_runtime + backend_training_runtime
+                        base_gnn_scores = dict(training_result.predicted_scores)
+                        validation_spearman = training_result.validation_spearman
+                        validation_precision_at_budget = training_result.validation_precision_at_budget
+                        gnn_model_type = settings.gnn_model_type
+                        cache_status = "hit" if training_result.loaded_from_cache else "miss"
+                        guidance_note_parts.extend(
+                            [
+                                "target=gnn_label_score",
+                                (
+                                    f"target_variance={float(gnn_label_variance):.6f}"
+                                    if gnn_label_variance is not None
+                                    else "target_variance=nan"
+                                ),
+                                f"gnn_model_type={settings.gnn_model_type}",
+                                f"node2vec_mode={node2vec_mode}",
+                                f"feature_shape={training_result.feature_matrix_shape}",
+                                f"edge_index_shape={training_result.edge_index_shape}",
+                                f"cache={cache_status}",
+                            ]
+                        )
+                        if label_result is not None:
+                            guidance_note_parts.append(f"label_variance={label_result.label_variance:.6f}")
+
+                    ris_scores: dict[object, float] | None = None
+                    if uses_ris:
+                        ris_result = shared_ris_result
+                        ris_runtime = shared_ris_runtime
+                        if ris_result is None:
+                            ris_result, ris_runtime = _prepare_ris_guidance(
+                                dataset=dataset,
+                                protected_group_report=protected_group_report,
+                                settings=settings,
+                            )
+                        backend_preparation_runtime += ris_runtime
+                        ris_scores = _select_ris_scores(
+                            ris_result=ris_result,
+                            feature_frame=plain_feature_frame,
+                            protected_group_report=protected_group_report,
+                            settings=settings,
+                        )
+                        guidance_note_parts.extend(
+                            [
+                                f"ris_num_rr_sets={settings.ris_num_rr_sets}",
+                                f"ris_mode={settings.ris_mode}",
+                                f"ris_reuse_rr_sets={settings.ris_reuse_rr_sets}",
+                            ]
+                        )
+
+                    guidance_scores = _build_guidance_score_map(
+                        node_ids=node_ids,
+                        settings=settings,
+                        gnn_scores=base_gnn_scores,
+                        ris_scores=ris_scores,
+                        fairness_scores=fairness_scores,
+                        diversity_scores=diversity_scores,
                     )
-                    ml_metrics = (
-                        f"{ml_metrics}; target=gnn_label_score; "
-                        f"target_variance={target_variance:.6f}; "
-                        f"gnn_model_type={settings.gnn_model_type}; "
-                        f"node2vec_mode={node2vec_mode}; "
-                        f"feature_shape={training_result.feature_matrix_shape}; "
-                        f"edge_index_shape={training_result.edge_index_shape}; "
-                        f"cache={cache_status}"
-                    )
+
                 ml_config = _build_optimizer_config(
                     settings,
                     include_fairness_parameters=False,
@@ -1384,7 +1698,7 @@ def run_loaded_experiment(
                     "protected_group_report": protected_group_report,
                     "community_result": community_result,
                     "config": ml_config,
-                    "ml_node_scores": training_result.predicted_scores,
+                    "ml_node_scores": guidance_scores,
                 }
                 pool_note = f"full_pool={dataset.graph.number_of_nodes()}; tier_policy=tuned"
 
@@ -1404,11 +1718,6 @@ def run_loaded_experiment(
                     community_method,
                     label,
                 )
-                ml_note = f"ML guidance mode={guidance_mode}; {pool_note}; {ml_metrics}"
-                if ml_history_path is not None:
-                    ml_result.history.to_csv(ml_history_path, index=False)
-                    ml_note = "; ".join(part for part in [ml_note, f"history={ml_history_path.name}"] if part)
-
                 ml_row = _hybrid_row(
                     dataset=dataset,
                     community_method=community_method,
@@ -1417,8 +1726,7 @@ def run_loaded_experiment(
                     result=ml_result,
                     evaluation=ml_final_evaluation,
                     search_runtime_seconds=(
-                        shared_ml_preparation_runtime
-                        + backend_training_runtime
+                        backend_preparation_runtime
                         + ml_result.runtime_seconds
                     ),
                     config=ml_config,
@@ -1426,15 +1734,22 @@ def run_loaded_experiment(
                     diffusion_model=settings.diffusion_model,
                     mc_runs_search=mc_runs_search,
                     mc_runs_eval=mc_runs_eval,
-                    note=ml_note,
-                    node2vec_enabled=node2vec_mode == "input_concat",
+                    note="; ".join([f"ML guidance mode={guidance_mode}", pool_note, *guidance_note_parts]),
+                    node2vec_enabled=node2vec_mode == "input_concat" and ml_backend in {"gnn", "gnn_ris"},
                     node2vec_mode=node2vec_mode,
                 )
-                ml_row["ml_validation_spearman"] = training_result.validation_spearman
-                ml_row["ml_validation_precision_at_budget"] = training_result.validation_precision_at_budget
+                if ml_history_path is not None:
+                    ml_result.history.to_csv(ml_history_path, index=False)
+                    ml_row["note"] = "; ".join(
+                        part for part in [str(ml_row["note"]), f"history={ml_history_path.name}"] if part
+                    )
+                ml_row["ml_validation_spearman"] = validation_spearman
+                ml_row["ml_validation_precision_at_budget"] = validation_precision_at_budget
                 ml_row["ml_guidance_mode"] = "two_tier"
                 ml_row["ml_backend"] = ml_backend
-                ml_row["gnn_model_type"] = settings.gnn_model_type if ml_backend == "gnn" else pd.NA
+                ml_row["gnn_model_type"] = gnn_model_type
+                ml_row["ris_enabled"] = bool(uses_ris)
+                ml_row["ris_mode"] = settings.ris_mode if uses_ris else "off"
                 results.append(ml_row)
 
     result_frame = pd.DataFrame(results)
@@ -1444,7 +1759,9 @@ def run_loaded_experiment(
             "No methods matched the selected filter. "
             f"Requested: {requested}. "
             f"Supported ML variants: {_KEPT_ML_VARIANT_LABEL}, "
-            f"{_KEPT_GNN_ML_VARIANT_LABEL}, {_KEPT_GNN_NODE2VEC_ML_VARIANT_LABEL}."
+            f"{_KEPT_GNN_ML_VARIANT_LABEL}, {_KEPT_GNN_NODE2VEC_ML_VARIANT_LABEL}, "
+            f"{_KEPT_RIS_ML_VARIANT_LABEL}, {_KEPT_GNN_RIS_ML_VARIANT_LABEL}, "
+            f"{_KEPT_GNN_RIS_NODE2VEC_ML_VARIANT_LABEL}."
         )
     result_frame["comparison_baseline_method"] = "hybrid_siea"
     result_frame["delta_f_score"] = pd.NA

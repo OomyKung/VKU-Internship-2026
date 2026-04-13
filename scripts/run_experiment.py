@@ -73,6 +73,14 @@ def _display_gnn_model(gnn_model_type: object) -> str:
     return str(gnn_model_type)
 
 
+def _display_ris_mode(ris_enabled: object, ris_mode: object) -> str:
+    if pd.isna(ris_enabled) or not bool(ris_enabled):
+        return "off"
+    if pd.isna(ris_mode):
+        return "on"
+    return str(ris_mode)
+
+
 def _resolved_report_mc_runs(
     result_frame: pd.DataFrame,
     column_name: str,
@@ -118,6 +126,8 @@ def _build_ranked_results_table(result_frame: pd.DataFrame) -> str:
     final_eval_runtime = ordered.get("final_eval_runtime_seconds", pd.Series([float("nan")] * len(ordered)))
     ml_backend = ordered.get("ml_backend", pd.Series(["none"] * len(ordered)))
     gnn_model_type = ordered.get("gnn_model_type", pd.Series([pd.NA] * len(ordered)))
+    ris_enabled = ordered.get("ris_enabled", pd.Series([False] * len(ordered)))
+    ris_mode = ordered.get("ris_mode", pd.Series(["off"] * len(ordered)))
     final_recheck_applied = ordered.get("final_recheck_applied", pd.Series([False] * len(ordered)))
     final_recheck_mc_runs = ordered.get("final_recheck_mc_runs_used", pd.Series([float("nan")] * len(ordered)))
     final_recheck_rank = ordered.get("final_recheck_top_k_rank", pd.Series([float("nan")] * len(ordered)))
@@ -169,6 +179,7 @@ def _build_ranked_results_table(result_frame: pd.DataFrame) -> str:
             f"backend={_display_ml_backend(ml_backend.iloc[index])} | "
             f"GNN={_display_gnn_model(gnn_model_type.iloc[index])} | "
             f"N2V={row['node2vec_mode']} | "
+            f"RIS={_display_ris_mode(ris_enabled.iloc[index], ris_mode.iloc[index])} | "
             f"rho={rho_text} | p@k={pak_text}"
         )
         if bool(final_recheck_applied.iloc[index]):
@@ -241,6 +252,8 @@ def _build_hybrid_delta_table(result_frame: pd.DataFrame, baseline_method: str =
     final_eval_runtime = comparison_rows.get("final_eval_runtime_seconds", pd.Series([float("nan")] * len(comparison_rows)))
     ml_backend = comparison_rows.get("ml_backend", pd.Series(["none"] * len(comparison_rows)))
     gnn_model_type = comparison_rows.get("gnn_model_type", pd.Series([pd.NA] * len(comparison_rows)))
+    ris_enabled = comparison_rows.get("ris_enabled", pd.Series([False] * len(comparison_rows)))
+    ris_mode = comparison_rows.get("ris_mode", pd.Series(["off"] * len(comparison_rows)))
     final_recheck_applied = comparison_rows.get("final_recheck_applied", pd.Series([False] * len(comparison_rows)))
     final_recheck_mc_runs = comparison_rows.get("final_recheck_mc_runs_used", pd.Series([float("nan")] * len(comparison_rows)))
     final_recheck_f = comparison_rows.get("final_recheck_f_score", pd.Series([float("nan")] * len(comparison_rows)))
@@ -274,7 +287,8 @@ def _build_hybrid_delta_table(result_frame: pd.DataFrame, baseline_method: str =
             f"ML={_display_ml_mode(str(row['method']), row['ml_guidance_mode'])} | "
             f"backend={_display_ml_backend(ml_backend.iloc[index])} | "
             f"GNN={_display_gnn_model(gnn_model_type.iloc[index])} | "
-            f"N2V={row['node2vec_mode']}"
+            f"N2V={row['node2vec_mode']} | "
+            f"RIS={_display_ris_mode(ris_enabled.iloc[index], ris_mode.iloc[index])}"
         )
         if bool(final_recheck_applied.iloc[index]):
             lines.append(
@@ -328,7 +342,7 @@ def format_results_report(result_frame: pd.DataFrame, settings: ExperimentSettin
             else "ML: disabled"
         ),
     ]
-    if settings.use_ml and settings.ml_backend in {"gnn", "both"}:
+    if settings.use_ml and settings.ml_backend in {"gnn", "gnn_ris", "both", "all"}:
         lines.append(
             "GNN config: "
             f"type={settings.gnn_model_type} | hidden_dim={settings.gnn_hidden_dim} | "
@@ -347,6 +361,19 @@ def format_results_report(result_frame: pd.DataFrame, settings: ExperimentSettin
                 f"scale={settings.node2vec_scale_embeddings} | "
                 f"pca={settings.node2vec_pca_components}"
             )
+    if settings.use_ml and settings.ml_backend in {"ris", "gnn_ris", "all"}:
+        lines.append(
+            "RIS config: "
+            f"num_rr_sets={settings.ris_num_rr_sets} | "
+            f"random_seed={settings.random_seed if settings.ris_random_seed is None else settings.ris_random_seed} | "
+            f"reuse_rr_sets={settings.ris_reuse_rr_sets} | "
+            f"mode={settings.ris_mode}"
+        )
+        lines.append(
+            "Guidance weights: "
+            f"gnn={settings.gnn_weight} | ris={settings.ris_weight} | "
+            f"fairness={settings.fairness_urgency_weight} | diversity={settings.diversity_weight}"
+        )
     if settings.enable_final_recheck:
         lines.append(
             "Final recheck: "
@@ -556,9 +583,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--ml-backend",
-        choices=["tabular", "gnn", "both"],
+        choices=["tabular", "gnn", "ris", "gnn_ris", "both", "all"],
         default="tabular",
-        help="ML backend used for node scoring. 'both' runs separate tabular and GNN-guided variants.",
+        help="Guidance backend used for node scoring. 'both' preserves tabular+GNN, while 'all' runs tabular, GNN, RIS, and GNN+RIS variants.",
     )
     parser.add_argument(
         "--gnn-model-type",
@@ -578,6 +605,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gnn-learning-rate", type=float, default=1e-3, help="Learning rate used by the GNN backend.")
     parser.add_argument("--gnn-weight-decay", type=float, default=5e-4, help="Weight decay used by the GNN backend.")
     parser.add_argument("--gnn-epochs", type=int, default=100, help="Training epochs used by the GNN backend.")
+    parser.add_argument("--ris-num-rr-sets", type=int, default=256, help="Number of RR sets generated for RIS guidance.")
+    parser.add_argument("--ris-random-seed", type=int, default=None, help="Optional RIS-specific random seed. Defaults to --random-seed.")
+    parser.add_argument("--ris-reuse-rr-sets", action=argparse.BooleanOptionalAction, default=True, help="Reuse one RR-set sample across RIS-using variants in the same run.")
+    parser.add_argument("--ris-mode", choices=["global", "weak_group_weighted"], default="global", help="RIS scoring mode used for search-time guidance.")
+    parser.add_argument("--gnn-weight", type=float, default=1.0, help="Weight of the GNN prior inside combined guidance scores.")
+    parser.add_argument("--ris-weight", type=float, default=1.0, help="Weight of the RIS prior inside combined guidance scores.")
+    parser.add_argument("--fairness-urgency-weight", type=float, default=0.0, help="Weight of the static fairness-urgency prior inside combined guidance scores.")
+    parser.add_argument("--diversity-weight", type=float, default=0.0, help="Weight of the static diversity prior inside combined guidance scores.")
     parser.add_argument("--node2vec-dimensions", type=int, default=8, help="Node2Vec embedding width used when GNN Node2Vec input is enabled.")
     parser.add_argument("--node2vec-walk-length", type=int, default=20, help="Node2Vec walk length used when GNN Node2Vec input is enabled.")
     parser.add_argument("--node2vec-num-walks", type=int, default=10, help="Node2Vec walks per node used when GNN Node2Vec input is enabled.")
@@ -638,6 +673,14 @@ def main() -> None:
         gnn_learning_rate=args.gnn_learning_rate,
         gnn_weight_decay=args.gnn_weight_decay,
         gnn_epochs=args.gnn_epochs,
+        ris_num_rr_sets=args.ris_num_rr_sets,
+        ris_random_seed=args.ris_random_seed,
+        ris_reuse_rr_sets=args.ris_reuse_rr_sets,
+        ris_mode=args.ris_mode,
+        gnn_weight=args.gnn_weight,
+        ris_weight=args.ris_weight,
+        fairness_urgency_weight=args.fairness_urgency_weight,
+        diversity_weight=args.diversity_weight,
         node2vec_dimensions=args.node2vec_dimensions,
         node2vec_walk_length=args.node2vec_walk_length,
         node2vec_num_walks=args.node2vec_num_walks,
@@ -755,6 +798,8 @@ def main() -> None:
         "weakest_groups_note",
         "node2vec_enabled",
         "node2vec_mode",
+        "ris_enabled",
+        "ris_mode",
         "ml_guidance_mode",
         "ml_backend",
         "gnn_model_type",

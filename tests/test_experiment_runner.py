@@ -18,6 +18,9 @@ from fim_hybrid.experiment_runner import ExperimentSettings, run_loaded_experime
 KEPT_ML_LABEL = "hybrid_siea_ml_two_tier_tuned_swap_local_search"
 KEPT_GNN_ML_LABEL = "hybrid_siea_ml_gnn_two_tier_tuned_swap_local_search"
 KEPT_GNN_NODE2VEC_ML_LABEL = "hybrid_siea_ml_gnn_node2vec_two_tier_tuned_swap_local_search"
+KEPT_RIS_ML_LABEL = "hybrid_siea_ml_ris_two_tier_tuned_swap_local_search"
+KEPT_GNN_RIS_ML_LABEL = "hybrid_siea_ml_gnn_ris_two_tier_tuned_swap_local_search"
+KEPT_GNN_RIS_NODE2VEC_ML_LABEL = "hybrid_siea_ml_gnn_ris_node2vec_two_tier_tuned_swap_local_search"
 
 
 def _toy_experiment_fixture() -> tuple[LoadedDataset, object]:
@@ -339,6 +342,37 @@ class ExperimentRunnerTestCase(unittest.TestCase):
                 include_ablations=False,
             )
 
+    def test_run_loaded_experiment_errors_for_gnn_ris_backend_without_optional_dependencies(self) -> None:
+        if gnn_dependencies_available():
+            self.skipTest("torch and torch_geometric are installed")
+
+        dataset, protected_group_report = _toy_experiment_fixture()
+        settings = ExperimentSettings(
+            protected_attribute="group",
+            budget=3,
+            community_method="louvain",
+            propagation_probability=0.5,
+            mc_runs=3,
+            population_size=5,
+            generations=3,
+            random_seed=9,
+            use_ml=True,
+            ml_backend="gnn_ris",
+            ml_guidance_mode="two_tier",
+            ml_top_fraction=0.5,
+            ml_singleton_runs=3,
+        )
+
+        with self.assertRaisesRegex(ValueError, "optional dependencies are unavailable"):
+            run_loaded_experiment(
+                dataset=dataset,
+                protected_group_report=protected_group_report,
+                settings=settings,
+                community_methods=["louvain"],
+                baseline_methods=["degree", "random"],
+                include_ablations=False,
+            )
+
     def test_run_loaded_experiment_with_both_backends_adds_two_ml_rows_when_available(self) -> None:
         if not gnn_dependencies_available():
             self.skipTest("torch and torch_geometric are not installed")
@@ -466,6 +500,125 @@ class ExperimentRunnerTestCase(unittest.TestCase):
         self.assertFalse(bool(plain_row["node2vec_enabled"]))
         self.assertEqual(node2vec_row["node2vec_mode"], "input_concat")
         self.assertTrue(bool(node2vec_row["node2vec_enabled"]))
+
+    def test_run_loaded_experiment_with_ris_backend_adds_ris_row(self) -> None:
+        dataset, protected_group_report = _toy_experiment_fixture()
+        settings = ExperimentSettings(
+            protected_attribute="group",
+            budget=3,
+            community_method="louvain",
+            propagation_probability=0.5,
+            mc_runs=3,
+            population_size=5,
+            generations=3,
+            random_seed=9,
+            use_ml=True,
+            ml_backend="ris",
+            ml_guidance_mode="two_tier",
+            ris_num_rr_sets=32,
+            ris_mode="weak_group_weighted",
+            fairness_urgency_weight=0.25,
+            diversity_weight=0.25,
+        )
+
+        result_frame = run_loaded_experiment(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            settings=settings,
+            community_methods=["louvain"],
+            baseline_methods=["degree", "random"],
+            include_ablations=False,
+        )
+
+        self.assertIn(KEPT_RIS_ML_LABEL, set(result_frame["method"]))
+        ris_row = result_frame[result_frame["method"] == KEPT_RIS_ML_LABEL].iloc[0]
+        self.assertEqual(ris_row["ml_backend"], "ris")
+        self.assertTrue(bool(ris_row["ris_enabled"]))
+        self.assertEqual(ris_row["ris_mode"], "weak_group_weighted")
+        self.assertTrue(pd.isna(ris_row["gnn_model_type"]))
+
+    def test_run_loaded_experiment_with_gnn_ris_backend_adds_combined_row_when_available(self) -> None:
+        if not gnn_dependencies_available():
+            self.skipTest("torch and torch_geometric are not installed")
+
+        dataset, protected_group_report = _toy_experiment_fixture()
+        settings = ExperimentSettings(
+            protected_attribute="group",
+            budget=3,
+            community_method="louvain",
+            propagation_probability=0.5,
+            mc_runs=3,
+            population_size=5,
+            generations=3,
+            random_seed=9,
+            use_ml=True,
+            ml_backend="gnn_ris",
+            ml_guidance_mode="two_tier",
+            ml_top_fraction=0.5,
+            ml_singleton_runs=3,
+            gnn_epochs=10,
+            ris_num_rr_sets=32,
+        )
+
+        result_frame = run_loaded_experiment(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            settings=settings,
+            community_methods=["louvain"],
+            baseline_methods=["degree", "random"],
+            include_ablations=False,
+        )
+
+        self.assertIn(KEPT_GNN_RIS_ML_LABEL, set(result_frame["method"]))
+        combined_row = result_frame[result_frame["method"] == KEPT_GNN_RIS_ML_LABEL].iloc[0]
+        self.assertEqual(combined_row["ml_backend"], "gnn_ris")
+        self.assertEqual(combined_row["gnn_model_type"], "graphsage")
+        self.assertTrue(bool(combined_row["ris_enabled"]))
+        self.assertEqual(combined_row["ris_mode"], "global")
+
+    def test_run_loaded_experiment_with_gnn_ris_node2vec_concat_adds_combined_node2vec_row_when_available(self) -> None:
+        if not gnn_dependencies_available():
+            self.skipTest("torch and torch_geometric are not installed")
+
+        dataset, protected_group_report = _toy_experiment_fixture()
+        settings = ExperimentSettings(
+            protected_attribute="group",
+            budget=3,
+            community_method="louvain",
+            propagation_probability=0.5,
+            mc_runs=3,
+            population_size=5,
+            generations=3,
+            random_seed=9,
+            use_ml=True,
+            ml_backend="gnn_ris",
+            gnn_node2vec_mode="input_concat",
+            ml_guidance_mode="two_tier",
+            ml_top_fraction=0.5,
+            ml_singleton_runs=3,
+            gnn_epochs=10,
+            ris_num_rr_sets=32,
+            node2vec_dimensions=4,
+            node2vec_walk_length=6,
+            node2vec_num_walks=4,
+            node2vec_window=2,
+        )
+
+        result_frame = run_loaded_experiment(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            settings=settings,
+            community_methods=["louvain"],
+            baseline_methods=["degree", "random"],
+            include_ablations=False,
+        )
+
+        self.assertIn(KEPT_GNN_RIS_NODE2VEC_ML_LABEL, set(result_frame["method"]))
+        combined_row = result_frame[result_frame["method"] == KEPT_GNN_RIS_NODE2VEC_ML_LABEL].iloc[0]
+        self.assertEqual(combined_row["ml_backend"], "gnn_ris")
+        self.assertEqual(combined_row["node2vec_mode"], "input_concat")
+        self.assertTrue(bool(combined_row["node2vec_enabled"]))
+        self.assertTrue(bool(combined_row["ris_enabled"]))
 
     def test_run_loaded_experiment_uses_eval_budget_and_seed_offset_for_reported_rows(self) -> None:
         import fim_hybrid.experiment_runner as experiment_runner_module  # noqa: PLC0415

@@ -61,6 +61,7 @@ from .node2vec_embeddings import (
     generate_node2vec_embeddings,
     transform_node2vec_embeddings,
 )
+from .ris_guidance import RISConfig, RISGuidanceResult, generate_ris_guidance
 
 __all__ = [
     "BaselineResult",
@@ -107,6 +108,8 @@ __all__ = [
     "run_experiment",
     "run_loaded_experiment",
     "resolve_builtin_dataset",
+    "RISConfig",
+    "RISGuidanceResult",
     "run_baseline",
     "run_baselines",
     "sample_community",
@@ -123,6 +126,7 @@ __all__ = [
     "build_node2vec_cache_path",
     "generate_node2vec_embeddings",
     "transform_node2vec_embeddings",
+    "generate_ris_guidance",
     "validate_communities",
     "validate_community_assignments",
     "generate_singleton_node_utility_labels",

@@ -360,6 +360,79 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
         self.assertIn("Node2Vec config: dimensions=8", report)
         self.assertIn("N2V=input_concat", report)
 
+    def test_format_results_report_shows_ris_metadata(self) -> None:
+        frame = pd.DataFrame(
+            [
+                {
+                    "dataset": "toy_graph",
+                    "diffusion_model": "ic",
+                    "community_method": "leiden",
+                    "method": "hybrid_siea_ml_gnn_ris_two_tier_tuned_swap_local_search",
+                    "variant_type": "ml_guided",
+                    "total_spread": 4.90,
+                    "extra_spread": 0.90,
+                    "mf": 0.009100,
+                    "dcv": 0.030100,
+                    "f_score": -0.010500,
+                    "runtime_seconds": 7.400000,
+                    "search_runtime_seconds": 6.200000,
+                    "final_eval_runtime_seconds": 1.200000,
+                    "mc_runs_search": 20,
+                    "mc_runs_eval": 1000,
+                    "candidate_pool_size": 500,
+                    "optimization_mode": "full",
+                    "node2vec_enabled": False,
+                    "node2vec_mode": "off",
+                    "ris_enabled": True,
+                    "ris_mode": "weak_group_weighted",
+                    "ml_guidance_mode": "two_tier",
+                    "ml_backend": "gnn_ris",
+                    "gnn_model_type": "graphsage",
+                    "ml_validation_spearman": 0.280000,
+                    "ml_validation_precision_at_budget": 0.20,
+                    "community_modularity": 0.451674,
+                    "zero_covered_groups_count": 0,
+                    "bottom_3_avg_group_spread": 1.810000,
+                    "fraction_groups_covered": 1.0,
+                    "weakest_groups_note": "A,B,C",
+                    "delta_f_score": 0.003500,
+                }
+            ]
+        )
+        settings = ExperimentSettings(
+            protected_attribute="group",
+            budget=4,
+            community_method="leiden",
+            mc_runs_search=20,
+            mc_runs_eval=1000,
+            random_seed=42,
+            use_ml=True,
+            ml_backend="gnn_ris",
+            ml_guidance_mode="two_tier",
+            gnn_model_type="graphsage",
+            gnn_hidden_dim=64,
+            gnn_num_layers=2,
+            gnn_dropout=0.2,
+            gnn_learning_rate=1e-3,
+            gnn_weight_decay=5e-4,
+            gnn_epochs=100,
+            ris_num_rr_sets=256,
+            ris_mode="weak_group_weighted",
+            ris_reuse_rr_sets=True,
+            gnn_weight=1.0,
+            ris_weight=1.0,
+            fairness_urgency_weight=0.25,
+            diversity_weight=0.15,
+            ml_singleton_runs=15,
+        )
+
+        report = format_results_report(frame, settings)
+
+        self.assertIn("backend=gnn_ris", report)
+        self.assertIn("RIS=weak_group_weighted", report)
+        self.assertIn("RIS config: num_rr_sets=256", report)
+        self.assertIn("Guidance weights: gnn=1.0 | ris=1.0", report)
+
     def test_format_results_report_can_focus_on_best_ml_vs_cea_fim(self) -> None:
         frame = pd.DataFrame(
             [
