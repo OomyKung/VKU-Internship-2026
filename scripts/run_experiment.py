@@ -61,6 +61,18 @@ def _display_ml_mode(method: str, ml_guidance_mode: object) -> str:
     return str(ml_guidance_mode)
 
 
+def _display_ml_backend(ml_backend: object) -> str:
+    if pd.isna(ml_backend):
+        return "-"
+    return str(ml_backend)
+
+
+def _display_gnn_model(gnn_model_type: object) -> str:
+    if pd.isna(gnn_model_type):
+        return "-"
+    return str(gnn_model_type)
+
+
 def _resolved_report_mc_runs(
     result_frame: pd.DataFrame,
     column_name: str,
@@ -104,6 +116,8 @@ def _build_ranked_results_table(result_frame: pd.DataFrame) -> str:
     delta_f = ordered.get("delta_f_score", pd.Series([float("nan")] * len(ordered)))
     search_runtime = ordered.get("search_runtime_seconds", pd.Series([float("nan")] * len(ordered)))
     final_eval_runtime = ordered.get("final_eval_runtime_seconds", pd.Series([float("nan")] * len(ordered)))
+    ml_backend = ordered.get("ml_backend", pd.Series(["none"] * len(ordered)))
+    gnn_model_type = ordered.get("gnn_model_type", pd.Series([pd.NA] * len(ordered)))
     final_recheck_applied = ordered.get("final_recheck_applied", pd.Series([False] * len(ordered)))
     final_recheck_mc_runs = ordered.get("final_recheck_mc_runs_used", pd.Series([float("nan")] * len(ordered)))
     final_recheck_rank = ordered.get("final_recheck_top_k_rank", pd.Series([float("nan")] * len(ordered)))
@@ -152,6 +166,8 @@ def _build_ranked_results_table(result_frame: pd.DataFrame) -> str:
         lines.append(
             "   "
             f"ML={_display_ml_mode(str(row['method']), row['ml_guidance_mode'])} | "
+            f"backend={_display_ml_backend(ml_backend.iloc[index])} | "
+            f"GNN={_display_gnn_model(gnn_model_type.iloc[index])} | "
             f"N2V={row['node2vec_mode']} | "
             f"rho={rho_text} | p@k={pak_text}"
         )
@@ -223,6 +239,8 @@ def _build_hybrid_delta_table(result_frame: pd.DataFrame, baseline_method: str =
     fraction_covered = comparison_rows.get("fraction_groups_covered", pd.Series([float("nan")] * len(comparison_rows)))
     search_runtime = comparison_rows.get("search_runtime_seconds", pd.Series([float("nan")] * len(comparison_rows)))
     final_eval_runtime = comparison_rows.get("final_eval_runtime_seconds", pd.Series([float("nan")] * len(comparison_rows)))
+    ml_backend = comparison_rows.get("ml_backend", pd.Series(["none"] * len(comparison_rows)))
+    gnn_model_type = comparison_rows.get("gnn_model_type", pd.Series([pd.NA] * len(comparison_rows)))
     final_recheck_applied = comparison_rows.get("final_recheck_applied", pd.Series([False] * len(comparison_rows)))
     final_recheck_mc_runs = comparison_rows.get("final_recheck_mc_runs_used", pd.Series([float("nan")] * len(comparison_rows)))
     final_recheck_f = comparison_rows.get("final_recheck_f_score", pd.Series([float("nan")] * len(comparison_rows)))
@@ -254,6 +272,8 @@ def _build_hybrid_delta_table(result_frame: pd.DataFrame, baseline_method: str =
         lines.append(
             "   "
             f"ML={_display_ml_mode(str(row['method']), row['ml_guidance_mode'])} | "
+            f"backend={_display_ml_backend(ml_backend.iloc[index])} | "
+            f"GNN={_display_gnn_model(gnn_model_type.iloc[index])} | "
             f"N2V={row['node2vec_mode']}"
         )
         if bool(final_recheck_applied.iloc[index]):
@@ -302,11 +322,31 @@ def format_results_report(result_frame: pd.DataFrame, settings: ExperimentSettin
         f"Community methods: {community_methods}",
         (
             f"ML: enabled | requested mode={settings.ml_guidance_mode} | "
+            f"backend={settings.ml_backend} | "
             f"singleton label runs={settings.ml_singleton_runs}"
             if settings.use_ml
             else "ML: disabled"
         ),
     ]
+    if settings.use_ml and settings.ml_backend in {"gnn", "both"}:
+        lines.append(
+            "GNN config: "
+            f"type={settings.gnn_model_type} | hidden_dim={settings.gnn_hidden_dim} | "
+            f"layers={settings.gnn_num_layers} | dropout={settings.gnn_dropout} | "
+            f"lr={settings.gnn_learning_rate} | weight_decay={settings.gnn_weight_decay} | "
+            f"epochs={settings.gnn_epochs} | node2vec_mode={settings.gnn_node2vec_mode}"
+        )
+        if settings.gnn_node2vec_mode != "off":
+            lines.append(
+                "Node2Vec config: "
+                f"dimensions={settings.node2vec_dimensions} | "
+                f"walk_length={settings.node2vec_walk_length} | "
+                f"num_walks={settings.node2vec_num_walks} | "
+                f"window={settings.node2vec_window} | "
+                f"p={settings.node2vec_p} | q={settings.node2vec_q} | "
+                f"scale={settings.node2vec_scale_embeddings} | "
+                f"pca={settings.node2vec_pca_components}"
+            )
     if settings.enable_final_recheck:
         lines.append(
             "Final recheck: "
@@ -317,7 +357,7 @@ def format_results_report(result_frame: pd.DataFrame, settings: ExperimentSettin
         lines.append("Final recheck: disabled")
     if report_focus == "best_ml_vs_cea_fim":
         lines.append("Report focus: best ML method vs CEA-FIM only")
-    lines.append("Node2Vec: removed from the supported ML experiment surface")
+    lines.append("Node2Vec: supported only as an optional GNN input feature source")
 
     for community_method, community_frame in report_frame.groupby("community_method", sort=True):
         modes_present = ", ".join(sorted(str(value) for value in community_frame["optimization_mode"].dropna().unique()))
@@ -514,6 +554,38 @@ def parse_args() -> argparse.Namespace:
         default="random_forest",
         help="Tabular ML model used for candidate ranking.",
     )
+    parser.add_argument(
+        "--ml-backend",
+        choices=["tabular", "gnn", "both"],
+        default="tabular",
+        help="ML backend used for node scoring. 'both' runs separate tabular and GNN-guided variants.",
+    )
+    parser.add_argument(
+        "--gnn-model-type",
+        choices=["graphsage", "gcn"],
+        default="graphsage",
+        help="GNN model used when the GNN backend is enabled.",
+    )
+    parser.add_argument(
+        "--gnn-node2vec-mode",
+        choices=["off", "input_concat", "compare"],
+        default="off",
+        help="Use Node2Vec only as extra GNN input features. 'compare' runs plain GNN and GNN+Node2Vec rows.",
+    )
+    parser.add_argument("--gnn-hidden-dim", type=int, default=64, help="Hidden width for the GNN backend.")
+    parser.add_argument("--gnn-num-layers", type=int, default=2, help="Number of message-passing layers in the GNN backend.")
+    parser.add_argument("--gnn-dropout", type=float, default=0.2, help="Dropout rate used by the GNN backend.")
+    parser.add_argument("--gnn-learning-rate", type=float, default=1e-3, help="Learning rate used by the GNN backend.")
+    parser.add_argument("--gnn-weight-decay", type=float, default=5e-4, help="Weight decay used by the GNN backend.")
+    parser.add_argument("--gnn-epochs", type=int, default=100, help="Training epochs used by the GNN backend.")
+    parser.add_argument("--node2vec-dimensions", type=int, default=8, help="Node2Vec embedding width used when GNN Node2Vec input is enabled.")
+    parser.add_argument("--node2vec-walk-length", type=int, default=20, help="Node2Vec walk length used when GNN Node2Vec input is enabled.")
+    parser.add_argument("--node2vec-num-walks", type=int, default=10, help="Node2Vec walks per node used when GNN Node2Vec input is enabled.")
+    parser.add_argument("--node2vec-window", type=int, default=5, help="Node2Vec context window used when GNN Node2Vec input is enabled.")
+    parser.add_argument("--node2vec-p", type=float, default=1.0, help="Node2Vec return parameter used when GNN Node2Vec input is enabled.")
+    parser.add_argument("--node2vec-q", type=float, default=1.0, help="Node2Vec in-out parameter used when GNN Node2Vec input is enabled.")
+    parser.add_argument("--node2vec-scale-embeddings", action="store_true", help="Standardize Node2Vec embeddings before concatenation into GNN inputs.")
+    parser.add_argument("--node2vec-pca-components", type=int, default=None, help="Optional PCA dimension for Node2Vec embeddings before GNN concatenation.")
     return parser.parse_args()
 
 
@@ -552,11 +624,28 @@ def main() -> None:
         output_dir=output_dir,
         use_ml=args.ml,
         ml_model_type=args.ml_model_type,
+        ml_backend=args.ml_backend,
         ml_guidance_mode=args.ml_guidance_mode,
         ml_top_fraction=args.ml_top_fraction,
         ml_top_n=args.ml_top_n,
         ml_max_nodes=args.ml_max_nodes,
         ml_singleton_runs=args.ml_singleton_runs,
+        gnn_model_type=args.gnn_model_type,
+        gnn_node2vec_mode=args.gnn_node2vec_mode,
+        gnn_hidden_dim=args.gnn_hidden_dim,
+        gnn_num_layers=args.gnn_num_layers,
+        gnn_dropout=args.gnn_dropout,
+        gnn_learning_rate=args.gnn_learning_rate,
+        gnn_weight_decay=args.gnn_weight_decay,
+        gnn_epochs=args.gnn_epochs,
+        node2vec_dimensions=args.node2vec_dimensions,
+        node2vec_walk_length=args.node2vec_walk_length,
+        node2vec_num_walks=args.node2vec_num_walks,
+        node2vec_window=args.node2vec_window,
+        node2vec_p=args.node2vec_p,
+        node2vec_q=args.node2vec_q,
+        node2vec_scale_embeddings=args.node2vec_scale_embeddings,
+        node2vec_pca_components=args.node2vec_pca_components,
         ml_primary_pool_ratio=args.ml_primary_pool_ratio,
         ml_secondary_exploration_rate=args.ml_secondary_exploration_rate,
         ml_initialization_bias=args.ml_initialization_bias,
@@ -667,6 +756,8 @@ def main() -> None:
         "node2vec_enabled",
         "node2vec_mode",
         "ml_guidance_mode",
+        "ml_backend",
+        "gnn_model_type",
         "ml_validation_spearman",
         "ml_validation_precision_at_budget",
         "community_modularity",

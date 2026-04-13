@@ -58,6 +58,7 @@ Optional:
 
 ```powershell
 python -m pip install xgboost
+python -m pip install torch torch_geometric
 ```
 
 ## Example Commands
@@ -72,6 +73,12 @@ Run with ML-guided candidate restriction:
 
 ```powershell
 python scripts\run_experiment.py --dataset synth3 --budget 20 --protected-attribute color --community-methods leiden --mc-runs 30 --population-size 10 --generations 15 --ml --ml-top-fraction 0.25 --ml-singleton-runs 15 --ml-max-nodes 150
+```
+
+Run side-by-side tabular and GNN-guided node scoring:
+
+```powershell
+python scripts\run_experiment.py --dataset synth3 --budget 20 --protected-attribute color --community-methods leiden --mc-runs 30 --population-size 10 --generations 15 --ml --ml-backend both --gnn-model-type graphsage --gnn-epochs 100
 ```
 
 Run a custom edge list and attribute CSV:
@@ -93,3 +100,6 @@ Each run saves:
 - Run commands from the `VKU-Internship-2026` repository root so built-in datasets and default outputs stay local to this project.
 - The CLI resolves relative dataset paths and `--output-dir` against the repository root.
 - Leiden and Infomap use `igraph`.
+- The default ML backend remains the existing tabular model; GNN scoring is optional via `--ml-backend gnn` or `--ml-backend both`.
+- The GNN backend reuses the handcrafted node features and trains a node-regression model for ranking only; it does not replace the downstream hybrid optimizer.
+- If `torch` or `torch_geometric` is not installed, GNN-enabled runs fail fast with a clear error while non-GNN runs continue to work unchanged.

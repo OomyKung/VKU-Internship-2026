@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+import tempfile
 import unittest
 
 import networkx as nx
@@ -9,7 +11,9 @@ import pandas as pd
 
 from fim_hybrid.community_detection import detect_communities
 from fim_hybrid.data_loader import LoadedDataset, verify_protected_groups
+from fim_hybrid.experiment_runner import ExperimentSettings, _build_gnn_label_frame
 from fim_hybrid.feature_extraction import compute_node_features
+from fim_hybrid.gnn_training import gnn_dependencies_available, train_gnn_node_utility_model
 from fim_hybrid.label_generation import generate_singleton_node_utility_labels
 from fim_hybrid.ml_training import select_ml_candidate_nodes, train_node_utility_model
 from fim_hybrid.node2vec_embeddings import Node2VecConfig
@@ -214,6 +218,417 @@ class MLTrainingTestCase(unittest.TestCase):
         self.assertEqual(selected_by_fraction, (1, 2, 3))
         self.assertEqual(selected_by_n, (1, 2, 3, 4, 5))
         self.assertEqual(selected_with_cap, (1, 2, 3, 4))
+
+
+class GNNTrainingTestCase(unittest.TestCase):
+    """Check optional GNN model fitting, caching, and dependency guards."""
+
+    def test_build_gnn_label_frame_adds_proxy_enhanced_target(self) -> None:
+        dataset, protected_group_report, community_result = _toy_ml_fixture()
+        label_result = generate_singleton_node_utility_labels(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            propagation_probability=1.0,
+            mc_runs=3,
+            lambda_weight=0.5,
+            random_seed=7,
+        )
+
+        label_frame, runtime_seconds = _build_gnn_label_frame(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            community_result=community_result,
+            settings=ExperimentSettings(
+                protected_attribute="group",
+                budget=3,
+                propagation_probability=1.0,
+                mc_runs_search=3,
+                population_size=5,
+                generations=3,
+                random_seed=7,
+            ),
+            label_result=label_result,
+        )
+
+        self.assertGreaterEqual(runtime_seconds, 0.0)
+        self.assertEqual(set(label_frame["node_id"]), set(dataset.graph.nodes()))
+        self.assertIn("marginal_proxy_score", label_frame.columns)
+        self.assertIn("marginal_proxy_norm", label_frame.columns)
+        self.assertIn("gnn_label_score", label_frame.columns)
+        self.assertTrue(label_frame["marginal_proxy_norm"].between(0.0, 1.0).all())
+        self.assertGreater(float(label_frame["gnn_label_score"].var(ddof=0)), 0.0)
+
+    def test_train_gnn_node_utility_model_errors_without_optional_dependencies(self) -> None:
+        if gnn_dependencies_available():
+            self.skipTest("torch and torch_geometric are installed")
+
+        dataset, protected_group_report, community_result = _toy_ml_fixture()
+        feature_frame = compute_node_features(dataset, protected_group_report, community_result)
+        label_result = generate_singleton_node_utility_labels(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            propagation_probability=1.0,
+            mc_runs=3,
+            lambda_weight=0.5,
+            random_seed=7,
+        )
+
+        with self.assertRaisesRegex(ValueError, "optional dependencies are unavailable"):
+            train_gnn_node_utility_model(
+                dataset=dataset,
+                feature_frame=feature_frame,
+                label_frame=label_result.label_frame,
+                budget=3,
+                top_fraction=0.5,
+                random_seed=7,
+            )
+
+    def test_train_gnn_node_utility_model_runs_graphsage_when_available(self) -> None:
+        if not gnn_dependencies_available():
+            self.skipTest("torch and torch_geometric are not installed")
+
+        dataset, protected_group_report, community_result = _toy_ml_fixture()
+        feature_frame = compute_node_features(dataset, protected_group_report, community_result)
+        label_result = generate_singleton_node_utility_labels(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            propagation_probability=1.0,
+            mc_runs=3,
+            lambda_weight=0.5,
+            random_seed=7,
+        )
+        gnn_label_frame, _ = _build_gnn_label_frame(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            community_result=community_result,
+            settings=ExperimentSettings(
+                protected_attribute="group",
+                budget=3,
+                propagation_probability=1.0,
+                mc_runs_search=3,
+                population_size=5,
+                generations=3,
+                random_seed=7,
+            ),
+            label_result=label_result,
+        )
+
+        training_result = train_gnn_node_utility_model(
+            dataset=dataset,
+            feature_frame=feature_frame,
+            label_frame=gnn_label_frame,
+            budget=3,
+            top_fraction=0.5,
+            target_column="gnn_label_score",
+            random_seed=7,
+            epochs=20,
+        )
+
+        self.assertEqual(training_result.model_type, "graphsage")
+        self.assertFalse(training_result.loaded_from_cache)
+        self.assertEqual(training_result.feature_matrix_shape[0], dataset.graph.number_of_nodes())
+        self.assertGreater(training_result.feature_matrix_shape[1], 0)
+        self.assertEqual(training_result.edge_index_shape[0], 2)
+        self.assertGreater(training_result.edge_index_shape[1], 0)
+        self.assertEqual(set(training_result.predicted_scores), set(dataset.graph.nodes()))
+        self.assertEqual(len(training_result.ranked_nodes), dataset.graph.number_of_nodes())
+        self.assertEqual(len(training_result.candidate_nodes), 4)
+        self.assertGreaterEqual(training_result.validation_spearman, -1.0)
+        self.assertLessEqual(training_result.validation_spearman, 1.0)
+        self.assertGreaterEqual(training_result.validation_precision_at_budget, 0.0)
+        self.assertLessEqual(training_result.validation_precision_at_budget, 1.0)
+
+    def test_train_gnn_node_utility_model_supports_gcn_when_available(self) -> None:
+        if not gnn_dependencies_available():
+            self.skipTest("torch and torch_geometric are not installed")
+
+        dataset, protected_group_report, community_result = _toy_ml_fixture()
+        feature_frame = compute_node_features(dataset, protected_group_report, community_result)
+        label_result = generate_singleton_node_utility_labels(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            propagation_probability=1.0,
+            mc_runs=3,
+            lambda_weight=0.5,
+            random_seed=7,
+        )
+        gnn_label_frame, _ = _build_gnn_label_frame(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            community_result=community_result,
+            settings=ExperimentSettings(
+                protected_attribute="group",
+                budget=3,
+                propagation_probability=1.0,
+                mc_runs_search=3,
+                population_size=5,
+                generations=3,
+                random_seed=7,
+            ),
+            label_result=label_result,
+        )
+
+        training_result = train_gnn_node_utility_model(
+            dataset=dataset,
+            feature_frame=feature_frame,
+            label_frame=gnn_label_frame,
+            budget=3,
+            model_type="gcn",
+            top_fraction=0.5,
+            target_column="gnn_label_score",
+            random_seed=7,
+            epochs=20,
+        )
+
+        self.assertEqual(training_result.model_type, "gcn")
+        self.assertEqual(set(training_result.predicted_scores), set(dataset.graph.nodes()))
+
+    def test_train_gnn_node_utility_model_supports_node2vec_concat_when_available(self) -> None:
+        if not gnn_dependencies_available():
+            self.skipTest("torch and torch_geometric are not installed")
+
+        dataset, protected_group_report, community_result = _toy_ml_fixture()
+        plain_feature_frame = compute_node_features(dataset, protected_group_report, community_result)
+        node2vec_config = Node2VecConfig(
+            dimensions=4,
+            walk_length=6,
+            num_walks=4,
+            window=2,
+            random_seed=7,
+        )
+        node2vec_feature_frame = compute_node_features(
+            dataset,
+            protected_group_report,
+            community_result,
+            node2vec_config=node2vec_config,
+        )
+        label_result = generate_singleton_node_utility_labels(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            propagation_probability=1.0,
+            mc_runs=3,
+            lambda_weight=0.5,
+            random_seed=7,
+        )
+        gnn_label_frame, _ = _build_gnn_label_frame(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            community_result=community_result,
+            settings=ExperimentSettings(
+                protected_attribute="group",
+                budget=3,
+                propagation_probability=1.0,
+                mc_runs_search=3,
+                population_size=5,
+                generations=3,
+                random_seed=7,
+            ),
+            label_result=label_result,
+        )
+
+        plain_result = train_gnn_node_utility_model(
+            dataset=dataset,
+            feature_frame=plain_feature_frame,
+            label_frame=gnn_label_frame,
+            budget=3,
+            top_fraction=0.5,
+            target_column="gnn_label_score",
+            random_seed=7,
+            epochs=20,
+        )
+        node2vec_result = train_gnn_node_utility_model(
+            dataset=dataset,
+            feature_frame=node2vec_feature_frame,
+            label_frame=gnn_label_frame,
+            budget=3,
+            top_fraction=0.5,
+            target_column="gnn_label_score",
+            random_seed=7,
+            epochs=20,
+            node2vec_mode="input_concat",
+            node2vec_config={
+                "dimensions": 4,
+                "walk_length": 6,
+                "num_walks": 4,
+                "window": 2,
+                "p": 1.0,
+                "q": 1.0,
+                "scale_embeddings": False,
+                "pca_components": None,
+                "random_seed": 7,
+            },
+        )
+
+        self.assertEqual(len(node2vec_feature_frame.filter(like="node2vec_").columns), 4)
+        self.assertGreater(node2vec_result.feature_matrix_shape[1], plain_result.feature_matrix_shape[1])
+        self.assertEqual(node2vec_result.feature_matrix_shape[0], dataset.graph.number_of_nodes())
+        self.assertEqual(set(node2vec_result.predicted_scores), set(dataset.graph.nodes()))
+
+    def test_train_gnn_node_utility_model_reuses_cache_when_available(self) -> None:
+        if not gnn_dependencies_available():
+            self.skipTest("torch and torch_geometric are not installed")
+
+        dataset, protected_group_report, community_result = _toy_ml_fixture()
+        feature_frame = compute_node_features(dataset, protected_group_report, community_result)
+        label_result = generate_singleton_node_utility_labels(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            propagation_probability=1.0,
+            mc_runs=3,
+            lambda_weight=0.5,
+            random_seed=7,
+        )
+        gnn_label_frame, _ = _build_gnn_label_frame(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            community_result=community_result,
+            settings=ExperimentSettings(
+                protected_attribute="group",
+                budget=3,
+                propagation_probability=1.0,
+                mc_runs_search=3,
+                population_size=5,
+                generations=3,
+                random_seed=7,
+            ),
+            label_result=label_result,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_path = Path(temp_dir) / "toy_gnn_scores.pkl"
+            first = train_gnn_node_utility_model(
+                dataset=dataset,
+                feature_frame=feature_frame,
+                label_frame=gnn_label_frame,
+                budget=3,
+                top_fraction=0.5,
+                target_column="gnn_label_score",
+                random_seed=7,
+                epochs=20,
+                cache_path=cache_path,
+            )
+            second = train_gnn_node_utility_model(
+                dataset=dataset,
+                feature_frame=feature_frame,
+                label_frame=gnn_label_frame,
+                budget=3,
+                top_fraction=0.5,
+                target_column="gnn_label_score",
+                random_seed=7,
+                epochs=20,
+                cache_path=cache_path,
+            )
+
+        self.assertFalse(first.loaded_from_cache)
+        self.assertTrue(second.loaded_from_cache)
+        self.assertEqual(first.predicted_scores, second.predicted_scores)
+
+    def test_train_gnn_node_utility_model_separates_plain_and_node2vec_cache_fingerprints(self) -> None:
+        if not gnn_dependencies_available():
+            self.skipTest("torch and torch_geometric are not installed")
+
+        dataset, protected_group_report, community_result = _toy_ml_fixture()
+        plain_feature_frame = compute_node_features(dataset, protected_group_report, community_result)
+        node2vec_feature_frame = compute_node_features(
+            dataset,
+            protected_group_report,
+            community_result,
+            node2vec_config=Node2VecConfig(
+                dimensions=4,
+                walk_length=6,
+                num_walks=4,
+                window=2,
+                random_seed=7,
+            ),
+        )
+        label_result = generate_singleton_node_utility_labels(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            propagation_probability=1.0,
+            mc_runs=3,
+            lambda_weight=0.5,
+            random_seed=7,
+        )
+        gnn_label_frame, _ = _build_gnn_label_frame(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            community_result=community_result,
+            settings=ExperimentSettings(
+                protected_attribute="group",
+                budget=3,
+                propagation_probability=1.0,
+                mc_runs_search=3,
+                population_size=5,
+                generations=3,
+                random_seed=7,
+            ),
+            label_result=label_result,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_path = Path(temp_dir) / "toy_gnn_scores.pkl"
+            first_plain = train_gnn_node_utility_model(
+                dataset=dataset,
+                feature_frame=plain_feature_frame,
+                label_frame=gnn_label_frame,
+                budget=3,
+                top_fraction=0.5,
+                target_column="gnn_label_score",
+                random_seed=7,
+                epochs=20,
+                cache_path=cache_path,
+                node2vec_mode="off",
+            )
+            first_node2vec = train_gnn_node_utility_model(
+                dataset=dataset,
+                feature_frame=node2vec_feature_frame,
+                label_frame=gnn_label_frame,
+                budget=3,
+                top_fraction=0.5,
+                target_column="gnn_label_score",
+                random_seed=7,
+                epochs=20,
+                cache_path=cache_path,
+                node2vec_mode="input_concat",
+                node2vec_config={
+                    "dimensions": 4,
+                    "walk_length": 6,
+                    "num_walks": 4,
+                    "window": 2,
+                    "p": 1.0,
+                    "q": 1.0,
+                    "scale_embeddings": False,
+                    "pca_components": None,
+                    "random_seed": 7,
+                },
+            )
+            second_node2vec = train_gnn_node_utility_model(
+                dataset=dataset,
+                feature_frame=node2vec_feature_frame,
+                label_frame=gnn_label_frame,
+                budget=3,
+                top_fraction=0.5,
+                target_column="gnn_label_score",
+                random_seed=7,
+                epochs=20,
+                cache_path=cache_path,
+                node2vec_mode="input_concat",
+                node2vec_config={
+                    "dimensions": 4,
+                    "walk_length": 6,
+                    "num_walks": 4,
+                    "window": 2,
+                    "p": 1.0,
+                    "q": 1.0,
+                    "scale_embeddings": False,
+                    "pca_components": None,
+                    "random_seed": 7,
+                },
+            )
+
+        self.assertFalse(first_plain.loaded_from_cache)
+        self.assertFalse(first_node2vec.loaded_from_cache)
+        self.assertTrue(second_node2vec.loaded_from_cache)
 
 
 if __name__ == "__main__":

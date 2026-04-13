@@ -11,10 +11,13 @@ import networkx as nx
 import pandas as pd
 
 from fim_hybrid.data_loader import LoadedDataset, verify_protected_groups
+from fim_hybrid.gnn_training import gnn_dependencies_available
 from fim_hybrid.experiment_runner import ExperimentSettings, run_loaded_experiment
 
 
 KEPT_ML_LABEL = "hybrid_siea_ml_two_tier_tuned_swap_local_search"
+KEPT_GNN_ML_LABEL = "hybrid_siea_ml_gnn_two_tier_tuned_swap_local_search"
+KEPT_GNN_NODE2VEC_ML_LABEL = "hybrid_siea_ml_gnn_node2vec_two_tier_tuned_swap_local_search"
 
 
 def _toy_experiment_fixture() -> tuple[LoadedDataset, object]:
@@ -209,6 +212,8 @@ class ExperimentRunnerTestCase(unittest.TestCase):
         self.assertFalse(pd.isna(ml_row["ml_validation_precision_at_budget"]))
         self.assertEqual(int(ml_row["candidate_pool_size"]), dataset.graph.number_of_nodes())
         self.assertEqual(ml_row["ml_guidance_mode"], "two_tier")
+        self.assertEqual(ml_row["ml_backend"], "tabular")
+        self.assertTrue(pd.isna(ml_row["gnn_model_type"]))
 
     def test_run_loaded_experiment_treats_ml_off_as_single_supported_ml_path(self) -> None:
         dataset, protected_group_report = _toy_experiment_fixture()
@@ -271,6 +276,196 @@ class ExperimentRunnerTestCase(unittest.TestCase):
             )
 
         self.assertEqual(mocked_train.call_count, 1)
+
+    def test_run_loaded_experiment_errors_for_gnn_backend_without_optional_dependencies(self) -> None:
+        if gnn_dependencies_available():
+            self.skipTest("torch and torch_geometric are installed")
+
+        dataset, protected_group_report = _toy_experiment_fixture()
+        settings = ExperimentSettings(
+            protected_attribute="group",
+            budget=3,
+            community_method="louvain",
+            propagation_probability=0.5,
+            mc_runs=3,
+            population_size=5,
+            generations=3,
+            random_seed=9,
+            use_ml=True,
+            ml_backend="gnn",
+            ml_guidance_mode="two_tier",
+            ml_top_fraction=0.5,
+            ml_singleton_runs=3,
+        )
+
+        with self.assertRaisesRegex(ValueError, "optional dependencies are unavailable"):
+            run_loaded_experiment(
+                dataset=dataset,
+                protected_group_report=protected_group_report,
+                settings=settings,
+                community_methods=["louvain"],
+                baseline_methods=["degree", "random"],
+                include_ablations=False,
+            )
+
+    def test_run_loaded_experiment_errors_for_both_backend_without_optional_dependencies(self) -> None:
+        if gnn_dependencies_available():
+            self.skipTest("torch and torch_geometric are installed")
+
+        dataset, protected_group_report = _toy_experiment_fixture()
+        settings = ExperimentSettings(
+            protected_attribute="group",
+            budget=3,
+            community_method="louvain",
+            propagation_probability=0.5,
+            mc_runs=3,
+            population_size=5,
+            generations=3,
+            random_seed=9,
+            use_ml=True,
+            ml_backend="both",
+            ml_guidance_mode="two_tier",
+            ml_top_fraction=0.5,
+            ml_singleton_runs=3,
+        )
+
+        with self.assertRaisesRegex(ValueError, "optional dependencies are unavailable"):
+            run_loaded_experiment(
+                dataset=dataset,
+                protected_group_report=protected_group_report,
+                settings=settings,
+                community_methods=["louvain"],
+                baseline_methods=["degree", "random"],
+                include_ablations=False,
+            )
+
+    def test_run_loaded_experiment_with_both_backends_adds_two_ml_rows_when_available(self) -> None:
+        if not gnn_dependencies_available():
+            self.skipTest("torch and torch_geometric are not installed")
+
+        dataset, protected_group_report = _toy_experiment_fixture()
+        settings = ExperimentSettings(
+            protected_attribute="group",
+            budget=3,
+            community_method="louvain",
+            propagation_probability=0.5,
+            mc_runs=3,
+            population_size=5,
+            generations=3,
+            random_seed=9,
+            use_ml=True,
+            ml_backend="both",
+            ml_guidance_mode="two_tier",
+            ml_top_fraction=0.5,
+            ml_singleton_runs=3,
+            gnn_epochs=20,
+        )
+
+        result_frame = run_loaded_experiment(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            settings=settings,
+            community_methods=["louvain"],
+            baseline_methods=["degree", "random"],
+            include_ablations=False,
+        )
+
+        self.assertIn(KEPT_ML_LABEL, set(result_frame["method"]))
+        self.assertIn(KEPT_GNN_ML_LABEL, set(result_frame["method"]))
+        gnn_row = result_frame[result_frame["method"] == KEPT_GNN_ML_LABEL].iloc[0]
+        self.assertEqual(gnn_row["ml_backend"], "gnn")
+        self.assertEqual(gnn_row["gnn_model_type"], "graphsage")
+        self.assertFalse(bool(gnn_row["node2vec_enabled"]))
+        self.assertEqual(gnn_row["node2vec_mode"], "off")
+
+    def test_run_loaded_experiment_with_gnn_node2vec_concat_adds_node2vec_row_when_available(self) -> None:
+        if not gnn_dependencies_available():
+            self.skipTest("torch and torch_geometric are not installed")
+
+        dataset, protected_group_report = _toy_experiment_fixture()
+        settings = ExperimentSettings(
+            protected_attribute="group",
+            budget=3,
+            community_method="louvain",
+            propagation_probability=0.5,
+            mc_runs=3,
+            population_size=5,
+            generations=3,
+            random_seed=9,
+            use_ml=True,
+            ml_backend="gnn",
+            gnn_node2vec_mode="input_concat",
+            ml_guidance_mode="two_tier",
+            ml_top_fraction=0.5,
+            ml_singleton_runs=3,
+            gnn_epochs=10,
+            node2vec_dimensions=4,
+            node2vec_walk_length=6,
+            node2vec_num_walks=4,
+            node2vec_window=2,
+        )
+
+        result_frame = run_loaded_experiment(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            settings=settings,
+            community_methods=["louvain"],
+            baseline_methods=["degree", "random"],
+            include_ablations=False,
+        )
+
+        self.assertIn(KEPT_GNN_NODE2VEC_ML_LABEL, set(result_frame["method"]))
+        self.assertNotIn(KEPT_GNN_ML_LABEL, set(result_frame["method"]))
+        gnn_row = result_frame[result_frame["method"] == KEPT_GNN_NODE2VEC_ML_LABEL].iloc[0]
+        self.assertEqual(gnn_row["ml_backend"], "gnn")
+        self.assertEqual(gnn_row["gnn_model_type"], "graphsage")
+        self.assertTrue(bool(gnn_row["node2vec_enabled"]))
+        self.assertEqual(gnn_row["node2vec_mode"], "input_concat")
+
+    def test_run_loaded_experiment_with_gnn_compare_adds_plain_and_node2vec_rows_when_available(self) -> None:
+        if not gnn_dependencies_available():
+            self.skipTest("torch and torch_geometric are not installed")
+
+        dataset, protected_group_report = _toy_experiment_fixture()
+        settings = ExperimentSettings(
+            protected_attribute="group",
+            budget=3,
+            community_method="louvain",
+            propagation_probability=0.5,
+            mc_runs=3,
+            population_size=5,
+            generations=3,
+            random_seed=9,
+            use_ml=True,
+            ml_backend="gnn",
+            gnn_node2vec_mode="compare",
+            ml_guidance_mode="two_tier",
+            ml_top_fraction=0.5,
+            ml_singleton_runs=3,
+            gnn_epochs=10,
+            node2vec_dimensions=4,
+            node2vec_walk_length=6,
+            node2vec_num_walks=4,
+            node2vec_window=2,
+        )
+
+        result_frame = run_loaded_experiment(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            settings=settings,
+            community_methods=["louvain"],
+            baseline_methods=["degree", "random"],
+            include_ablations=False,
+        )
+
+        self.assertIn(KEPT_GNN_ML_LABEL, set(result_frame["method"]))
+        self.assertIn(KEPT_GNN_NODE2VEC_ML_LABEL, set(result_frame["method"]))
+        plain_row = result_frame[result_frame["method"] == KEPT_GNN_ML_LABEL].iloc[0]
+        node2vec_row = result_frame[result_frame["method"] == KEPT_GNN_NODE2VEC_ML_LABEL].iloc[0]
+        self.assertEqual(plain_row["node2vec_mode"], "off")
+        self.assertFalse(bool(plain_row["node2vec_enabled"]))
+        self.assertEqual(node2vec_row["node2vec_mode"], "input_concat")
+        self.assertTrue(bool(node2vec_row["node2vec_enabled"]))
 
     def test_run_loaded_experiment_uses_eval_budget_and_seed_offset_for_reported_rows(self) -> None:
         import fim_hybrid.experiment_runner as experiment_runner_module  # noqa: PLC0415

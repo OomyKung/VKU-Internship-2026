@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 from pathlib import Path
 import json
 from time import perf_counter
@@ -16,10 +17,15 @@ from .data_loader import LoadedDataset, ProtectedGroupReport, load_dataset, veri
 from .diffusion import DEFAULT_DIFFUSION_MODEL, validate_diffusion_model
 from .evaluation import SeedSetEvaluation, evaluate_seed_set
 from .feature_extraction import compute_node_features
+from .gnn_training import GNNTrainingResult, require_gnn_dependencies, train_gnn_node_utility_model
 from .hybrid_optimizer import HybridOptimizationResult, HybridSIEAConfig, HybridSIEAOptimizer
 from .label_generation import NodeUtilityLabelResult, generate_singleton_node_utility_labels
 from .ml_training import MLTrainingResult, train_node_utility_model
+from .node2vec_embeddings import Node2VecConfig, build_node2vec_cache_path
+
 _KEPT_ML_VARIANT_LABEL = "hybrid_siea_ml_two_tier_tuned_swap_local_search"
+_KEPT_GNN_ML_VARIANT_LABEL = "hybrid_siea_ml_gnn_two_tier_tuned_swap_local_search"
+_KEPT_GNN_NODE2VEC_ML_VARIANT_LABEL = "hybrid_siea_ml_gnn_node2vec_two_tier_tuned_swap_local_search"
 _REMOVED_ML_VARIANT_LABELS = {
     "hybrid_siea_ml_hard_filter",
     "hybrid_siea_ml_soft_bias",
@@ -125,11 +131,20 @@ class ExperimentSettings:
     node2vec_diversity_weight: float = 0.15
     use_ml: bool = False
     ml_model_type: str = "random_forest"
+    ml_backend: str = "tabular"
     ml_guidance_mode: str = "off"
     ml_top_fraction: float | None = 0.25
     ml_top_n: int | None = None
     ml_max_nodes: int | None = None
     ml_singleton_runs: int = 15
+    gnn_model_type: str = "graphsage"
+    gnn_node2vec_mode: str = "off"
+    gnn_hidden_dim: int = 64
+    gnn_num_layers: int = 2
+    gnn_dropout: float = 0.2
+    gnn_learning_rate: float = 1e-3
+    gnn_weight_decay: float = 5e-4
+    gnn_epochs: int = 100
     ml_primary_pool_ratio: float = 0.25
     ml_secondary_exploration_rate: float = 0.10
     ml_initialization_bias: float = 0.25
@@ -411,11 +426,15 @@ def _fairness_diagnostic_columns(
 
 def _ml_columns(
     guidance_mode: str = "off",
+    ml_backend: str = "none",
+    gnn_model_type: str | None = None,
     validation_spearman: float | None = None,
     validation_precision_at_budget: float | None = None,
-) -> dict[str, float | None]:
+) -> dict[str, object]:
     return {
         "ml_guidance_mode": guidance_mode,
+        "ml_backend": ml_backend,
+        "gnn_model_type": gnn_model_type,
         "ml_validation_spearman": validation_spearman,
         "ml_validation_precision_at_budget": validation_precision_at_budget,
     }
@@ -460,7 +479,7 @@ def _baseline_row(
             mc_runs_eval=mc_runs_eval,
         ),
         **_final_recheck_columns(),
-        **_ml_columns(guidance_mode="off"),
+        **_ml_columns(guidance_mode="off", ml_backend="none"),
         **_fairness_diagnostic_columns(
             evaluation.fairness.group_spread,
             evaluation.fairness.normalized_group_spread,
@@ -513,7 +532,7 @@ def _hybrid_row(
             mc_runs_eval=mc_runs_eval,
         ),
         **_final_recheck_columns(),
-        **_ml_columns(guidance_mode=config.ml_guidance_mode),
+        **_ml_columns(guidance_mode=config.ml_guidance_mode, ml_backend="none"),
         **_fairness_diagnostic_columns(
             evaluation.fairness.group_spread,
             evaluation.fairness.normalized_group_spread,
@@ -532,6 +551,8 @@ def _ml_row(
     runtime_seconds: float,
     quality: CommunityQualityMetrics,
     candidate_pool_size: int,
+    ml_backend: str,
+    gnn_model_type: str | None,
     validation_spearman: float,
     validation_precision_at_budget: float,
     guidance_mode: str,
@@ -575,6 +596,8 @@ def _ml_row(
         **_final_recheck_columns(),
         **_ml_columns(
             guidance_mode=guidance_mode,
+            ml_backend=ml_backend,
+            gnn_model_type=gnn_model_type,
             validation_spearman=validation_spearman,
             validation_precision_at_budget=validation_precision_at_budget,
         ),
@@ -604,19 +627,146 @@ def _generate_ml_labels(
     return label_result, perf_counter() - start
 
 
-def _prepare_ml_training(
+def _resolve_ml_backends(settings: ExperimentSettings) -> tuple[str, ...]:
+    valid_backends = {
+        "tabular": ("tabular",),
+        "gnn": ("gnn",),
+        "both": ("tabular", "gnn"),
+    }
+    if settings.ml_backend not in valid_backends:
+        raise ValueError("ml_backend must be one of ['tabular', 'gnn', 'both'].")
+    return valid_backends[settings.ml_backend]
+
+
+def _resolve_gnn_node2vec_modes(settings: ExperimentSettings) -> tuple[str, ...]:
+    valid_modes = {
+        "off": ("off",),
+        "input_concat": ("input_concat",),
+        "compare": ("off", "input_concat"),
+    }
+    if settings.gnn_node2vec_mode not in valid_modes:
+        raise ValueError("gnn_node2vec_mode must be one of ['off', 'input_concat', 'compare'].")
+    return valid_modes[settings.gnn_node2vec_mode]
+
+
+def _node2vec_config(settings: ExperimentSettings) -> Node2VecConfig:
+    return Node2VecConfig(
+        dimensions=int(settings.node2vec_dimensions),
+        walk_length=int(settings.node2vec_walk_length),
+        num_walks=int(settings.node2vec_num_walks),
+        window=int(settings.node2vec_window),
+        p=float(settings.node2vec_p),
+        q=float(settings.node2vec_q),
+        scale_embeddings=bool(settings.node2vec_scale_embeddings),
+        pca_components=(
+            None
+            if settings.node2vec_pca_components is None
+            else int(settings.node2vec_pca_components)
+        ),
+        random_seed=int(settings.random_seed),
+    )
+
+
+def _node2vec_cache_path(
+    output_dir: Path | None,
+    dataset_name: str,
+    settings: ExperimentSettings,
+) -> Path | None:
+    return build_node2vec_cache_path(output_dir, dataset_name, _node2vec_config(settings))
+
+
+def _compute_ml_feature_frame(
+    dataset: LoadedDataset,
+    protected_group_report: ProtectedGroupReport,
+    community_result,
+    settings: ExperimentSettings,
+) -> tuple[dict[str, pd.DataFrame], float]:
+    start = perf_counter()
+    plain_frame = compute_node_features(
+        dataset=dataset,
+        protected_group_report=protected_group_report,
+        community_result=community_result,
+    )
+    feature_frames = {"plain": plain_frame}
+    if settings.use_ml and "gnn" in _resolve_ml_backends(settings):
+        if "input_concat" in _resolve_gnn_node2vec_modes(settings):
+            feature_frames["input_concat"] = compute_node_features(
+                dataset=dataset,
+                protected_group_report=protected_group_report,
+                community_result=community_result,
+                node2vec_config=_node2vec_config(settings),
+                node2vec_cache_path=_node2vec_cache_path(
+                    output_dir=settings.output_dir,
+                    dataset_name=dataset.name,
+                    settings=settings,
+                ),
+            )
+    return feature_frames, perf_counter() - start
+
+
+def _minmax_normalize(values: pd.Series, *, column_name: str) -> pd.Series:
+    numeric_values = values.astype(float)
+    value_min = float(numeric_values.min())
+    value_max = float(numeric_values.max())
+    if value_max - value_min <= 1e-12:
+        raise ValueError(f"{column_name} is degenerate and cannot be normalized for GNN labels.")
+    return (numeric_values - value_min) / (value_max - value_min)
+
+
+def _build_gnn_label_frame(
     dataset: LoadedDataset,
     protected_group_report: ProtectedGroupReport,
     community_result,
     settings: ExperimentSettings,
     label_result: NodeUtilityLabelResult,
-) -> tuple[MLTrainingResult, float]:
+) -> tuple[pd.DataFrame, float]:
     start = perf_counter()
-    feature_frame = compute_node_features(
+    label_frame = label_result.label_frame.copy()
+    if "soft_fair_norm" not in label_frame.columns:
+        raise ValueError("label_frame must contain soft_fair_norm for GNN label construction.")
+
+    proxy_config = _build_optimizer_config(
+        settings,
+        include_fairness_parameters=False,
+        ml_guidance_mode="off",
+        **_resolved_refinement_compare_settings(settings),
+    )
+    optimizer = HybridSIEAOptimizer(
         dataset=dataset,
         protected_group_report=protected_group_report,
         community_result=community_result,
+        config=proxy_config,
     )
+    marginal_proxy_scores = [
+        optimizer._marginal_gain_proxy_score(  # noqa: SLF001
+            node_id=node_id,
+            seed_set=(),
+            community_counts={},
+        )
+        for node_id in label_frame["node_id"]
+    ]
+    label_frame["marginal_proxy_score"] = pd.Series(marginal_proxy_scores, index=label_frame.index, dtype=float)
+    label_frame["marginal_proxy_norm"] = _minmax_normalize(
+        label_frame["marginal_proxy_score"],
+        column_name="marginal_proxy_score",
+    )
+    label_frame["gnn_label_score"] = (
+        0.50 * label_frame["label_score"].astype(float)
+        + 0.25 * label_frame["soft_fair_norm"].astype(float)
+        + 0.25 * label_frame["marginal_proxy_norm"].astype(float)
+    )
+    label_variance = float(label_frame["gnn_label_score"].var(ddof=0))
+    if label_variance <= 1e-12:
+        raise ValueError("gnn_label_score is degenerate; adjust label construction or dataset settings.")
+    return label_frame, perf_counter() - start
+
+
+def _prepare_tabular_ml_training(
+    feature_frame: pd.DataFrame,
+    settings: ExperimentSettings,
+    label_result: NodeUtilityLabelResult,
+) -> tuple[MLTrainingResult, float]:
+    start = perf_counter()
     training_result = train_node_utility_model(
         feature_frame=feature_frame,
         label_frame=label_result.label_frame,
@@ -630,10 +780,119 @@ def _prepare_ml_training(
     return training_result, perf_counter() - start
 
 
-def _selected_ml_variants(settings: ExperimentSettings) -> list[tuple[str, str]]:
+def _gnn_cache_path(
+    output_dir: Path | None,
+    dataset_name: str,
+    protected_attribute: str,
+    budget: int,
+    community_method: str,
+    settings: ExperimentSettings,
+    *,
+    node2vec_mode: str,
+) -> Path | None:
+    attribute_dir = _ensure_results_output_dir(output_dir, dataset_name, protected_attribute)
+    if attribute_dir is None:
+        return None
+
+    cache_signature = {
+        "gnn_node2vec_mode": node2vec_mode,
+    }
+    if node2vec_mode == "input_concat":
+        cache_signature["node2vec_config"] = {
+            "dimensions": int(settings.node2vec_dimensions),
+            "walk_length": int(settings.node2vec_walk_length),
+            "num_walks": int(settings.node2vec_num_walks),
+            "window": int(settings.node2vec_window),
+            "p": float(settings.node2vec_p),
+            "q": float(settings.node2vec_q),
+            "scale_embeddings": bool(settings.node2vec_scale_embeddings),
+            "pca_components": settings.node2vec_pca_components,
+            "random_seed": int(settings.random_seed),
+        }
+    cache_suffix = hashlib.sha256(
+        json.dumps(cache_signature, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:10]
+    return (
+        attribute_dir
+        / f"{dataset_name}_budget{budget}_{community_method}_gnn_"
+        f"{settings.gnn_model_type}_{node2vec_mode}_seed{settings.random_seed}_{cache_suffix}.pkl"
+    )
+
+
+def _prepare_gnn_training(
+    dataset: LoadedDataset,
+    feature_frame: pd.DataFrame,
+    community_method: str,
+    settings: ExperimentSettings,
+    label_frame: pd.DataFrame,
+    *,
+    target_column: str,
+    node2vec_mode: str,
+) -> tuple[GNNTrainingResult, float]:
+    start = perf_counter()
+    training_result = train_gnn_node_utility_model(
+        dataset=dataset,
+        feature_frame=feature_frame,
+        label_frame=label_frame,
+        budget=settings.budget,
+        model_type=settings.gnn_model_type,
+        target_column=target_column,
+        hidden_dim=settings.gnn_hidden_dim,
+        num_layers=settings.gnn_num_layers,
+        dropout=settings.gnn_dropout,
+        learning_rate=settings.gnn_learning_rate,
+        weight_decay=settings.gnn_weight_decay,
+        epochs=settings.gnn_epochs,
+        top_fraction=settings.ml_top_fraction,
+        top_n=settings.ml_top_n,
+        max_nodes=settings.ml_max_nodes,
+        random_seed=settings.random_seed,
+        node2vec_mode=node2vec_mode,
+        node2vec_config=(
+            {
+                "dimensions": int(settings.node2vec_dimensions),
+                "walk_length": int(settings.node2vec_walk_length),
+                "num_walks": int(settings.node2vec_num_walks),
+                "window": int(settings.node2vec_window),
+                "p": float(settings.node2vec_p),
+                "q": float(settings.node2vec_q),
+                "scale_embeddings": bool(settings.node2vec_scale_embeddings),
+                "pca_components": settings.node2vec_pca_components,
+                "random_seed": int(settings.random_seed),
+            }
+            if node2vec_mode == "input_concat"
+            else None
+        ),
+        cache_path=_gnn_cache_path(
+            output_dir=settings.output_dir,
+            dataset_name=dataset.name,
+            protected_attribute=settings.protected_attribute,
+            budget=settings.budget,
+            community_method=community_method,
+            settings=settings,
+            node2vec_mode=node2vec_mode,
+        ),
+    )
+    return training_result, perf_counter() - start
+
+
+def _selected_ml_variants(settings: ExperimentSettings) -> list[tuple[str, str, str, str]]:
     if not settings.use_ml:
         return []
-    return [(_KEPT_ML_VARIANT_LABEL, "two_tier")]
+
+    selected: list[tuple[str, str, str, str]] = []
+    for backend in _resolve_ml_backends(settings):
+        if backend == "tabular":
+            selected.append((_KEPT_ML_VARIANT_LABEL, "two_tier", "tabular", "off"))
+        elif backend == "gnn":
+            for node2vec_mode in _resolve_gnn_node2vec_modes(settings):
+                label = (
+                    _KEPT_GNN_NODE2VEC_ML_VARIANT_LABEL
+                    if node2vec_mode == "input_concat"
+                    else _KEPT_GNN_ML_VARIANT_LABEL
+                )
+                selected.append((label, "two_tier", "gnn", node2vec_mode))
+    return selected
 
 
 def _resolved_kept_ml_overrides(settings: ExperimentSettings) -> dict[str, object]:
@@ -876,12 +1135,17 @@ def run_loaded_experiment(
     validate_diffusion_model(settings.diffusion_model)
     mc_runs_search = _resolved_mc_runs_search(settings)
     mc_runs_eval = _resolved_mc_runs_eval(settings)
+    resolved_ml_backends = _resolve_ml_backends(settings) if settings.use_ml else ()
     if settings.use_node2vec:
         raise ValueError("Node2Vec ML variants were removed. use_node2vec is no longer supported.")
+    if settings.gnn_node2vec_mode != "off" and "gnn" not in resolved_ml_backends:
+        raise ValueError("gnn_node2vec_mode requires ml_backend='gnn' or ml_backend='both'.")
     if settings.use_ml and settings.ml_guidance_mode not in {"off", "two_tier"}:
         raise ValueError(
             "Removed ML guidance mode requested. Only ml_guidance_mode='two_tier' is supported for ML runs."
         )
+    if settings.use_ml and any(backend == "gnn" for backend in resolved_ml_backends):
+        require_gnn_dependencies()
     if any(
         [
             settings.compare_fairness_variants,
@@ -893,7 +1157,9 @@ def run_loaded_experiment(
     ):
         raise ValueError(
             "Obsolete ML comparison families were removed. "
-            f"Use {_KEPT_ML_VARIANT_LABEL} as the single supported ML variant."
+            "Use "
+            f"{_KEPT_ML_VARIANT_LABEL}, {_KEPT_GNN_ML_VARIANT_LABEL}, and/or "
+            f"{_KEPT_GNN_NODE2VEC_ML_VARIANT_LABEL} as the supported ML variants."
         )
 
     methods = community_methods or [settings.community_method]
@@ -905,7 +1171,8 @@ def run_loaded_experiment(
             removed_display = ", ".join(removed_requested)
             raise ValueError(
                 "Removed ML variants are no longer supported: "
-                f"{removed_display}. Supported ML variant: {_KEPT_ML_VARIANT_LABEL}."
+                f"{removed_display}. Supported ML variants: {_KEPT_ML_VARIANT_LABEL}, "
+                f"{_KEPT_GNN_ML_VARIANT_LABEL}, {_KEPT_GNN_NODE2VEC_ML_VARIANT_LABEL}."
             )
 
     def is_selected(label: str) -> bool:
@@ -1024,29 +1291,88 @@ def run_loaded_experiment(
                 )
             )
 
-        if settings.use_ml and any_ml_methods_selected():
+        selected_ml_variants = [
+            variant
+            for variant in _selected_ml_variants(settings)
+            if is_selected(variant[0])
+        ]
+        if settings.use_ml and selected_ml_variants and any_ml_methods_selected():
             label_result, label_runtime = _generate_ml_labels(
                 dataset=dataset,
                 protected_group_report=protected_group_report,
                 settings=settings,
             )
-            training_result, base_ml_training_runtime = _prepare_ml_training(
+            feature_frames, feature_runtime = _compute_ml_feature_frame(
                 dataset=dataset,
                 protected_group_report=protected_group_report,
                 community_result=community_result,
                 settings=settings,
-                label_result=label_result,
             )
-            ml_preparation_runtime = label_runtime + base_ml_training_runtime
-            ml_metrics = (
-                f"spearman={training_result.validation_spearman:.6f}; "
-                f"precision_at_budget={training_result.validation_precision_at_budget:.6f}; "
-                f"label_variance={label_result.label_variance:.6f}"
-            )
+            gnn_label_frame: pd.DataFrame | None = None
+            gnn_label_runtime = 0.0
+            gnn_label_variance: float | None = None
+            if any(variant[2] == "gnn" for variant in selected_ml_variants):
+                gnn_label_frame, gnn_label_runtime = _build_gnn_label_frame(
+                    dataset=dataset,
+                    protected_group_report=protected_group_report,
+                    community_result=community_result,
+                    settings=settings,
+                    label_result=label_result,
+                )
+                gnn_label_variance = float(gnn_label_frame["gnn_label_score"].var(ddof=0))
+            shared_ml_preparation_runtime = label_runtime + feature_runtime + gnn_label_runtime
+            training_results_by_variant: dict[tuple[str, str], tuple[MLTrainingResult | GNNTrainingResult, float]] = {}
 
-            for label, guidance_mode in _selected_ml_variants(settings):
-                if not is_selected(label):
+            for _, _, ml_backend, node2vec_mode in selected_ml_variants:
+                variant_key = (ml_backend, node2vec_mode)
+                if variant_key in training_results_by_variant:
                     continue
+                if ml_backend == "tabular":
+                    training_results_by_variant[variant_key] = _prepare_tabular_ml_training(
+                        feature_frame=feature_frames["plain"],
+                        settings=settings,
+                        label_result=label_result,
+                    )
+                    continue
+                if gnn_label_frame is None:
+                    raise ValueError("gnn_label_frame was not prepared for the selected GNN variant.")
+                feature_key = "input_concat" if node2vec_mode == "input_concat" else "plain"
+                training_results_by_variant[variant_key] = _prepare_gnn_training(
+                    dataset=dataset,
+                    feature_frame=feature_frames[feature_key],
+                    community_method=community_method,
+                    settings=settings,
+                    label_frame=gnn_label_frame,
+                    target_column="gnn_label_score",
+                    node2vec_mode=node2vec_mode,
+                )
+
+            for label, guidance_mode, ml_backend, node2vec_mode in selected_ml_variants:
+                training_result, backend_training_runtime = training_results_by_variant[(ml_backend, node2vec_mode)]
+                ml_metrics = (
+                    f"backend={ml_backend}; "
+                    f"spearman={training_result.validation_spearman:.6f}; "
+                    f"precision_at_budget={training_result.validation_precision_at_budget:.6f}; "
+                    f"label_variance={label_result.label_variance:.6f}"
+                )
+                if ml_backend == "tabular":
+                    ml_metrics = f"{ml_metrics}; model_type={settings.ml_model_type}"
+                else:
+                    cache_status = "hit" if training_result.loaded_from_cache else "miss"
+                    target_variance = (
+                        float(gnn_label_variance)
+                        if gnn_label_variance is not None
+                        else float("nan")
+                    )
+                    ml_metrics = (
+                        f"{ml_metrics}; target=gnn_label_score; "
+                        f"target_variance={target_variance:.6f}; "
+                        f"gnn_model_type={settings.gnn_model_type}; "
+                        f"node2vec_mode={node2vec_mode}; "
+                        f"feature_shape={training_result.feature_matrix_shape}; "
+                        f"edge_index_shape={training_result.edge_index_shape}; "
+                        f"cache={cache_status}"
+                    )
                 ml_config = _build_optimizer_config(
                     settings,
                     include_fairness_parameters=False,
@@ -1090,18 +1416,25 @@ def run_loaded_experiment(
                     variant_type="ml_guided",
                     result=ml_result,
                     evaluation=ml_final_evaluation,
-                    search_runtime_seconds=ml_preparation_runtime + ml_result.runtime_seconds,
+                    search_runtime_seconds=(
+                        shared_ml_preparation_runtime
+                        + backend_training_runtime
+                        + ml_result.runtime_seconds
+                    ),
                     config=ml_config,
                     quality=quality,
                     diffusion_model=settings.diffusion_model,
                     mc_runs_search=mc_runs_search,
                     mc_runs_eval=mc_runs_eval,
                     note=ml_note,
-                    node2vec_mode="off",
+                    node2vec_enabled=node2vec_mode == "input_concat",
+                    node2vec_mode=node2vec_mode,
                 )
                 ml_row["ml_validation_spearman"] = training_result.validation_spearman
                 ml_row["ml_validation_precision_at_budget"] = training_result.validation_precision_at_budget
                 ml_row["ml_guidance_mode"] = "two_tier"
+                ml_row["ml_backend"] = ml_backend
+                ml_row["gnn_model_type"] = settings.gnn_model_type if ml_backend == "gnn" else pd.NA
                 results.append(ml_row)
 
     result_frame = pd.DataFrame(results)
@@ -1110,7 +1443,8 @@ def run_loaded_experiment(
         raise ValueError(
             "No methods matched the selected filter. "
             f"Requested: {requested}. "
-            f"Supported ML variant: {_KEPT_ML_VARIANT_LABEL}."
+            f"Supported ML variants: {_KEPT_ML_VARIANT_LABEL}, "
+            f"{_KEPT_GNN_ML_VARIANT_LABEL}, {_KEPT_GNN_NODE2VEC_ML_VARIANT_LABEL}."
         )
     result_frame["comparison_baseline_method"] = "hybrid_siea"
     result_frame["delta_f_score"] = pd.NA

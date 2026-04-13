@@ -50,6 +50,7 @@ from .fairness import (
     compute_strict_mf,
     evaluate_fairness,
 )
+from .gnn_training import GNNTrainingResult, train_gnn_node_utility_model
 from .hybrid_optimizer import CandidateEvaluation, HybridOptimizationResult, HybridSIEAConfig, HybridSIEAOptimizer
 from .label_generation import NodeUtilityLabelResult, generate_singleton_node_utility_labels
 from .ml_training import MLTrainingResult, select_ml_candidate_nodes, train_node_utility_model
@@ -78,6 +79,7 @@ __all__ = [
     "ExperimentSettings",
     "evaluate_seed_set",
     "FairnessMetrics",
+    "GNNTrainingResult",
     "SeedSetEvaluation",
     "compute_f_score",
     "compute_dcv",
@@ -115,6 +117,7 @@ __all__ = [
     "simulate_independent_cascade",
     "simulate_independent_cascade_once",
     "SUPPORTED_DIFFUSION_MODELS",
+    "train_gnn_node_utility_model",
     "train_node_utility_model",
     "validate_diffusion_model",
     "build_node2vec_cache_path",

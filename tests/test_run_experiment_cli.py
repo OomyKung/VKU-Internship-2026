@@ -43,6 +43,8 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "node2vec_enabled": False,
                     "node2vec_mode": "off",
                     "ml_guidance_mode": "two_tier",
+                    "ml_backend": "tabular",
+                    "gnn_model_type": pd.NA,
                     "ml_validation_spearman": 0.302647,
                     "ml_validation_precision_at_budget": 0.25,
                     "community_modularity": 0.451674,
@@ -84,6 +86,8 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "node2vec_enabled": False,
                     "node2vec_mode": "off",
                     "ml_guidance_mode": "off",
+                    "ml_backend": "none",
+                    "gnn_model_type": pd.NA,
                     "ml_validation_spearman": float("nan"),
                     "ml_validation_precision_at_budget": float("nan"),
                     "community_modularity": 0.451674,
@@ -117,6 +121,8 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "node2vec_enabled": False,
                     "node2vec_mode": "off",
                     "ml_guidance_mode": "off",
+                    "ml_backend": "none",
+                    "gnn_model_type": pd.NA,
                     "ml_validation_spearman": float("nan"),
                     "ml_validation_precision_at_budget": float("nan"),
                     "community_modularity": 0.451674,
@@ -140,6 +146,7 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
             final_recheck_top_k=1,
             random_seed=42,
             use_ml=True,
+            ml_backend="tabular",
             ml_guidance_mode="two_tier",
             ml_singleton_runs=15,
         )
@@ -153,12 +160,14 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
         self.assertIn("Spread semantics: total activated nodes including seed nodes; extra_spread = total_spread - budget", report)
         self.assertIn("Final recheck: enabled | mc_runs=1000 | top_k=1", report)
         self.assertIn("Final recheck seed: random_seed + 2000000", report)
-        self.assertIn("Node2Vec: removed from the supported ML experiment surface", report)
+        self.assertIn("Node2Vec: supported only as an optional GNN input feature source", report)
         self.assertIn("Community: leiden", report)
         self.assertIn("Highlights", report)
         self.assertIn("Delta vs hybrid_siea", report)
         self.assertIn(KEPT_ML_LABEL, report)
         self.assertIn("two_tier", report)
+        self.assertIn("backend=tabular", report)
+        self.assertIn("GNN=-", report)
         self.assertIn("0.302647", report)
         self.assertIn("search=5.835s", report)
         self.assertIn("eval=1.000s", report)
@@ -188,6 +197,8 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "node2vec_enabled": False,
                     "node2vec_mode": "off",
                     "ml_guidance_mode": "off",
+                    "ml_backend": "none",
+                    "gnn_model_type": pd.NA,
                     "ml_validation_spearman": float("nan"),
                     "ml_validation_precision_at_budget": float("nan"),
                     "community_modularity": 0.451674,
@@ -213,6 +224,142 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
 
         self.assertIn(str(Path("results") / "toy_graph" / "group_name" / "toy_graph_budget4_results.csv"), report)
 
+    def test_format_results_report_shows_gnn_backend_metadata(self) -> None:
+        frame = pd.DataFrame(
+            [
+                {
+                    "dataset": "toy_graph",
+                    "diffusion_model": "ic",
+                    "community_method": "leiden",
+                    "method": "hybrid_siea_ml_gnn_two_tier_tuned_swap_local_search",
+                    "variant_type": "ml_guided",
+                    "total_spread": 4.80,
+                    "extra_spread": 0.80,
+                    "mf": 0.008800,
+                    "dcv": 0.031000,
+                    "f_score": -0.011100,
+                    "runtime_seconds": 7.000000,
+                    "search_runtime_seconds": 6.000000,
+                    "final_eval_runtime_seconds": 1.000000,
+                    "mc_runs_search": 20,
+                    "mc_runs_eval": 1000,
+                    "candidate_pool_size": 500,
+                    "optimization_mode": "full",
+                    "node2vec_enabled": False,
+                    "node2vec_mode": "off",
+                    "ml_guidance_mode": "two_tier",
+                    "ml_backend": "gnn",
+                    "gnn_model_type": "graphsage",
+                    "ml_validation_spearman": 0.280000,
+                    "ml_validation_precision_at_budget": 0.20,
+                    "community_modularity": 0.451674,
+                    "zero_covered_groups_count": 0,
+                    "bottom_3_avg_group_spread": 1.800000,
+                    "fraction_groups_covered": 1.0,
+                    "weakest_groups_note": "A,B,C",
+                    "delta_f_score": 0.003000,
+                }
+            ]
+        )
+        settings = ExperimentSettings(
+            protected_attribute="group",
+            budget=4,
+            community_method="leiden",
+            mc_runs_search=20,
+            mc_runs_eval=1000,
+            random_seed=42,
+            use_ml=True,
+            ml_backend="gnn",
+            ml_guidance_mode="two_tier",
+            gnn_model_type="graphsage",
+            gnn_hidden_dim=64,
+            gnn_num_layers=2,
+            gnn_dropout=0.2,
+            gnn_learning_rate=1e-3,
+            gnn_weight_decay=5e-4,
+            gnn_epochs=100,
+            ml_singleton_runs=15,
+        )
+
+        report = format_results_report(frame, settings)
+
+        self.assertIn("backend=gnn", report)
+        self.assertIn("GNN=graphsage", report)
+        self.assertIn("GNN config: type=graphsage", report)
+
+    def test_format_results_report_shows_gnn_node2vec_metadata(self) -> None:
+        frame = pd.DataFrame(
+            [
+                {
+                    "dataset": "toy_graph",
+                    "diffusion_model": "ic",
+                    "community_method": "leiden",
+                    "method": "hybrid_siea_ml_gnn_node2vec_two_tier_tuned_swap_local_search",
+                    "variant_type": "ml_guided",
+                    "total_spread": 4.85,
+                    "extra_spread": 0.85,
+                    "mf": 0.008900,
+                    "dcv": 0.030500,
+                    "f_score": -0.010800,
+                    "runtime_seconds": 7.250000,
+                    "search_runtime_seconds": 6.250000,
+                    "final_eval_runtime_seconds": 1.000000,
+                    "mc_runs_search": 20,
+                    "mc_runs_eval": 1000,
+                    "candidate_pool_size": 500,
+                    "optimization_mode": "full",
+                    "node2vec_enabled": True,
+                    "node2vec_mode": "input_concat",
+                    "ml_guidance_mode": "two_tier",
+                    "ml_backend": "gnn",
+                    "gnn_model_type": "graphsage",
+                    "ml_validation_spearman": 0.310000,
+                    "ml_validation_precision_at_budget": 0.25,
+                    "community_modularity": 0.451674,
+                    "zero_covered_groups_count": 0,
+                    "bottom_3_avg_group_spread": 1.810000,
+                    "fraction_groups_covered": 1.0,
+                    "weakest_groups_note": "A,B,C",
+                    "delta_f_score": 0.003300,
+                }
+            ]
+        )
+        settings = ExperimentSettings(
+            protected_attribute="group",
+            budget=4,
+            community_method="leiden",
+            mc_runs_search=20,
+            mc_runs_eval=1000,
+            random_seed=42,
+            use_ml=True,
+            ml_backend="gnn",
+            ml_guidance_mode="two_tier",
+            gnn_model_type="graphsage",
+            gnn_node2vec_mode="input_concat",
+            gnn_hidden_dim=64,
+            gnn_num_layers=2,
+            gnn_dropout=0.2,
+            gnn_learning_rate=1e-3,
+            gnn_weight_decay=5e-4,
+            gnn_epochs=100,
+            node2vec_dimensions=8,
+            node2vec_walk_length=20,
+            node2vec_num_walks=10,
+            node2vec_window=5,
+            node2vec_p=1.0,
+            node2vec_q=1.0,
+            node2vec_scale_embeddings=False,
+            node2vec_pca_components=None,
+            ml_singleton_runs=15,
+        )
+
+        report = format_results_report(frame, settings)
+
+        self.assertIn("Node2Vec: supported only as an optional GNN input feature source", report)
+        self.assertIn("node2vec_mode=input_concat", report)
+        self.assertIn("Node2Vec config: dimensions=8", report)
+        self.assertIn("N2V=input_concat", report)
+
     def test_format_results_report_can_focus_on_best_ml_vs_cea_fim(self) -> None:
         frame = pd.DataFrame(
             [
@@ -236,6 +383,8 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "node2vec_enabled": False,
                     "node2vec_mode": "off",
                     "ml_guidance_mode": "off",
+                    "ml_backend": "none",
+                    "gnn_model_type": pd.NA,
                     "ml_validation_spearman": float("nan"),
                     "ml_validation_precision_at_budget": float("nan"),
                     "community_modularity": 0.451674,
@@ -265,6 +414,8 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "node2vec_enabled": False,
                     "node2vec_mode": "off",
                     "ml_guidance_mode": "two_tier",
+                    "ml_backend": "tabular",
+                    "gnn_model_type": pd.NA,
                     "ml_validation_spearman": 0.302647,
                     "ml_validation_precision_at_budget": 0.25,
                     "community_modularity": 0.451674,
@@ -294,6 +445,8 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "node2vec_enabled": False,
                     "node2vec_mode": "off",
                     "ml_guidance_mode": "off",
+                    "ml_backend": "none",
+                    "gnn_model_type": pd.NA,
                     "ml_validation_spearman": float("nan"),
                     "ml_validation_precision_at_budget": float("nan"),
                     "community_modularity": 0.451674,
@@ -313,6 +466,7 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
             mc_runs_eval=1000,
             random_seed=42,
             use_ml=True,
+            ml_backend="tabular",
             ml_guidance_mode="two_tier",
             ml_singleton_runs=15,
         )
