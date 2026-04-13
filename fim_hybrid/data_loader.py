@@ -46,6 +46,10 @@ _BUILTIN_DATASETS: dict[str, dict[str, str]] = {
         "edge": "networks/email_Eu_core.txt",
         "attribute": "networks/email_Eu_core_department_labels.csv",
     },
+    "facebook_combined": {
+        "pickle": "networks/facebook_combined.pickle",
+        "edge": "networks/facebook_combined.txt",
+    },
     "twitter": {"pickle": "networks/twitter.pickle", "edge": "networks/twitter.txt"},
     "synth2": {"pickle": "networks/synth2.pickle", "edge": "networks/synth2.txt"},
     "synth3": {"pickle": "networks/synth3.pickle", "edge": "networks/synth3.txt"},
@@ -556,6 +560,21 @@ def _normalize_group_label(value: Any) -> str:
     return str(value).strip()
 
 
+def _missing_protected_attribute_message(dataset: LoadedDataset, protected_attribute: str) -> str:
+    dataset_name = dataset.name.strip().lower()
+    attribute_name = protected_attribute.strip().lower()
+    if dataset_name == "facebook_combined" and attribute_name == "circles":
+        return (
+            "Protected attribute 'circles' is missing from dataset 'facebook_combined'. "
+            "The SNAP facebook_combined graph contains only the combined edge list and no circle labels. "
+            "Circle memberships exist only in the raw ego-network archive (facebook.tar.gz, nodeId.circles per ego), "
+            "and they are overlapping ego-specific groups rather than one global single-label attribute. "
+            "Use a raw ego-Facebook dataset variant or a different protected attribute source; "
+            "if you need a fallback on facebook_combined, derive groups with community detection instead."
+        )
+    return f"Protected attribute '{protected_attribute}' is missing from dataset '{dataset.name}'."
+
+
 def verify_protected_groups(
     dataset: LoadedDataset,
     protected_attribute: str,
@@ -564,9 +583,7 @@ def verify_protected_groups(
     """Validate the protected attribute and build deterministic protected groups."""
 
     if protected_attribute not in dataset.node_attributes.columns:
-        raise ValueError(
-            f"Protected attribute '{protected_attribute}' is missing from dataset '{dataset.name}'."
-        )
+        raise ValueError(_missing_protected_attribute_message(dataset, protected_attribute))
 
     attribute_series = dataset.node_attributes[protected_attribute]
     null_mask = attribute_series.isna() | (

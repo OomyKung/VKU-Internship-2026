@@ -48,6 +48,24 @@ class Phase1DataLoaderTestCase(unittest.TestCase):
         self.assertGreaterEqual(len(report.group_sizes), 2)
         self.assertEqual(sum(report.group_sizes.values()), 1005)
 
+    def test_builtin_facebook_combined_loads_graph_without_circle_attributes(self) -> None:
+        config = resolve_builtin_dataset("facebook_combined", REPO_ROOT)
+        dataset = load_dataset(config)
+
+        self.assertEqual(dataset.graph.number_of_nodes(), 4039)
+        self.assertEqual(dataset.graph.number_of_edges(), 88234)
+        self.assertEqual(dataset.node_attributes.columns.tolist(), ["node_id"])
+
+    def test_facebook_combined_circles_raise_clear_error(self) -> None:
+        config = resolve_builtin_dataset("facebook_combined", REPO_ROOT)
+        dataset = load_dataset(config)
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "contains only the combined edge list and no circle labels",
+        ):
+            verify_protected_groups(dataset, "circles")
+
     def test_missing_protected_attribute_raises(self) -> None:
         config = resolve_builtin_dataset("graph_spa_500_0", REPO_ROOT)
         dataset = load_dataset(config)

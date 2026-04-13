@@ -1,8 +1,8 @@
 import pickle
 import networkx as nx
 
-txt_path = "networks/email-Eu-core.txt"
-pkl_path = "networks/email-Eu-core.pickle"
+txt_path = "networks/facebook_combined.txt"
+pkl_path = "networks/facebook_combined.pickle"
 
 # Read edge list
 G = nx.read_edgelist(txt_path, nodetype=int)
