@@ -613,6 +613,55 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
             self.assertEqual(config.edge_path, edge_path)
             self.assertEqual(config.dataset_format, "csv")
 
+    def test_format_results_report_shows_derived_protected_group_settings(self) -> None:
+        frame = pd.DataFrame(
+            [
+                {
+                    "dataset": "facebook_combined",
+                    "diffusion_model": "ic",
+                    "community_method": "louvain",
+                    "method": "hybrid_siea",
+                    "variant_type": "proposed",
+                    "total_spread": 4.65,
+                    "mf": 0.008333,
+                    "dcv": 0.038232,
+                    "f_score": -0.014949,
+                    "runtime_seconds": 3.157337,
+                    "search_runtime_seconds": 2.657337,
+                    "final_eval_runtime_seconds": 0.500000,
+                    "mc_runs_search": 20,
+                    "mc_runs_eval": 20,
+                    "candidate_pool_size": 500,
+                    "optimization_mode": "full",
+                    "node2vec_enabled": False,
+                    "node2vec_mode": "off",
+                    "ml_guidance_mode": "off",
+                    "ml_backend": "none",
+                    "gnn_model_type": pd.NA,
+                    "ml_validation_spearman": float("nan"),
+                    "ml_validation_precision_at_budget": float("nan"),
+                    "community_modularity": 0.451674,
+                    "zero_covered_groups_count": 0,
+                    "bottom_3_avg_group_spread": 1.700000,
+                    "fraction_groups_covered": 1.0,
+                    "weakest_groups_note": "A,B,C",
+                    "delta_f_score": 0.0,
+                }
+            ]
+        )
+        settings = ExperimentSettings(
+            protected_attribute="community_id",
+            budget=4,
+            community_method="louvain",
+            random_seed=42,
+            derive_protected_groups=True,
+            derived_group_method="louvain",
+        )
+
+        report = format_results_report(frame, settings)
+
+        self.assertIn("Derived protected groups: enabled | attribute=community_id | method=louvain", report)
+
 
 if __name__ == "__main__":
     unittest.main()

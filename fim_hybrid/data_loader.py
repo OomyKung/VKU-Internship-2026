@@ -15,6 +15,7 @@ import networkx as nx
 from numpy.exceptions import VisibleDeprecationWarning
 import pandas as pd
 
+from .community_detection import CommunityDetectionResult, detect_communities
 from .config import DatasetConfig
 
 
@@ -560,6 +561,56 @@ def _normalize_group_label(value: Any) -> str:
     return str(value).strip()
 
 
+def derive_community_id_protected_attribute(
+    dataset: LoadedDataset,
+    *,
+    method: str = "louvain",
+    random_seed: int = 42,
+) -> CommunityDetectionResult:
+    """Attach a deterministic scalar community_id attribute to every dataset node."""
+
+    if "community_id" in dataset.node_attributes.columns:
+        raise ValueError(
+            "Cannot derive protected attribute 'community_id' because the dataset already has a real "
+            "'community_id' column. Rename the existing attribute or disable derived protected groups."
+        )
+
+    try:
+        community_result = detect_communities(
+            dataset.graph,
+            method=method,
+            seed=random_seed,
+        )
+    except ImportError as exc:
+        raise ValueError(
+            f"Unable to derive protected attribute 'community_id' using method '{method}': {exc}"
+        ) from exc
+
+    if not community_result.validation.every_node_assigned_exactly_once:
+        raise ValueError(
+            "Derived protected attribute 'community_id' is invalid because community detection "
+            "did not assign every node exactly once."
+        )
+
+    assigned_nodes = set(community_result.community_id_by_node)
+    graph_nodes = set(dataset.graph.nodes())
+    if assigned_nodes != graph_nodes:
+        missing_nodes = sorted(graph_nodes - assigned_nodes)
+        raise ValueError(
+            "Derived protected attribute 'community_id' is missing nodes: "
+            f"{missing_nodes[:5]}."
+        )
+
+    for node_id, community_id in community_result.community_id_by_node.items():
+        dataset.graph.nodes[node_id]["community_id"] = int(community_id)
+
+    dataset.node_attributes = _extract_node_attributes(dataset.graph)
+    if dataset.node_attributes["community_id"].isna().any():
+        raise ValueError("Derived protected attribute 'community_id' contains null assignments.")
+
+    return community_result
+
+
 def _missing_protected_attribute_message(dataset: LoadedDataset, protected_attribute: str) -> str:
     dataset_name = dataset.name.strip().lower()
     attribute_name = protected_attribute.strip().lower()
@@ -572,6 +623,12 @@ def _missing_protected_attribute_message(dataset: LoadedDataset, protected_attri
             "Use a raw ego-Facebook dataset variant or a different protected attribute source; "
             "if you need a fallback on facebook_combined, derive groups with community detection instead."
         )
+    if attribute_name == "community_id":
+        return (
+            f"Protected attribute '{protected_attribute}' is missing from dataset '{dataset.name}'. "
+            "This attribute can be derived from community detection by enabling derived protected groups "
+            "and selecting a derived group method such as louvain or leiden."
+        )
     return f"Protected attribute '{protected_attribute}' is missing from dataset '{dataset.name}'."
 
 
@@ -579,11 +636,22 @@ def verify_protected_groups(
     dataset: LoadedDataset,
     protected_attribute: str,
     sample_size: int = 5,
+    *,
+    derive_protected_groups: bool = False,
+    derived_group_method: str = "louvain",
+    random_seed: int = 42,
 ) -> ProtectedGroupReport:
     """Validate the protected attribute and build deterministic protected groups."""
 
     if protected_attribute not in dataset.node_attributes.columns:
-        raise ValueError(_missing_protected_attribute_message(dataset, protected_attribute))
+        if derive_protected_groups and protected_attribute == "community_id":
+            derive_community_id_protected_attribute(
+                dataset,
+                method=derived_group_method,
+                random_seed=random_seed,
+            )
+        if protected_attribute not in dataset.node_attributes.columns:
+            raise ValueError(_missing_protected_attribute_message(dataset, protected_attribute))
 
     attribute_series = dataset.node_attributes[protected_attribute]
     null_mask = attribute_series.isna() | (

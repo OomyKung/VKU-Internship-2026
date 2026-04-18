@@ -255,6 +255,41 @@ class ExperimentRunnerTestCase(unittest.TestCase):
             self.assertIn("hybrid_siea", set(result_frame["method"]))
             self.assertTrue((result_frame["dataset"] == "custom_dataset").all())
 
+    def test_run_experiment_can_use_derived_community_id_protected_groups(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            edge_path = temp_path / "edges.txt"
+            edge_path.write_text("1 2\n2 3\n3 4\n4 5\n5 6\n6 1\n", encoding="utf-8")
+
+            settings = ExperimentSettings(
+                protected_attribute="community_id",
+                budget=2,
+                community_method="louvain",
+                derive_protected_groups=True,
+                derived_group_method="louvain",
+                propagation_probability=0.0,
+                mc_runs_search=2,
+                mc_runs_eval=3,
+                population_size=4,
+                generations=2,
+                random_seed=7,
+            )
+
+            result_frame = run_experiment(
+                dataset_config=DatasetConfig(
+                    name="custom_derived_groups",
+                    edge_path=edge_path,
+                ),
+                settings=settings,
+                community_methods=["louvain"],
+                baseline_methods=["degree"],
+                include_ablations=False,
+            )
+
+            self.assertIn("cea_fim", set(result_frame["method"]))
+            self.assertIn("hybrid_siea", set(result_frame["method"]))
+            self.assertTrue((result_frame["dataset"] == "custom_derived_groups").all())
+
     def test_run_loaded_experiment_treats_ml_off_as_single_supported_ml_path(self) -> None:
         dataset, protected_group_report = _toy_experiment_fixture()
         settings = ExperimentSettings(

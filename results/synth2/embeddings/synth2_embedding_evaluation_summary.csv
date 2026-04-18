@@ -1,0 +1,10 @@
+dataset,method,task,status,runtime_seconds,embedding_runtime_seconds,embedding_dim,node_count,evaluated_count,train_count,test_count,label_column,classifier,edge_feature,accuracy,macro_f1,micro_f1,roc_auc,average_precision,nmi,ari,notes,skipped_reason
+synth2,deepwalk,node_classification,ok,0.007718100000147388,7.878216799999791,64,500,125,375,125,color,logistic_regression,,0.992,0.9904761904761905,0.992,,,,,classes=2; stratified=True,
+synth2,dgi,node_classification,ok,0.012937699999838514,16.35409179999988,64,500,125,375,125,color,logistic_regression,,1.0,1.0,1.0,,,,,classes=2; stratified=True,
+synth2,gcn,node_classification,ok,0.008881400000063877,15.655441200000041,64,500,125,375,125,color,logistic_regression,,1.0,1.0,1.0,,,,,classes=2; stratified=True,
+synth2,graphcl,node_classification,ok,0.010978199999954086,16.847706500000186,64,500,125,375,125,color,logistic_regression,,1.0,1.0,1.0,,,,,classes=2; stratified=True,
+synth2,graphsage,node_classification,ok,0.008150399999976798,15.077133499999945,64,500,125,375,125,color,logistic_regression,,1.0,1.0,1.0,,,,,classes=2; stratified=True,
+synth2,line,node_classification,ok,0.00800200000003315,0.19308460000002015,64,500,125,375,125,color,logistic_regression,,0.984,0.9810949788263763,0.984,,,,,classes=2; stratified=True,
+synth2,metapath2vec,node_classification,skipped,0.0,0.0,0,500,,,,color,logistic_regression,,,,,,,,,,metapath2vec requires a heterogeneous graph with node/edge types; the current benchmark graph is homogeneous.
+synth2,node2vec,node_classification,ok,0.00707639999973253,6.6308656999999585,64,500,125,375,125,color,logistic_regression,,0.992,0.9904761904761905,0.992,,,,,classes=2; stratified=True,
+synth2,vgae,node_classification,ok,0.007728699999915989,16.73391670000001,64,500,125,375,125,color,logistic_regression,,1.0,1.0,1.0,,,,,classes=2; stratified=True,

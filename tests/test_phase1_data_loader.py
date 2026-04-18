@@ -8,6 +8,7 @@ import pickle
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import networkx as nx
 
@@ -66,6 +67,59 @@ class Phase1DataLoaderTestCase(unittest.TestCase):
         ):
             verify_protected_groups(dataset, "circles")
 
+    def test_facebook_combined_can_derive_community_id_with_louvain(self) -> None:
+        config = resolve_builtin_dataset("facebook_combined", REPO_ROOT)
+        dataset = load_dataset(config)
+
+        report = verify_protected_groups(
+            dataset,
+            "community_id",
+            derive_protected_groups=True,
+            derived_group_method="louvain",
+            random_seed=42,
+        )
+
+        self.assertIn("community_id", dataset.node_attributes.columns)
+        self.assertEqual(int(dataset.node_attributes["community_id"].notna().sum()), dataset.graph.number_of_nodes())
+        self.assertEqual(sum(report.group_sizes.values()), dataset.graph.number_of_nodes())
+        self.assertGreaterEqual(len(report.group_sizes), 2)
+
+    def test_verify_protected_groups_does_not_overwrite_existing_community_id(self) -> None:
+        graph = nx.Graph()
+        graph.add_edges_from([(1, 2), (2, 3)])
+        for node_id, community_id in {1: 10, 2: 10, 3: 11}.items():
+            graph.nodes[node_id]["community_id"] = community_id
+        dataset = load_dataset(DatasetConfig(name="temp", pickle_path=self._write_pickle(graph)))
+
+        with patch("fim_hybrid.data_loader.detect_communities") as mocked_detect:
+            report = verify_protected_groups(
+                dataset,
+                "community_id",
+                derive_protected_groups=True,
+                derived_group_method="louvain",
+                random_seed=7,
+            )
+
+        mocked_detect.assert_not_called()
+        self.assertEqual(report.group_sizes, {"10": 2, "11": 1})
+
+    def test_derive_community_id_with_leiden_unavailable_raises_clear_error(self) -> None:
+        config = resolve_builtin_dataset("facebook_combined", REPO_ROOT)
+        dataset = load_dataset(config)
+
+        with patch("fim_hybrid.community_detection.ig", None):
+            with self.assertRaisesRegex(
+                ValueError,
+                "Unable to derive protected attribute 'community_id' using method 'leiden'",
+            ):
+                verify_protected_groups(
+                    dataset,
+                    "community_id",
+                    derive_protected_groups=True,
+                    derived_group_method="leiden",
+                    random_seed=42,
+                )
+
     def test_missing_protected_attribute_raises(self) -> None:
         config = resolve_builtin_dataset("graph_spa_500_0", REPO_ROOT)
         dataset = load_dataset(config)
@@ -87,6 +141,14 @@ class Phase1DataLoaderTestCase(unittest.TestCase):
             dataset = load_dataset(DatasetConfig(name="temp", pickle_path=pickle_path))
             with self.assertRaisesRegex(ValueError, "all-null"):
                 verify_protected_groups(dataset, "group")
+
+    def _write_pickle(self, graph: nx.Graph) -> Path:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        pickle_path = Path(temp_dir.name) / "graph.pickle"
+        with pickle_path.open("wb") as handle:
+            pickle.dump(graph, handle)
+        return pickle_path
 
     def test_inconsistent_attribute_node_ids_raise(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

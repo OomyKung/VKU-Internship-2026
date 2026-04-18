@@ -122,6 +122,8 @@ class ExperimentSettings:
     local_search_steps: int = 2
     random_seed: int = 42
     output_dir: Path | None = None
+    derive_protected_groups: bool = False
+    derived_group_method: str | None = None
     use_node2vec: bool = False
     node2vec_dimensions: int = 8
     node2vec_walk_length: int = 20
@@ -1801,7 +1803,14 @@ def run_experiment(
     """Load a dataset and run the comparison experiment."""
 
     dataset = load_dataset(dataset_config)
-    protected_group_report = verify_protected_groups(dataset, settings.protected_attribute)
+    derived_group_method = settings.derived_group_method or settings.community_method
+    protected_group_report = verify_protected_groups(
+        dataset,
+        settings.protected_attribute,
+        derive_protected_groups=settings.derive_protected_groups,
+        derived_group_method=derived_group_method,
+        random_seed=settings.random_seed,
+    )
     return run_loaded_experiment(
         dataset=dataset,
         protected_group_report=protected_group_report,

@@ -343,6 +343,12 @@ def format_results_report(result_frame: pd.DataFrame, settings: ExperimentSettin
             else "ML: disabled"
         ),
     ]
+    if settings.derive_protected_groups:
+        lines.append(
+            "Derived protected groups: "
+            f"enabled | attribute={settings.protected_attribute} | "
+            f"method={settings.derived_group_method or settings.community_method}"
+        )
     if settings.use_ml and settings.ml_backend in {"gnn", "gnn_ris", "both", "all"}:
         lines.append(
             "GNN config: "
@@ -530,6 +536,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--random-seed", type=int, default=42, help="Random seed.")
     parser.add_argument("--output-dir", default="results", help="Directory for CSV outputs.")
     parser.add_argument(
+        "--derive-protected-groups",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Derive a missing protected attribute such as community_id from community detection.",
+    )
+    parser.add_argument(
+        "--derived-group-method",
+        choices=["louvain", "leiden"],
+        default=None,
+        help="Community detection method used only for derived protected groups. Defaults to the primary community method.",
+    )
+    parser.add_argument(
         "--only-methods",
         nargs="+",
         default=None,
@@ -698,6 +716,8 @@ def main() -> None:
         local_search_steps=args.local_search_steps,
         random_seed=args.random_seed,
         output_dir=output_dir,
+        derive_protected_groups=args.derive_protected_groups,
+        derived_group_method=args.derived_group_method,
         use_ml=args.ml,
         ml_model_type=args.ml_model_type,
         ml_backend=args.ml_backend,
