@@ -1,0 +1,79 @@
+======================================================================================================================
+Graph Embedding Benchmark Report By Attribute
+======================================================================================================================
+Dataset: synth3
+Attribute: color
+Base embedding report: C:\Users\User\Desktop\VKU-Internship-2026\results\synth3\reports\synth3_embedding_benchmark_report.txt
+The base embedding summary is shared across attributes; only the evaluation rows below change by attribute.
+
+Embedding summary:
+- methods=deepwalk, node2vec, line, vgae, gcn, graphsage, dgi, graphcl, metapath2vec
+- statuses={'ok': 8, 'skipped': 1}
+
+----------------------------------------------------------------------------------------------------------------------
+Graph Embedding Evaluation Summary
+----------------------------------------------------------------------------------------------------------------------
+Sorted by primary metric within each task: accuracy for node classification, roc_auc for link prediction, nmi for clustering.
+
+1. graphsage | node_classification [ok]
+   runtime=0.009s | embedding_runtime=12.358s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=logistic_regression | label_column=color
+   primary_metric=accuracy (1.0000)
+   metrics: accuracy=1.0000, macro_f1=1.0000, micro_f1=1.0000, roc_auc=-, ap=-, nmi=-, ari=-
+   notes=classes=3; stratified=True
+
+2. dgi | node_classification [ok]
+   runtime=0.010s | embedding_runtime=13.618s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=logistic_regression | label_column=color
+   primary_metric=accuracy (0.9920)
+   metrics: accuracy=0.9920, macro_f1=0.9857, micro_f1=0.9920, roc_auc=-, ap=-, nmi=-, ari=-
+   notes=classes=3; stratified=True
+
+3. gcn | node_classification [ok]
+   runtime=0.008s | embedding_runtime=12.571s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=logistic_regression | label_column=color
+   primary_metric=accuracy (0.9920)
+   metrics: accuracy=0.9920, macro_f1=0.9857, micro_f1=0.9920, roc_auc=-, ap=-, nmi=-, ari=-
+   notes=classes=3; stratified=True
+
+4. graphcl | node_classification [ok]
+   runtime=0.011s | embedding_runtime=13.727s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=logistic_regression | label_column=color
+   primary_metric=accuracy (0.9920)
+   metrics: accuracy=0.9920, macro_f1=0.9857, micro_f1=0.9920, roc_auc=-, ap=-, nmi=-, ari=-
+   notes=classes=3; stratified=True
+
+5. vgae | node_classification [ok]
+   runtime=0.009s | embedding_runtime=13.790s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=logistic_regression | label_column=color
+   primary_metric=accuracy (0.9920)
+   metrics: accuracy=0.9920, macro_f1=0.9857, micro_f1=0.9920, roc_auc=-, ap=-, nmi=-, ari=-
+   notes=classes=3; stratified=True
+
+6. line | node_classification [ok]
+   runtime=0.012s | embedding_runtime=0.201s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=logistic_regression | label_column=color
+   primary_metric=accuracy (0.9760)
+   metrics: accuracy=0.9760, macro_f1=0.9639, micro_f1=0.9760, roc_auc=-, ap=-, nmi=-, ari=-
+   notes=classes=3; stratified=True
+
+7. deepwalk | node_classification [ok]
+   runtime=0.010s | embedding_runtime=5.945s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=logistic_regression | label_column=color
+   primary_metric=accuracy (0.9600)
+   metrics: accuracy=0.9600, macro_f1=0.9311, micro_f1=0.9600, roc_auc=-, ap=-, nmi=-, ari=-
+   notes=classes=3; stratified=True
+
+8. node2vec | node_classification [ok]
+   runtime=0.009s | embedding_runtime=7.020s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=logistic_regression | label_column=color
+   primary_metric=accuracy (0.9600)
+   metrics: accuracy=0.9600, macro_f1=0.9311, micro_f1=0.9600, roc_auc=-, ap=-, nmi=-, ari=-
+   notes=classes=3; stratified=True
+
+9. metapath2vec | node_classification [skipped]
+   runtime=0.000s | embedding_runtime=0.000s | dim=0 | evaluated=-
+   train=- | test=- | classifier=logistic_regression | label_column=color
+   primary_metric=accuracy (-)
+   metrics: accuracy=-, macro_f1=-, micro_f1=-, roc_auc=-, ap=-, nmi=-, ari=-
+   skipped_reason=metapath2vec requires a heterogeneous graph with node/edge types; the current benchmark graph is homogeneous.

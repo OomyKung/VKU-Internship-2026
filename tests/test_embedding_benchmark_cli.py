@@ -10,7 +10,18 @@ from uuid import uuid4
 
 import pandas as pd
 
-from scripts.run_embedding_benchmark import build_dataset_config, build_method_configs, format_benchmark_report
+from scripts.run_embedding_benchmark import (
+    _all_attributes_requested,
+    benchmark_report_path,
+    build_dataset_config,
+    build_method_configs,
+    attribute_report_path,
+    format_benchmark_report,
+    format_all_attributes_benchmark_report,
+    save_benchmark_report,
+    save_all_attributes_benchmark_report,
+    save_attribute_benchmark_report,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -58,6 +69,15 @@ class EmbeddingBenchmarkCliTestCase(unittest.TestCase):
             self.assertEqual(config.edge_path, edge_path)
             self.assertFalse(config.directed)
             self.assertEqual(config.name, "custom_edges")
+
+    def test_all_attributes_requested_detects_label_column_all(self) -> None:
+        args = Namespace(
+            label_column="all",
+            classification_label_column=None,
+            clustering_label_column=None,
+        )
+
+        self.assertTrue(_all_attributes_requested(args))
 
     def test_build_method_configs_populates_method_specific_fields(self) -> None:
         args = Namespace(
@@ -175,6 +195,212 @@ class EmbeddingBenchmarkCliTestCase(unittest.TestCase):
         self.assertIn("Graph Embedding Evaluation Summary", report)
         self.assertIn("deepwalk | node_classification [ok]", report)
         self.assertIn("metrics: accuracy=0.8000", report)
+
+    def test_format_benchmark_report_sorts_evaluation_rows_by_best_metric(self) -> None:
+        frame = pd.DataFrame(
+            [
+                {
+                    "method": "alpha",
+                    "status": "ok",
+                    "runtime_seconds": 1.0,
+                    "embedding_dim": 8,
+                    "node_count": 100,
+                    "ml_ready": True,
+                    "all_nodes_embedded": True,
+                    "all_finite": True,
+                    "mean_pairwise_cosine": 0.1,
+                    "label_probe_status": "not_requested",
+                    "label_probe_accuracy": pd.NA,
+                    "csv_path": pd.NA,
+                    "pickle_path": pd.NA,
+                    "npy_path": pd.NA,
+                    "skip_reason": "",
+                    "error_message": "",
+                },
+                {
+                    "method": "beta",
+                    "status": "ok",
+                    "runtime_seconds": 1.0,
+                    "embedding_dim": 8,
+                    "node_count": 100,
+                    "ml_ready": True,
+                    "all_nodes_embedded": True,
+                    "all_finite": True,
+                    "mean_pairwise_cosine": 0.1,
+                    "label_probe_status": "not_requested",
+                    "label_probe_accuracy": pd.NA,
+                    "csv_path": pd.NA,
+                    "pickle_path": pd.NA,
+                    "npy_path": pd.NA,
+                    "skip_reason": "",
+                    "error_message": "",
+                },
+                {
+                    "method": "gamma",
+                    "status": "skipped",
+                    "runtime_seconds": 0.0,
+                    "embedding_dim": pd.NA,
+                    "node_count": 100,
+                    "ml_ready": False,
+                    "all_nodes_embedded": False,
+                    "all_finite": False,
+                    "mean_pairwise_cosine": pd.NA,
+                    "label_probe_status": "not_run",
+                    "label_probe_accuracy": pd.NA,
+                    "csv_path": pd.NA,
+                    "pickle_path": pd.NA,
+                    "npy_path": pd.NA,
+                    "skip_reason": "unsupported",
+                    "error_message": "",
+                },
+            ]
+        )
+        evaluation_frame = pd.DataFrame(
+            [
+                {
+                    "method": "alpha",
+                    "task": "node_classification",
+                    "status": "ok",
+                    "runtime_seconds": 0.2,
+                    "embedding_runtime_seconds": 1.0,
+                    "embedding_dim": 8,
+                    "node_count": 100,
+                    "evaluated_count": 20,
+                    "train_count": 80,
+                    "test_count": 20,
+                    "label_column": "group",
+                    "classifier": "logistic_regression",
+                    "edge_feature": pd.NA,
+                    "accuracy": 0.75,
+                    "macro_f1": 0.74,
+                    "micro_f1": 0.75,
+                    "roc_auc": pd.NA,
+                    "average_precision": pd.NA,
+                    "nmi": pd.NA,
+                    "ari": pd.NA,
+                    "notes": "",
+                    "skipped_reason": "",
+                },
+                {
+                    "method": "beta",
+                    "task": "node_classification",
+                    "status": "ok",
+                    "runtime_seconds": 0.2,
+                    "embedding_runtime_seconds": 1.0,
+                    "embedding_dim": 8,
+                    "node_count": 100,
+                    "evaluated_count": 20,
+                    "train_count": 80,
+                    "test_count": 20,
+                    "label_column": "group",
+                    "classifier": "logistic_regression",
+                    "edge_feature": pd.NA,
+                    "accuracy": 0.91,
+                    "macro_f1": 0.90,
+                    "micro_f1": 0.91,
+                    "roc_auc": pd.NA,
+                    "average_precision": pd.NA,
+                    "nmi": pd.NA,
+                    "ari": pd.NA,
+                    "notes": "",
+                    "skipped_reason": "",
+                },
+                {
+                    "method": "gamma",
+                    "task": "node_classification",
+                    "status": "skipped",
+                    "runtime_seconds": 0.0,
+                    "embedding_runtime_seconds": 0.0,
+                    "embedding_dim": 0,
+                    "node_count": 100,
+                    "evaluated_count": pd.NA,
+                    "train_count": pd.NA,
+                    "test_count": pd.NA,
+                    "label_column": "group",
+                    "classifier": "logistic_regression",
+                    "edge_feature": pd.NA,
+                    "accuracy": pd.NA,
+                    "macro_f1": pd.NA,
+                    "micro_f1": pd.NA,
+                    "roc_auc": pd.NA,
+                    "average_precision": pd.NA,
+                    "nmi": pd.NA,
+                    "ari": pd.NA,
+                    "notes": "",
+                    "skipped_reason": "unsupported",
+                },
+            ]
+        )
+
+        report = format_benchmark_report(
+            frame,
+            evaluation_frame=evaluation_frame,
+            dataset_name="toy_graph",
+            output_dir=Path("results"),
+        )
+
+        self.assertLess(report.index("beta | node_classification [ok]"), report.index("alpha | node_classification [ok]"))
+        self.assertLess(report.index("alpha | node_classification [ok]"), report.index("gamma | node_classification [skipped]"))
+        self.assertIn("primary_metric=accuracy (0.9100)", report)
+
+    def test_save_benchmark_report_writes_text_file(self) -> None:
+        with _workspace_tempdir() as temp_dir:
+            output_dir = Path(temp_dir)
+            report_path = save_benchmark_report(
+                "benchmark report body",
+                output_dir=output_dir,
+                dataset_name="toy_graph",
+            )
+
+            self.assertEqual(report_path, benchmark_report_path(output_dir, "toy_graph"))
+            self.assertIsNotNone(report_path)
+            self.assertTrue(report_path.is_file())
+            self.assertEqual(report_path.read_text(encoding="utf-8"), "benchmark report body")
+
+    def test_save_attribute_benchmark_report_writes_text_file(self) -> None:
+        with _workspace_tempdir() as temp_dir:
+            output_dir = Path(temp_dir)
+            report_path = save_attribute_benchmark_report(
+                "attribute report body",
+                output_dir=output_dir,
+                dataset_name="graph_spa_500_0",
+                attribute_name="gender",
+            )
+
+            self.assertEqual(report_path, attribute_report_path(output_dir, "graph_spa_500_0", "gender"))
+            self.assertIsNotNone(report_path)
+            self.assertTrue(report_path.is_file())
+            self.assertEqual(report_path.read_text(encoding="utf-8"), "attribute report body")
+
+    def test_save_all_attributes_benchmark_report_writes_text_file(self) -> None:
+        with _workspace_tempdir() as temp_dir:
+            output_dir = Path(temp_dir)
+            report_text = format_all_attributes_benchmark_report(
+                "graph_spa_500_0",
+                base_report_text="base benchmark body",
+                attribute_reports=[
+                    {
+                        "attribute_name": "gender",
+                        "report_text": "gender body",
+                        "report_path": Path("results/graph_spa_500_0/reports/graph_spa_500_0_embedding_benchmark_report_gender.txt"),
+                    },
+                    {
+                        "attribute_name": "ethnicity",
+                        "report_text": "ethnicity body",
+                        "report_path": Path("results/graph_spa_500_0/reports/graph_spa_500_0_embedding_benchmark_report_ethnicity.txt"),
+                    },
+                ],
+                output_dir=output_dir,
+            )
+            report_path = save_all_attributes_benchmark_report(
+                report_text,
+                output_dir=output_dir,
+                dataset_name="graph_spa_500_0",
+            )
+
+            self.assertIsNotNone(report_path)
+            self.assertTrue(report_path.is_file())
+            self.assertIn("All-Attributes Graph Embedding Benchmark Summary", report_path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

@@ -26,6 +26,31 @@ def _min_max_normalize(values: pd.Series) -> pd.Series:
     return (values.astype(float) - minimum) / (maximum - minimum)
 
 
+def _weak_group_gain(
+    normalized_group_spread: dict[str, float],
+    *,
+    weakest_group_k: int = 2,
+) -> float:
+    if not normalized_group_spread:
+        return 0.0
+    weakest_values = sorted(float(value) for value in normalized_group_spread.values())[: max(1, weakest_group_k)]
+    return float(np.mean(weakest_values))
+
+
+def _target_attainment_summary(
+    group_spread: dict[str, float],
+    group_targets: dict[str, float],
+) -> tuple[float, float]:
+    attainment_scores: list[float] = []
+    for group_name, target_value in group_targets.items():
+        safe_target = max(float(target_value), 1e-9)
+        attained = float(group_spread.get(group_name, 0.0)) / safe_target
+        attainment_scores.append(float(np.clip(attained, 0.0, 1.0)))
+    if not attainment_scores:
+        return 0.0, 0.0
+    return float(min(attainment_scores)), float(np.mean(attainment_scores))
+
+
 @dataclass(slots=True)
 class NodeUtilityLabelResult:
     """Node-level singleton utility labels and diagnostics for ML training."""
@@ -70,6 +95,11 @@ def generate_singleton_node_utility_labels(
             raise RuntimeError("Singleton label generation requires soft_mf diagnostics to be enabled.")
 
         soft_fair_score = float(lambda_weight * soft_mf - (1.0 - lambda_weight) * evaluation.fairness.dcv)
+        weak_group_gain = _weak_group_gain(evaluation.fairness.normalized_group_spread)
+        min_target_attainment, mean_target_attainment = _target_attainment_summary(
+            evaluation.fairness.group_spread,
+            evaluation.fairness.group_targets,
+        )
         records.append(
             {
                 "node_id": node_id,
@@ -78,13 +108,23 @@ def generate_singleton_node_utility_labels(
                 "singleton_soft_mf": float(soft_mf),
                 "singleton_dcv": float(evaluation.fairness.dcv),
                 "singleton_soft_fair_score": soft_fair_score,
+                "singleton_weak_group_gain": weak_group_gain,
+                "singleton_min_target_attainment": min_target_attainment,
+                "singleton_mean_target_attainment": mean_target_attainment,
             }
         )
 
     label_frame = pd.DataFrame(records).set_index("node_id", drop=False)
     label_frame["spread_norm"] = _min_max_normalize(label_frame["singleton_total_spread"])
     label_frame["soft_fair_norm"] = _min_max_normalize(label_frame["singleton_soft_fair_score"])
-    label_frame["label_score"] = 0.5 * label_frame["spread_norm"] + 0.5 * label_frame["soft_fair_norm"]
+    label_frame["weak_group_gain_norm"] = _min_max_normalize(label_frame["singleton_weak_group_gain"])
+    label_frame["target_attainment_norm"] = _min_max_normalize(label_frame["singleton_mean_target_attainment"])
+    label_frame["label_score"] = (
+        0.35 * label_frame["spread_norm"]
+        + 0.30 * label_frame["soft_fair_norm"]
+        + 0.20 * label_frame["weak_group_gain_norm"]
+        + 0.15 * label_frame["target_attainment_norm"]
+    )
 
     runtime_seconds = perf_counter() - start
     label_variance = float(label_frame["label_score"].var(ddof=0))

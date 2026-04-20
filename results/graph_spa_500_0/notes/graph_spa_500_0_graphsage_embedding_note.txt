@@ -1,0 +1,25 @@
+Dataset: graph_spa_500_0
+Method: graphsage
+Family: Message-passing GNN
+
+What this method does:
+GraphSAGE learns how to aggregate neighbor information instead of using a fixed normalized average, which gives it more flexibility than plain GCN.
+
+Typical strengths:
+Often preserves local discriminative patterns better than plain averaging.
+
+Typical weaknesses:
+Still depends heavily on the quality of the input node features.
+
+Observed benchmark result:
+status=ok, runtime=14.986s, embedding_dim=64, label_probe_accuracy=0.9200, uses_features=True
+
+Task-level evaluation:
+- node_classification: status=ok, label_column=age, runtime=0.022s, accuracy=0.9200, macro_f1=0.8986, micro_f1=0.9200, roc_auc=-, average_precision=-, nmi=-, ari=-
+  notes: classes=7; stratified=True
+
+Why this result likely happened:
+GraphSAGE scored very strongly because its learned neighbor aggregation can preserve discriminative local patterns better than plain averaging. A major caveat: this benchmark's feature preparation includes node attributes, and the evaluation target 'age' is one of those attributes on this dataset. That likely makes the result substantially easier for feature-based methods.
+
+Caveat:
+This explanation is an inference from the saved benchmark outputs and the current code path. It is a strong engineering interpretation, not a formal causal proof.

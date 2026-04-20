@@ -1,0 +1,25 @@
+Dataset: graph_spa_500_0
+Method: dgi
+Family: Self-supervised contrastive GNN
+
+What this method does:
+DGI trains node embeddings by maximizing mutual information between node-level embeddings and a global graph summary while contrasting them against corrupted features.
+
+Typical strengths:
+Good at extracting feature-aware global structure without labels.
+
+Typical weaknesses:
+Can produce tightly clustered embeddings if the global summary dominates too strongly.
+
+Observed benchmark result:
+status=ok, runtime=16.152s, embedding_dim=64, label_probe_accuracy=0.8640, uses_features=True
+
+Task-level evaluation:
+- node_classification: status=ok, label_column=age, runtime=0.026s, accuracy=0.8640, macro_f1=0.8295, micro_f1=0.8640, roc_auc=-, average_precision=-, nmi=-, ari=-
+  notes: classes=7; stratified=True
+
+Why this result likely happened:
+DGI scored very strongly because it learns embeddings that stay informative about both node-level and graph-level structure, which works well when useful attributes are present. A major caveat: this benchmark's feature preparation includes node attributes, and the evaluation target 'age' is one of those attributes on this dataset. That likely makes the result substantially easier for feature-based methods.
+
+Caveat:
+This explanation is an inference from the saved benchmark outputs and the current code path. It is a strong engineering interpretation, not a formal causal proof.

@@ -1,0 +1,38 @@
+====================================================================================================
+Fair Influence Maximization Experiment Summary
+====================================================================================================
+Dataset: toy_graph
+Diffusion model: ic (Independent Cascade)
+Protected attribute: group/name
+Budget: 4 | MC runs: search=20, eval=20 | Random seed: 42
+Final evaluation seed: random_seed + 1000000
+Spread semantics: total activated nodes including seed nodes; extra_spread = total_spread - budget
+Community methods: leiden
+ML: disabled
+Final recheck: disabled
+Node2Vec: supported only as an optional GNN input feature source
+
+----------------------------------------------------------------------------------------------------
+Community: leiden
+----------------------------------------------------------------------------------------------------
+Modes present: full
+
+1. hybrid_siea [full]
+   F=-0.014949 | dF=+0.000000 | runtime=3.157s | spread=4.650 | extra=-
+   search=2.657s | eval=0.500s | MF=0.008333 | DCV=0.038232
+   pool=500 | kind=proposed
+   ZeroCov=0 | FracCov=1.000 | Bottom3=1.700
+   ML=- | guidance=none | backend=none | GNN=- | GraphSAGE=off | N2V=off | RIS=off | rho=- | p@k=-
+
+Highlights
+  Best F-score: hybrid_siea (-0.014949)
+  Fastest run : hybrid_siea (3.157s)
+
+Delta vs hybrid_siea
+hybrid_siea [full]
+   dF=+0.000000 | dT=+0.000s | F=-0.014949 | runtime=3.157s
+   search=2.657s | eval=0.500s | spread=4.650 | extra=-
+   pool=500 | ZeroCov=0 | FracCov=1.000
+   ML=- | guidance=none | backend=none | GNN=- | GraphSAGE=off | N2V=off | RIS=off
+
+Saved CSV: test_outputs\run_experiment_cli_report\toy_graph\group_name\toy_graph_budget4_results.csv

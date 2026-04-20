@@ -1,0 +1,25 @@
+Dataset: graph_spa_500_0
+Method: graphcl
+Family: Self-supervised contrastive GNN
+
+What this method does:
+GraphCL learns embeddings by making two augmented graph views agree while separating them from unrelated views. In this benchmark it uses edge dropout and feature masking.
+
+Typical strengths:
+Learns invariances and often preserves robust class-separating signals.
+
+Typical weaknesses:
+More training-heavy and sensitive to augmentation choices.
+
+Observed benchmark result:
+status=ok, runtime=16.625s, embedding_dim=64, label_probe_accuracy=0.9360, uses_features=True
+
+Task-level evaluation:
+- node_classification: status=ok, label_column=age, runtime=0.026s, accuracy=0.9360, macro_f1=0.8987, micro_f1=0.9360, roc_auc=-, average_precision=-, nmi=-, ari=-
+  notes: classes=7; stratified=True
+
+Why this result likely happened:
+GraphCL came out best because its contrastive objective pushes the model to preserve signals that survive graph augmentations, which often produces robust class-separating embeddings. A major caveat: this benchmark's feature preparation includes node attributes, and the evaluation target 'age' is one of those attributes on this dataset. That likely makes the result substantially easier for feature-based methods.
+
+Caveat:
+This explanation is an inference from the saved benchmark outputs and the current code path. It is a strong engineering interpretation, not a formal causal proof.

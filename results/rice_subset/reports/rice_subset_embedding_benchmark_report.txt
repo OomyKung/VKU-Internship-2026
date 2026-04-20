@@ -1,0 +1,60 @@
+======================================================================================================================
+Graph Embedding Benchmark Summary
+======================================================================================================================
+Dataset: rice_subset
+Output directory: C:\Users\User\Desktop\VKU-Internship-2026\results
+Methods available: deepwalk, node2vec, line, vgae, gcn, graphsage, dgi, graphcl, metapath2vec
+
+1. line [ok]
+   runtime=0.411s | dim=64 | nodes=445 | ml_ready=True
+   all_nodes=True | all_finite=True | cosine_mean=0.20827143858423303
+   label_probe=not_requested | accuracy=-
+   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\rice_subset\embeddings\rice_subset_line_embeddings.csv | pickle=- | npy=-
+
+2. node2vec [ok]
+   runtime=9.745s | dim=64 | nodes=445 | ml_ready=True
+   all_nodes=True | all_finite=True | cosine_mean=0.558946649376639
+   label_probe=not_requested | accuracy=-
+   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\rice_subset\embeddings\rice_subset_node2vec_embeddings.csv | pickle=- | npy=-
+
+3. deepwalk [ok]
+   runtime=10.446s | dim=64 | nodes=445 | ml_ready=True
+   all_nodes=True | all_finite=True | cosine_mean=0.558946649376639
+   label_probe=not_requested | accuracy=-
+   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\rice_subset\embeddings\rice_subset_deepwalk_embeddings.csv | pickle=- | npy=-
+
+4. graphsage [ok]
+   runtime=30.633s | dim=64 | nodes=445 | ml_ready=True
+   all_nodes=True | all_finite=True | cosine_mean=0.11152707056884213
+   label_probe=not_requested | accuracy=-
+   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\rice_subset\embeddings\rice_subset_graphsage_embeddings.csv | pickle=- | npy=-
+
+5. gcn [ok]
+   runtime=33.003s | dim=64 | nodes=445 | ml_ready=True
+   all_nodes=True | all_finite=True | cosine_mean=0.15182698795523553
+   label_probe=not_requested | accuracy=-
+   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\rice_subset\embeddings\rice_subset_gcn_embeddings.csv | pickle=- | npy=-
+
+6. graphcl [ok]
+   runtime=33.973s | dim=64 | nodes=445 | ml_ready=True
+   all_nodes=True | all_finite=True | cosine_mean=0.32443211162536634
+   label_probe=not_requested | accuracy=-
+   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\rice_subset\embeddings\rice_subset_graphcl_embeddings.csv | pickle=- | npy=-
+
+7. dgi [ok]
+   runtime=34.165s | dim=64 | nodes=445 | ml_ready=True
+   all_nodes=True | all_finite=True | cosine_mean=0.8276955673197323
+   label_probe=not_requested | accuracy=-
+   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\rice_subset\embeddings\rice_subset_dgi_embeddings.csv | pickle=- | npy=-
+
+8. vgae [ok]
+   runtime=35.028s | dim=64 | nodes=445 | ml_ready=True
+   all_nodes=True | all_finite=True | cosine_mean=0.33281720259058956
+   label_probe=not_requested | accuracy=-
+   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\rice_subset\embeddings\rice_subset_vgae_embeddings.csv | pickle=- | npy=-
+
+9. metapath2vec [skipped]
+   runtime=0.000s | dim=- | nodes=445 | ml_ready=False
+   all_nodes=False | all_finite=False | cosine_mean=-
+   label_probe=not_run | accuracy=-
+   skip_reason=metapath2vec requires a heterogeneous graph with node/edge types; the current benchmark graph is homogeneous.

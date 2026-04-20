@@ -1,10 +1,2 @@
 dataset,method,task,status,runtime_seconds,embedding_runtime_seconds,embedding_dim,node_count,evaluated_count,train_count,test_count,label_column,classifier,edge_feature,accuracy,macro_f1,micro_f1,roc_auc,average_precision,nmi,ari,notes,skipped_reason
-rice_subset,deepwalk,node_classification,ok,0.009728400000312831,10.824188699998558,64,445,111,334,111,color,logistic_regression,,0.8738738738738738,0.8193023255813954,0.8738738738738738,,,,,classes=2; stratified=True,
-rice_subset,dgi,node_classification,ok,0.011795799999163137,35.81919899999957,64,445,111,334,111,color,logistic_regression,,0.963963963963964,0.9483720930232558,0.963963963963964,,,,,classes=2; stratified=True,
-rice_subset,gcn,node_classification,ok,0.012404999999489519,34.58197290000135,64,445,111,334,111,color,logistic_regression,,0.9819819819819819,0.9741860465116279,0.9819819819819819,,,,,classes=2; stratified=True,
-rice_subset,graphcl,node_classification,ok,0.010741600000983453,35.679560700000366,64,445,111,334,111,color,logistic_regression,,1.0,1.0,1.0,,,,,classes=2; stratified=True,
-rice_subset,graphsage,node_classification,ok,0.009385500001371838,32.38445479999973,64,445,111,334,111,color,logistic_regression,,1.0,1.0,1.0,,,,,classes=2; stratified=True,
-rice_subset,line,node_classification,ok,0.008882499998435378,0.48456179999993765,64,445,111,334,111,color,logistic_regression,,0.8828828828828829,0.8245592705167173,0.8828828828828829,,,,,classes=2; stratified=True,
-rice_subset,metapath2vec,node_classification,skipped,0.0,0.0,0,445,,,,color,logistic_regression,,,,,,,,,,metapath2vec requires a heterogeneous graph with node/edge types; the current benchmark graph is homogeneous.
-rice_subset,node2vec,node_classification,ok,0.008251799999925424,9.623596199999156,64,445,111,334,111,color,logistic_regression,,0.8738738738738738,0.8193023255813954,0.8738738738738738,,,,,classes=2; stratified=True,
-rice_subset,vgae,node_classification,ok,0.01373050000074727,36.49616160000005,64,445,111,334,111,color,logistic_regression,,0.972972972972973,0.9618163054695562,0.972972972972973,,,,,classes=2; stratified=True,
+rice_subset,line,node_classification,ok,0.010722900000018853,0.0711538999998993,64,445,111,334,111,color,logistic_regression,,0.8828828828828829,0.8245592705167173,0.8828828828828829,,,,,classes=2; stratified=True,

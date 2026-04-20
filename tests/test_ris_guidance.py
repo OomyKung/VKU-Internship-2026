@@ -104,6 +104,20 @@ class RISGuidanceTestCase(unittest.TestCase):
         self.assertTrue(all(0.0 <= score <= 1.0 for score in weighted_scores.values()))
         self.assertEqual(set(ris_result.rr_set_counts_by_group), set(protected_group_report.group_sizes))
 
+    def test_weighted_node_scores_change_when_group_weights_shift(self) -> None:
+        dataset, protected_group_report = _toy_ris_fixture()
+        ris_result = generate_ris_guidance(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            propagation_probability=0.5,
+            config=RISConfig(num_rr_sets=48, random_seed=11, mode="weak_group_weighted"),
+        )
+
+        weighted_scores = ris_result.weighted_node_scores({"A": 1.0, "B": 1.0, "C": 1.0, "D": 3.0})
+
+        self.assertEqual(set(weighted_scores), set(dataset.graph.nodes()))
+        self.assertNotEqual(weighted_scores, ris_result.global_node_scores)
+
 
 if __name__ == "__main__":
     unittest.main()

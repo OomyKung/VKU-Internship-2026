@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 import shutil
 import sys
+from typing import Any
 
 import pandas as pd
 
@@ -17,7 +18,9 @@ from fim_hybrid.data_loader import load_dataset, resolve_dataset_config  # noqa:
 from fim_hybrid.embeddings import (  # noqa: E402
     available_embedding_methods,
     available_evaluation_tasks,
+    evaluate_embedding_benchmark,
     resolve_method_names,
+    resolve_evaluation_tasks,
     run_embedding_benchmark,
 )
 
@@ -117,10 +120,184 @@ def _display_path(value: object) -> str:
     return str(value)
 
 
+def benchmark_report_path(output_dir: Path | None, dataset_name: str) -> Path | None:
+    """Return the text report output path when an output directory is available."""
+
+    if output_dir is None:
+        return None
+    benchmark_dir = output_dir / dataset_name / "reports"
+    benchmark_dir.mkdir(parents=True, exist_ok=True)
+    return benchmark_dir / f"{dataset_name}_embedding_benchmark_report.txt"
+
+
+def attribute_report_path(output_dir: Path | None, dataset_name: str, attribute_name: str) -> Path | None:
+    """Return the attribute-specific text report output path when available."""
+
+    if output_dir is None:
+        return None
+    benchmark_dir = output_dir / dataset_name / "reports"
+    benchmark_dir.mkdir(parents=True, exist_ok=True)
+    safe_attribute = "".join(
+        character if character.isalnum() or character in {"_", "-"} else "_"
+        for character in attribute_name.strip()
+    )
+    safe_attribute = safe_attribute or "attribute"
+    return benchmark_dir / f"{dataset_name}_embedding_benchmark_report_{safe_attribute}.txt"
+
+
+def all_attributes_report_path(output_dir: Path | None, dataset_name: str) -> Path | None:
+    """Return the aggregate all-attributes text report path when available."""
+
+    if output_dir is None:
+        return None
+    benchmark_dir = output_dir / dataset_name / "reports"
+    benchmark_dir.mkdir(parents=True, exist_ok=True)
+    return benchmark_dir / f"{dataset_name}_all_attributes_embedding_benchmark_report.txt"
+
+
+def save_benchmark_report(report_text: str, *, output_dir: Path | None, dataset_name: str) -> Path | None:
+    """Persist the terminal report as a text file when possible."""
+
+    report_path = benchmark_report_path(output_dir, dataset_name)
+    if report_path is None:
+        return None
+    report_path.write_text(report_text, encoding="utf-8")
+    return report_path
+
+
+def save_attribute_benchmark_report(
+    report_text: str,
+    *,
+    output_dir: Path | None,
+    dataset_name: str,
+    attribute_name: str,
+) -> Path | None:
+    """Persist an attribute-specific report as a text file when possible."""
+
+    report_path = attribute_report_path(output_dir, dataset_name, attribute_name)
+    if report_path is None:
+        return None
+    report_path.write_text(report_text, encoding="utf-8")
+    return report_path
+
+
+def save_all_attributes_benchmark_report(
+    report_text: str,
+    *,
+    output_dir: Path | None,
+    dataset_name: str,
+) -> Path | None:
+    """Persist the aggregate all-attributes report when possible."""
+
+    report_path = all_attributes_report_path(output_dir, dataset_name)
+    if report_path is None:
+        return None
+    report_path.write_text(report_text, encoding="utf-8")
+    return report_path
+
+
 def _format_metric(value: object) -> str:
     if pd.isna(value):
         return "-"
     return f"{float(value):.4f}"
+
+
+def _task_sort_rank(task_name: object) -> int:
+    task_order = {
+        "node_classification": 0,
+        "link_prediction": 1,
+        "node_clustering": 2,
+    }
+    return task_order.get(str(task_name), len(task_order))
+
+
+def _status_sort_rank(status_name: object) -> int:
+    status_order = {
+        "ok": 0,
+        "skipped": 1,
+        "failed": 2,
+    }
+    return status_order.get(str(status_name), len(status_order))
+
+
+def _primary_metric_column(task_name: object) -> tuple[str, str]:
+    metric_by_task = {
+        "node_classification": ("accuracy", "accuracy"),
+        "link_prediction": ("roc_auc", "roc_auc"),
+        "node_clustering": ("nmi", "nmi"),
+    }
+    return metric_by_task.get(str(task_name), ("accuracy", "accuracy"))
+
+
+def _primary_metric_value(row: pd.Series) -> float:
+    metric_column, _ = _primary_metric_column(row.get("task"))
+    metric_value = row.get(metric_column, pd.NA)
+    if pd.isna(metric_value):
+        return float("-inf")
+    return float(metric_value)
+
+
+def _sorted_evaluation_frame(evaluation_frame: pd.DataFrame) -> pd.DataFrame:
+    ordered = evaluation_frame.copy()
+    ordered["_task_rank"] = ordered["task"].map(_task_sort_rank)
+    ordered["_status_rank"] = ordered["status"].map(_status_sort_rank)
+    ordered["_primary_metric_value"] = ordered.apply(_primary_metric_value, axis=1)
+    ordered = ordered.sort_values(
+        by=["_task_rank", "_status_rank", "_primary_metric_value", "method"],
+        ascending=[True, True, False, True],
+    ).reset_index(drop=True)
+    return ordered.drop(columns=["_task_rank", "_status_rank", "_primary_metric_value"])
+
+
+def _format_evaluation_summary_lines(evaluation_frame: pd.DataFrame | None) -> list[str]:
+    if evaluation_frame is None or evaluation_frame.empty:
+        return ["No evaluation rows were produced."]
+
+    lines = [
+        _rule("-"),
+        "Graph Embedding Evaluation Summary",
+        _rule("-"),
+        "Sorted by primary metric within each task: accuracy for node classification, roc_auc for link prediction, nmi for clustering.",
+    ]
+    ordered_evaluation = _sorted_evaluation_frame(evaluation_frame)
+    for index, row in ordered_evaluation.iterrows():
+        primary_metric_column, primary_metric_label = _primary_metric_column(row["task"])
+        metric_parts = [
+            f"accuracy={_format_metric(row['accuracy'])}",
+            f"macro_f1={_format_metric(row['macro_f1'])}",
+            f"micro_f1={_format_metric(row['micro_f1'])}",
+            f"roc_auc={_format_metric(row['roc_auc'])}",
+            f"ap={_format_metric(row['average_precision'])}",
+            f"nmi={_format_metric(row['nmi'])}",
+            f"ari={_format_metric(row['ari'])}",
+        ]
+        lines.extend(
+            [
+                "",
+                f"{index + 1}. {row['method']} | {row['task']} [{row['status']}]",
+                (
+                    f"   runtime={_format_runtime(row['runtime_seconds'])} | "
+                    f"embedding_runtime={_format_runtime(row['embedding_runtime_seconds'])} | "
+                    f"dim={_format_dim(row['embedding_dim'])} | "
+                    f"evaluated={_format_dim(row['evaluated_count'])}"
+                ),
+                (
+                    f"   train={_format_dim(row['train_count'])} | "
+                    f"test={_format_dim(row['test_count'])} | "
+                    f"classifier={row['classifier'] if not pd.isna(row['classifier']) else '-'} | "
+                    f"label_column={row['label_column'] if not pd.isna(row['label_column']) else '-'}"
+                ),
+                f"   primary_metric={primary_metric_label} ({_format_metric(row.get(primary_metric_column, pd.NA))})",
+                f"   metrics: {', '.join(metric_parts)}",
+            ]
+        )
+        if not pd.isna(row.get("edge_feature", pd.NA)):
+            lines.append(f"   edge_feature={row['edge_feature']}")
+        if str(row.get("notes", "")).strip():
+            lines.append(f"   notes={row['notes']}")
+        if str(row.get("skipped_reason", "")).strip():
+            lines.append(f"   skipped_reason={row['skipped_reason']}")
+    return lines
 
 
 def format_benchmark_report(
@@ -183,53 +360,115 @@ def format_benchmark_report(
             lines.append(f"   error={row['error_message']}")
 
     if evaluation_frame is not None and not evaluation_frame.empty:
-        lines.extend(
-            [
-                "",
-                _rule("-"),
-                "Graph Embedding Evaluation Summary",
-                _rule("-"),
-            ]
+        lines.extend(["", *_format_evaluation_summary_lines(evaluation_frame)])
+
+    return "\n".join(lines)
+
+
+def _attribute_column_names(dataset) -> list[str]:
+    return [column for column in dataset.node_attributes.columns if column != "node_id"]
+
+
+def _all_attributes_requested(args: argparse.Namespace) -> bool:
+    label_values = [
+        args.label_column,
+        args.classification_label_column,
+        args.clustering_label_column,
+    ]
+    return any(
+        value is not None and str(value).strip().lower() == "all"
+        for value in label_values
+    )
+
+
+def _validate_all_attributes_mode(args: argparse.Namespace) -> None:
+    label_values = [
+        args.label_column,
+        args.classification_label_column,
+        args.clustering_label_column,
+    ]
+    explicit_values = {
+        str(value).strip().lower()
+        for value in label_values
+        if value is not None and str(value).strip()
+    }
+    if "all" in explicit_values and explicit_values.difference({"all"}):
+        raise ValueError(
+            "When using all-attributes mode, do not mix 'all' with explicit label columns. "
+            "Use --label-column all by itself."
         )
-        ordered_evaluation = evaluation_frame.sort_values(
-            by=["method", "task", "status"],
-            ascending=[True, True, True],
-        ).reset_index(drop=True)
-        for index, row in ordered_evaluation.iterrows():
-            metric_parts = [
-                f"accuracy={_format_metric(row['accuracy'])}",
-                f"macro_f1={_format_metric(row['macro_f1'])}",
-                f"micro_f1={_format_metric(row['micro_f1'])}",
-                f"roc_auc={_format_metric(row['roc_auc'])}",
-                f"ap={_format_metric(row['average_precision'])}",
-                f"nmi={_format_metric(row['nmi'])}",
-                f"ari={_format_metric(row['ari'])}",
-            ]
+
+
+def format_attribute_benchmark_report(
+    summary_frame: pd.DataFrame,
+    *,
+    evaluation_frame: pd.DataFrame,
+    dataset_name: str,
+    attribute_name: str,
+    output_dir: Path | None,
+) -> str:
+    """Render one readable text report for a single dataset attribute."""
+
+    base_report = benchmark_report_path(output_dir, dataset_name)
+    header_lines = [
+        _rule("="),
+        "Graph Embedding Benchmark Report By Attribute",
+        _rule("="),
+        f"Dataset: {dataset_name}",
+        f"Attribute: {attribute_name}",
+        f"Base embedding report: {base_report if base_report is not None else '-'}",
+        "The base embedding summary is shared across attributes; only the evaluation rows below change by attribute.",
+        "",
+    ]
+    embedding_summary_lines = [
+        "Embedding summary:",
+        f"- methods={', '.join(summary_frame['method'].astype(str).tolist())}",
+        f"- statuses={summary_frame['status'].astype(str).value_counts().to_dict()}",
+        "",
+        *_format_evaluation_summary_lines(evaluation_frame),
+    ]
+    return "\n".join(header_lines + embedding_summary_lines)
+
+
+def format_all_attributes_benchmark_report(
+    dataset_name: str,
+    *,
+    base_report_text: str,
+    attribute_reports: list[dict[str, Any]],
+    output_dir: Path | None,
+) -> str:
+    """Render one readable report covering all attributes for a dataset."""
+
+    lines = [
+        _rule("="),
+        "All-Attributes Graph Embedding Benchmark Summary",
+        _rule("="),
+        f"Dataset: {dataset_name}",
+        f"Output directory: {output_dir if output_dir is not None else '-'}",
+        f"Attributes evaluated: {', '.join(report['attribute_name'] for report in attribute_reports)}",
+        "",
+        _rule("-"),
+        "Base Embedding Benchmark",
+        _rule("-"),
+        "",
+        base_report_text,
+    ]
+
+    if attribute_reports:
+        lines.extend(["", _rule("-"), "Attribute-Specific Reports", _rule("-")])
+        for report in attribute_reports:
+            evaluation_frame = report.get("evaluation_frame")
             lines.extend(
                 [
                     "",
-                    f"{index + 1}. {row['method']} | {row['task']} [{row['status']}]",
-                    (
-                        f"   runtime={_format_runtime(row['runtime_seconds'])} | "
-                        f"embedding_runtime={_format_runtime(row['embedding_runtime_seconds'])} | "
-                        f"dim={_format_dim(row['embedding_dim'])} | "
-                        f"evaluated={_format_dim(row['evaluated_count'])}"
-                    ),
-                    (
-                        f"   train={_format_dim(row['train_count'])} | "
-                        f"test={_format_dim(row['test_count'])} | "
-                        f"classifier={row['classifier'] if not pd.isna(row['classifier']) else '-'} | "
-                        f"label_column={row['label_column'] if not pd.isna(row['label_column']) else '-'}"
-                    ),
-                    f"   metrics: {', '.join(metric_parts)}",
+                    _rule("="),
+                    f"Attribute: {report['attribute_name']}",
+                    _rule("="),
+                    f"Report path: {report['report_path'] if report['report_path'] is not None else '-'}",
+                    "",
+                    *_format_evaluation_summary_lines(evaluation_frame),
                 ]
             )
-            if not pd.isna(row.get("edge_feature", pd.NA)):
-                lines.append(f"   edge_feature={row['edge_feature']}")
-            if str(row.get("notes", "")).strip():
-                lines.append(f"   notes={row['notes']}")
-            if str(row.get("skipped_reason", "")).strip():
-                lines.append(f"   skipped_reason={row['skipped_reason']}")
 
     return "\n".join(lines)
 
@@ -292,7 +531,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--label-column",
         default=None,
-        help="Fallback label column for the simple probe and downstream evaluation tasks.",
+        help="Fallback label column for the simple probe and downstream evaluation tasks. Use 'all' to evaluate every dataset attribute.",
     )
     parser.add_argument(
         "--evaluation-tasks",
@@ -385,21 +624,79 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    _validate_all_attributes_mode(args)
     dataset_config = build_dataset_config(args)
     dataset = load_dataset(dataset_config)
     methods = list(resolve_method_names([str(method).strip().lower() for method in args.methods]))
     method_configs = build_method_configs(args, methods)
     output_dir = _resolve_repo_path(args.output_dir)
-    result = run_embedding_benchmark(
+    normalized_evaluation_tasks = resolve_evaluation_tasks(args.evaluation_tasks)
+
+    if not _all_attributes_requested(args):
+        result = run_embedding_benchmark(
+            dataset,
+            methods=methods,
+            method_configs=method_configs,
+            output_dir=output_dir,
+            export_formats=args.export_formats,
+            label_column=args.label_column,
+            evaluation_tasks=normalized_evaluation_tasks,
+            classification_label_column=args.classification_label_column,
+            clustering_label_column=args.clustering_label_column,
+            node_test_fraction=args.node_test_fraction,
+            link_test_fraction=args.link_test_fraction,
+            link_negative_ratio=args.link_negative_ratio,
+            link_prediction_edge_feature=args.link_prediction_edge_feature,
+            max_workers=args.max_workers,
+            symmetrize_directed=args.symmetrize_directed,
+            continue_on_error=args.continue_on_error,
+        )
+        report_text = format_benchmark_report(
+            result.summary_frame,
+            evaluation_frame=result.evaluation_frame,
+            dataset_name=result.dataset_name,
+            output_dir=result.output_dir,
+        )
+        report_path = save_benchmark_report(
+            report_text,
+            output_dir=result.output_dir,
+            dataset_name=result.dataset_name,
+        )
+        if report_path is None:
+            print(report_text)
+            return
+
+        print(f"Saved benchmark report to {report_path}")
+        if not result.summary_frame.empty:
+            status_counts = result.summary_frame["status"].astype(str).value_counts().to_dict()
+            print(f"Method status counts: {status_counts}")
+        if not result.evaluation_frame.empty:
+            evaluation_status_counts = result.evaluation_frame["status"].astype(str).value_counts().to_dict()
+            print(f"Evaluation status counts: {evaluation_status_counts}")
+        return
+
+    attribute_names = _attribute_column_names(dataset)
+    if not attribute_names:
+        raise ValueError(f"Dataset '{dataset.name}' has no attribute columns other than node_id.")
+
+    attribute_specific_tasks = [task for task in normalized_evaluation_tasks if task in {"node_classification", "node_clustering"}]
+    base_tasks = [task for task in normalized_evaluation_tasks if task == "link_prediction"]
+    if not attribute_specific_tasks:
+        raise ValueError(
+            "All-attributes mode requires at least one label-dependent evaluation task such as "
+            "node_classification or node_clustering."
+        )
+
+    base_result = run_embedding_benchmark(
         dataset,
         methods=methods,
         method_configs=method_configs,
         output_dir=output_dir,
         export_formats=args.export_formats,
-        label_column=args.label_column,
-        evaluation_tasks=args.evaluation_tasks,
-        classification_label_column=args.classification_label_column,
-        clustering_label_column=args.clustering_label_column,
+        label_column=None,
+        evaluation_tasks=base_tasks,
+        classification_label_column=None,
+        clustering_label_column=None,
         node_test_fraction=args.node_test_fraction,
         link_test_fraction=args.link_test_fraction,
         link_negative_ratio=args.link_negative_ratio,
@@ -408,14 +705,73 @@ def main() -> None:
         symmetrize_directed=args.symmetrize_directed,
         continue_on_error=args.continue_on_error,
     )
-    print(
-        format_benchmark_report(
-            result.summary_frame,
-            evaluation_frame=result.evaluation_frame,
-            dataset_name=result.dataset_name,
-            output_dir=result.output_dir,
-        )
+    base_report_text = format_benchmark_report(
+        base_result.summary_frame,
+        evaluation_frame=base_result.evaluation_frame,
+        dataset_name=base_result.dataset_name,
+        output_dir=base_result.output_dir,
     )
+    base_report_path = save_benchmark_report(
+        base_report_text,
+        output_dir=base_result.output_dir,
+        dataset_name=base_result.dataset_name,
+    )
+
+    attribute_reports: list[dict[str, Any]] = []
+    for attribute_name in attribute_names:
+        evaluation_frame = evaluate_embedding_benchmark(
+            dataset,
+            base_result,
+            tasks=attribute_specific_tasks,
+            random_seed=args.random_seed,
+            label_column=attribute_name,
+            classification_label_column=attribute_name,
+            clustering_label_column=attribute_name,
+            node_test_fraction=args.node_test_fraction,
+            link_test_fraction=args.link_test_fraction,
+            link_negative_ratio=args.link_negative_ratio,
+            link_prediction_edge_feature=args.link_prediction_edge_feature,
+            symmetrize_directed=args.symmetrize_directed,
+        )
+        report_text = format_attribute_benchmark_report(
+            base_result.summary_frame,
+            evaluation_frame=evaluation_frame,
+            dataset_name=base_result.dataset_name,
+            attribute_name=attribute_name,
+            output_dir=base_result.output_dir,
+        )
+        report_path = save_attribute_benchmark_report(
+            report_text,
+            output_dir=base_result.output_dir,
+            dataset_name=base_result.dataset_name,
+            attribute_name=attribute_name,
+        )
+        attribute_reports.append(
+            {
+                "attribute_name": attribute_name,
+                "report_text": report_text,
+                "report_path": report_path,
+                "evaluation_frame": evaluation_frame,
+            }
+        )
+
+    combined_report_text = format_all_attributes_benchmark_report(
+        base_result.dataset_name,
+        base_report_text=base_report_text,
+        attribute_reports=attribute_reports,
+        output_dir=base_result.output_dir,
+    )
+    combined_report_path = save_all_attributes_benchmark_report(
+        combined_report_text,
+        output_dir=base_result.output_dir,
+        dataset_name=base_result.dataset_name,
+    )
+
+    print(f"Saved base benchmark report to {base_report_path if base_report_path is not None else '-'}")
+    print(f"Saved all-attributes report to {combined_report_path if combined_report_path is not None else '-'}")
+    print(f"Attributes evaluated: {', '.join(attribute_names)}")
+    for report in attribute_reports:
+        print(f"{report['attribute_name']}: report={report['report_path'] if report['report_path'] is not None else '-'}")
 
 
 if __name__ == "__main__":

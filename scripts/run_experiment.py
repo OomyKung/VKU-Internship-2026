@@ -74,6 +74,12 @@ def _display_gnn_model(gnn_model_type: object) -> str:
     return str(gnn_model_type)
 
 
+def _display_graphsage_enabled(value: object) -> str:
+    if pd.isna(value):
+        return "off"
+    return "on" if bool(value) else "off"
+
+
 def _display_ris_mode(ris_enabled: object, ris_mode: object) -> str:
     if pd.isna(ris_enabled) or not bool(ris_enabled):
         return "off"
@@ -126,7 +132,9 @@ def _build_ranked_results_table(result_frame: pd.DataFrame) -> str:
     search_runtime = ordered.get("search_runtime_seconds", pd.Series([float("nan")] * len(ordered)))
     final_eval_runtime = ordered.get("final_eval_runtime_seconds", pd.Series([float("nan")] * len(ordered)))
     ml_backend = ordered.get("ml_backend", pd.Series(["none"] * len(ordered)))
+    guidance_mode = ordered.get("guidance_mode", pd.Series(["none"] * len(ordered)))
     gnn_model_type = ordered.get("gnn_model_type", pd.Series([pd.NA] * len(ordered)))
+    graphsage_enabled = ordered.get("graphsage_enabled", pd.Series([False] * len(ordered)))
     ris_enabled = ordered.get("ris_enabled", pd.Series([False] * len(ordered)))
     ris_mode = ordered.get("ris_mode", pd.Series(["off"] * len(ordered)))
     final_recheck_applied = ordered.get("final_recheck_applied", pd.Series([False] * len(ordered)))
@@ -177,8 +185,10 @@ def _build_ranked_results_table(result_frame: pd.DataFrame) -> str:
         lines.append(
             "   "
             f"ML={_display_ml_mode(str(row['method']), row['ml_guidance_mode'])} | "
+            f"guidance={guidance_mode.iloc[index]} | "
             f"backend={_display_ml_backend(ml_backend.iloc[index])} | "
             f"GNN={_display_gnn_model(gnn_model_type.iloc[index])} | "
+            f"GraphSAGE={_display_graphsage_enabled(graphsage_enabled.iloc[index])} | "
             f"N2V={row['node2vec_mode']} | "
             f"RIS={_display_ris_mode(ris_enabled.iloc[index], ris_mode.iloc[index])} | "
             f"rho={rho_text} | p@k={pak_text}"
@@ -252,7 +262,9 @@ def _build_hybrid_delta_table(result_frame: pd.DataFrame, baseline_method: str =
     search_runtime = comparison_rows.get("search_runtime_seconds", pd.Series([float("nan")] * len(comparison_rows)))
     final_eval_runtime = comparison_rows.get("final_eval_runtime_seconds", pd.Series([float("nan")] * len(comparison_rows)))
     ml_backend = comparison_rows.get("ml_backend", pd.Series(["none"] * len(comparison_rows)))
+    guidance_mode = comparison_rows.get("guidance_mode", pd.Series(["none"] * len(comparison_rows)))
     gnn_model_type = comparison_rows.get("gnn_model_type", pd.Series([pd.NA] * len(comparison_rows)))
+    graphsage_enabled = comparison_rows.get("graphsage_enabled", pd.Series([False] * len(comparison_rows)))
     ris_enabled = comparison_rows.get("ris_enabled", pd.Series([False] * len(comparison_rows)))
     ris_mode = comparison_rows.get("ris_mode", pd.Series(["off"] * len(comparison_rows)))
     final_recheck_applied = comparison_rows.get("final_recheck_applied", pd.Series([False] * len(comparison_rows)))
@@ -286,8 +298,10 @@ def _build_hybrid_delta_table(result_frame: pd.DataFrame, baseline_method: str =
         lines.append(
             "   "
             f"ML={_display_ml_mode(str(row['method']), row['ml_guidance_mode'])} | "
+            f"guidance={guidance_mode.iloc[index]} | "
             f"backend={_display_ml_backend(ml_backend.iloc[index])} | "
             f"GNN={_display_gnn_model(gnn_model_type.iloc[index])} | "
+            f"GraphSAGE={_display_graphsage_enabled(graphsage_enabled.iloc[index])} | "
             f"N2V={row['node2vec_mode']} | "
             f"RIS={_display_ris_mode(ris_enabled.iloc[index], ris_mode.iloc[index])}"
         )
@@ -378,7 +392,8 @@ def format_results_report(result_frame: pd.DataFrame, settings: ExperimentSettin
         )
         lines.append(
             "Guidance weights: "
-            f"gnn={settings.gnn_weight} | ris={settings.ris_weight} | "
+            f"graphsage={settings.graphsage_weight if settings.graphsage_weight is not None else settings.gnn_weight} | "
+            f"ris={settings.ris_weight} | fair_ris={settings.fair_ris_weight} | "
             f"fairness={settings.fairness_urgency_weight} | diversity={settings.diversity_weight}"
         )
     if settings.enable_final_recheck:
@@ -429,6 +444,50 @@ def format_results_report(result_frame: pd.DataFrame, settings: ExperimentSettin
             lines.extend(["", f"Saved CSV: {result_path}"])
 
     return "\n".join(lines)
+
+
+def build_results_report_path(
+    result_frame: pd.DataFrame,
+    settings: ExperimentSettings,
+    report_focus: str = "all",
+) -> Path | None:
+    """Resolve the text-report path for a single-dataset experiment run."""
+
+    if settings.output_dir is None or result_frame.empty:
+        return None
+
+    dataset_values = result_frame["dataset"].dropna().unique() if "dataset" in result_frame else []
+    if len(dataset_values) != 1:
+        return None
+
+    dataset_name = str(dataset_values[0])
+    output_dir = build_results_output_dir(settings.output_dir, dataset_name, settings.protected_attribute)
+    if output_dir is None:
+        return None
+
+    suffix = "" if report_focus == "all" else f"_{report_focus}"
+    return output_dir / f"{dataset_name}_budget{settings.budget}_report{suffix}.txt"
+
+
+def save_results_report(
+    report_text: str,
+    result_frame: pd.DataFrame,
+    settings: ExperimentSettings,
+    report_focus: str = "all",
+) -> Path | None:
+    """Persist the formatted experiment report alongside the CSV outputs."""
+
+    report_path = build_results_report_path(
+        result_frame=result_frame,
+        settings=settings,
+        report_focus=report_focus,
+    )
+    if report_path is None:
+        return None
+
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(report_text + "\n", encoding="utf-8")
+    return report_path
 
 
 def build_dataset_config(args: argparse.Namespace) -> DatasetConfig:
@@ -668,8 +727,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ris-random-seed", type=int, default=None, help="Optional RIS-specific random seed. Defaults to --random-seed.")
     parser.add_argument("--ris-reuse-rr-sets", action=argparse.BooleanOptionalAction, default=True, help="Reuse one RR-set sample across RIS-using variants in the same run.")
     parser.add_argument("--ris-mode", choices=["global", "weak_group_weighted"], default="global", help="RIS scoring mode used for search-time guidance.")
+    parser.add_argument("--graphsage-weight", type=float, default=None, help="Optional alias for the GraphSAGE prior weight inside combined guidance scores. Overrides --gnn-weight when provided.")
     parser.add_argument("--gnn-weight", type=float, default=1.0, help="Weight of the GNN prior inside combined guidance scores.")
     parser.add_argument("--ris-weight", type=float, default=1.0, help="Weight of the RIS prior inside combined guidance scores.")
+    parser.add_argument("--fair-ris-weight", type=float, default=0.0, help="Weight of the fairness-aware RIS prior inside combined guidance scores.")
     parser.add_argument("--fairness-urgency-weight", type=float, default=0.0, help="Weight of the static fairness-urgency prior inside combined guidance scores.")
     parser.add_argument("--diversity-weight", type=float, default=0.0, help="Weight of the static diversity prior inside combined guidance scores.")
     parser.add_argument("--node2vec-dimensions", type=int, default=8, help="Node2Vec embedding width used when GNN Node2Vec input is enabled.")
@@ -738,8 +799,10 @@ def main() -> None:
         ris_random_seed=args.ris_random_seed,
         ris_reuse_rr_sets=args.ris_reuse_rr_sets,
         ris_mode=args.ris_mode,
+        graphsage_weight=args.graphsage_weight,
         gnn_weight=args.gnn_weight,
         ris_weight=args.ris_weight,
+        fair_ris_weight=args.fair_ris_weight,
         fairness_urgency_weight=args.fairness_urgency_weight,
         diversity_weight=args.diversity_weight,
         node2vec_dimensions=args.node2vec_dimensions,
@@ -859,6 +922,8 @@ def main() -> None:
         "weakest_groups_note",
         "node2vec_enabled",
         "node2vec_mode",
+        "guidance_mode",
+        "graphsage_enabled",
         "ris_enabled",
         "ris_mode",
         "ml_guidance_mode",
@@ -868,7 +933,16 @@ def main() -> None:
         "ml_validation_precision_at_budget",
         "community_modularity",
     ]
-    print(format_results_report(result_frame[columns], settings, report_focus=args.report_focus))
+    report_text = format_results_report(result_frame[columns], settings, report_focus=args.report_focus)
+    report_path = save_results_report(
+        report_text,
+        result_frame[columns],
+        settings,
+        report_focus=args.report_focus,
+    )
+    print(report_text)
+    if report_path is not None:
+        print(f"\nSaved report: {report_path}")
 
 
 if __name__ == "__main__":

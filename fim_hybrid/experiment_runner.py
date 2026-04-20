@@ -155,8 +155,10 @@ class ExperimentSettings:
     ris_random_seed: int | None = None
     ris_reuse_rr_sets: bool = True
     ris_mode: str = "global"
+    graphsage_weight: float | None = None
     gnn_weight: float = 1.0
     ris_weight: float = 1.0
+    fair_ris_weight: float = 0.0
     fairness_urgency_weight: float = 0.0
     diversity_weight: float = 0.0
     ml_primary_pool_ratio: float = 0.25
@@ -449,8 +451,10 @@ def _ml_columns(
 ) -> dict[str, object]:
     return {
         "ml_guidance_mode": guidance_mode,
+        "guidance_mode": ml_backend,
         "ml_backend": ml_backend,
         "gnn_model_type": gnn_model_type,
+        "graphsage_enabled": _graphsage_enabled_flag(gnn_model_type, ml_backend=ml_backend),
         "ris_enabled": bool(ris_enabled),
         "ris_mode": ris_mode,
         "ml_validation_spearman": validation_spearman,
@@ -749,6 +753,8 @@ def _build_gnn_label_frame(
     label_frame = label_result.label_frame.copy()
     if "soft_fair_norm" not in label_frame.columns:
         raise ValueError("label_frame must contain soft_fair_norm for GNN label construction.")
+    if "weak_group_gain_norm" not in label_frame.columns:
+        raise ValueError("label_frame must contain weak_group_gain_norm for GNN label construction.")
 
     proxy_config = _build_optimizer_config(
         settings,
@@ -776,8 +782,9 @@ def _build_gnn_label_frame(
         column_name="marginal_proxy_score",
     )
     label_frame["gnn_label_score"] = (
-        0.50 * label_frame["label_score"].astype(float)
-        + 0.25 * label_frame["soft_fair_norm"].astype(float)
+        0.35 * label_frame["label_score"].astype(float)
+        + 0.20 * label_frame["soft_fair_norm"].astype(float)
+        + 0.20 * label_frame["weak_group_gain_norm"].astype(float)
         + 0.25 * label_frame["marginal_proxy_norm"].astype(float)
     )
     label_variance = float(label_frame["gnn_label_score"].var(ddof=0))
@@ -798,6 +805,24 @@ def _normalize_score_map(scores: dict[object, float]) -> dict[object, float]:
         node_id: float((float(score) - minimum) / (maximum - minimum))
         for node_id, score in scores.items()
     }
+
+
+def _effective_gnn_weight(settings: ExperimentSettings) -> float:
+    if settings.graphsage_weight is not None:
+        return float(settings.graphsage_weight)
+    return float(settings.gnn_weight)
+
+
+def _graphsage_enabled_flag(
+    gnn_model_type: object,
+    *,
+    ml_backend: str,
+) -> bool:
+    return bool(
+        ml_backend in {"gnn", "gnn_ris"}
+        and not pd.isna(gnn_model_type)
+        and str(gnn_model_type) == "graphsage"
+    )
 
 
 def _combine_weighted_score_maps(
@@ -951,20 +976,33 @@ def _select_ris_scores(
     raise ValueError("ris_mode must be one of ['global', 'weak_group_weighted'].")
 
 
+def _build_fair_ris_scores(
+    ris_result: RISGuidanceResult,
+    feature_frame: pd.DataFrame,
+    protected_group_report: ProtectedGroupReport,
+) -> dict[object, float]:
+    return ris_result.weighted_node_scores(
+        _ris_group_weights(feature_frame, protected_group_report)
+    )
+
+
 def _build_guidance_score_map(
     node_ids: list[object],
     settings: ExperimentSettings,
     *,
     gnn_scores: dict[object, float] | None = None,
     ris_scores: dict[object, float] | None = None,
+    fair_ris_scores: dict[object, float] | None = None,
     fairness_scores: dict[object, float] | None = None,
     diversity_scores: dict[object, float] | None = None,
 ) -> dict[object, float]:
     component_maps: list[tuple[dict[object, float], float]] = []
     if gnn_scores is not None:
-        component_maps.append((gnn_scores, float(settings.gnn_weight)))
+        component_maps.append((gnn_scores, _effective_gnn_weight(settings)))
     if ris_scores is not None:
         component_maps.append((ris_scores, float(settings.ris_weight)))
+    if fair_ris_scores is not None:
+        component_maps.append((fair_ris_scores, float(settings.fair_ris_weight)))
     if fairness_scores is not None:
         component_maps.append((fairness_scores, float(settings.fairness_urgency_weight)))
     if diversity_scores is not None:
@@ -1372,6 +1410,18 @@ def run_loaded_experiment(
         require_gnn_dependencies()
     if settings.use_ml and any(backend in {"ris", "gnn_ris"} for backend in resolved_ml_backends):
         _ris_config(settings)
+    if settings.graphsage_weight is not None and float(settings.graphsage_weight) < 0.0:
+        raise ValueError("graphsage_weight must be non-negative when provided.")
+    if float(settings.gnn_weight) < 0.0:
+        raise ValueError("gnn_weight must be non-negative.")
+    if float(settings.ris_weight) < 0.0:
+        raise ValueError("ris_weight must be non-negative.")
+    if float(settings.fair_ris_weight) < 0.0:
+        raise ValueError("fair_ris_weight must be non-negative.")
+    if float(settings.fairness_urgency_weight) < 0.0:
+        raise ValueError("fairness_urgency_weight must be non-negative.")
+    if float(settings.diversity_weight) < 0.0:
+        raise ValueError("diversity_weight must be non-negative.")
     if any(
         [
             settings.compare_fairness_variants,
@@ -1614,8 +1664,11 @@ def run_loaded_experiment(
                 gnn_model_type: str | object = pd.NA
                 guidance_note_parts = [
                     f"backend={ml_backend}",
-                    f"weights=(gnn={settings.gnn_weight:.3f}, ris={settings.ris_weight:.3f}, "
-                    f"fairness={settings.fairness_urgency_weight:.3f}, diversity={settings.diversity_weight:.3f})",
+                    (
+                        f"weights=(graphsage={_effective_gnn_weight(settings):.3f}, "
+                        f"ris={settings.ris_weight:.3f}, fair_ris={settings.fair_ris_weight:.3f}, "
+                        f"fairness={settings.fairness_urgency_weight:.3f}, diversity={settings.diversity_weight:.3f})"
+                    ),
                 ]
 
                 if ml_backend == "tabular":
@@ -1656,6 +1709,7 @@ def run_loaded_experiment(
                             guidance_note_parts.append(f"label_variance={label_result.label_variance:.6f}")
 
                     ris_scores: dict[object, float] | None = None
+                    fair_ris_scores: dict[object, float] | None = None
                     if uses_ris:
                         ris_result = shared_ris_result
                         ris_runtime = shared_ris_runtime
@@ -1666,16 +1720,26 @@ def run_loaded_experiment(
                                 settings=settings,
                             )
                         backend_preparation_runtime += ris_runtime
-                        ris_scores = _select_ris_scores(
+                        global_ris_scores = dict(ris_result.global_node_scores)
+                        weighted_ris_scores = _build_fair_ris_scores(
                             ris_result=ris_result,
                             feature_frame=plain_feature_frame,
                             protected_group_report=protected_group_report,
-                            settings=settings,
                         )
+                        fair_ris_scores = weighted_ris_scores if settings.fair_ris_weight > 0.0 else None
+                        if settings.fair_ris_weight > 0.0:
+                            ris_scores = global_ris_scores
+                        else:
+                            ris_scores = (
+                                weighted_ris_scores
+                                if settings.ris_mode == "weak_group_weighted"
+                                else global_ris_scores
+                            )
                         guidance_note_parts.extend(
                             [
                                 f"ris_num_rr_sets={settings.ris_num_rr_sets}",
                                 f"ris_mode={settings.ris_mode}",
+                                f"fair_ris_enabled={settings.fair_ris_weight > 0.0}",
                                 f"ris_reuse_rr_sets={settings.ris_reuse_rr_sets}",
                             ]
                         )
@@ -1685,6 +1749,7 @@ def run_loaded_experiment(
                         settings=settings,
                         gnn_scores=base_gnn_scores,
                         ris_scores=ris_scores,
+                        fair_ris_scores=fair_ris_scores,
                         fairness_scores=fairness_scores,
                         diversity_scores=diversity_scores,
                     )
@@ -1748,8 +1813,10 @@ def run_loaded_experiment(
                 ml_row["ml_validation_spearman"] = validation_spearman
                 ml_row["ml_validation_precision_at_budget"] = validation_precision_at_budget
                 ml_row["ml_guidance_mode"] = "two_tier"
+                ml_row["guidance_mode"] = ml_backend
                 ml_row["ml_backend"] = ml_backend
                 ml_row["gnn_model_type"] = gnn_model_type
+                ml_row["graphsage_enabled"] = _graphsage_enabled_flag(gnn_model_type, ml_backend=ml_backend)
                 ml_row["ris_enabled"] = bool(uses_ris)
                 ml_row["ris_mode"] = settings.ris_mode if uses_ris else "off"
                 results.append(ml_row)

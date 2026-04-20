@@ -81,6 +81,9 @@ class MLLabelGenerationTestCase(unittest.TestCase):
         self.assertEqual(set(label_result.label_frame["node_id"]), set(dataset.graph.nodes()))
         self.assertIn("singleton_total_spread", label_result.label_frame.columns)
         self.assertIn("singleton_soft_fair_score", label_result.label_frame.columns)
+        self.assertIn("singleton_weak_group_gain", label_result.label_frame.columns)
+        self.assertIn("singleton_mean_target_attainment", label_result.label_frame.columns)
+        self.assertIn("weak_group_gain_norm", label_result.label_frame.columns)
         self.assertIn("label_score", label_result.label_frame.columns)
         self.assertGreater(label_result.label_variance, 0.0)
 
@@ -254,6 +257,7 @@ class GNNTrainingTestCase(unittest.TestCase):
         self.assertEqual(set(label_frame["node_id"]), set(dataset.graph.nodes()))
         self.assertIn("marginal_proxy_score", label_frame.columns)
         self.assertIn("marginal_proxy_norm", label_frame.columns)
+        self.assertIn("weak_group_gain_norm", label_frame.columns)
         self.assertIn("gnn_label_score", label_frame.columns)
         self.assertTrue(label_frame["marginal_proxy_norm"].between(0.0, 1.0).all())
         self.assertGreater(float(label_frame["gnn_label_score"].var(ddof=0)), 0.0)

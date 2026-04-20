@@ -1,0 +1,79 @@
+====================================================================================================
+Graph Embedding Benchmark Report By Attribute
+====================================================================================================
+Dataset: graph_spa_500_0
+Attribute: ethnicity
+Base embedding report: C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\reports\graph_spa_500_0_embedding_benchmark_report.txt
+The base embedding summary is shared across attributes; only the evaluation rows below change by attribute.
+
+Embedding summary:
+- methods=deepwalk, node2vec, line, vgae, gcn, graphsage, dgi, graphcl, metapath2vec
+- statuses={'ok': 8, 'skipped': 1}
+
+----------------------------------------------------------------------------------------------------
+Graph Embedding Evaluation Summary
+----------------------------------------------------------------------------------------------------
+Sorted by primary metric within each task: accuracy for node classification, roc_auc for link prediction, nmi for clustering.
+
+1. graphcl | node_classification [ok]
+   runtime=0.021s | embedding_runtime=17.679s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=logistic_regression | label_column=ethnicity
+   primary_metric=accuracy (0.9600)
+   metrics: accuracy=0.9600, macro_f1=0.9172, micro_f1=0.9600, roc_auc=-, ap=-, nmi=-, ari=-
+   notes=classes=5; stratified=True
+
+2. graphsage | node_classification [ok]
+   runtime=0.021s | embedding_runtime=15.672s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=logistic_regression | label_column=ethnicity
+   primary_metric=accuracy (0.9600)
+   metrics: accuracy=0.9600, macro_f1=0.8990, micro_f1=0.9600, roc_auc=-, ap=-, nmi=-, ari=-
+   notes=classes=5; stratified=True
+
+3. gcn | node_classification [ok]
+   runtime=0.031s | embedding_runtime=15.524s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=logistic_regression | label_column=ethnicity
+   primary_metric=accuracy (0.9520)
+   metrics: accuracy=0.9520, macro_f1=0.8459, micro_f1=0.9520, roc_auc=-, ap=-, nmi=-, ari=-
+   notes=classes=5; stratified=True
+
+4. vgae | node_classification [ok]
+   runtime=0.028s | embedding_runtime=16.668s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=logistic_regression | label_column=ethnicity
+   primary_metric=accuracy (0.9440)
+   metrics: accuracy=0.9440, macro_f1=0.8472, micro_f1=0.9440, roc_auc=-, ap=-, nmi=-, ari=-
+   notes=classes=5; stratified=True
+
+5. dgi | node_classification [ok]
+   runtime=0.030s | embedding_runtime=16.904s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=logistic_regression | label_column=ethnicity
+   primary_metric=accuracy (0.9200)
+   metrics: accuracy=0.9200, macro_f1=0.8273, micro_f1=0.9200, roc_auc=-, ap=-, nmi=-, ari=-
+   notes=classes=5; stratified=True
+
+6. deepwalk | node_classification [ok]
+   runtime=0.021s | embedding_runtime=8.132s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=logistic_regression | label_column=ethnicity
+   primary_metric=accuracy (0.8480)
+   metrics: accuracy=0.8480, macro_f1=0.6449, micro_f1=0.8480, roc_auc=-, ap=-, nmi=-, ari=-
+   notes=classes=5; stratified=True
+
+7. node2vec | node_classification [ok]
+   runtime=0.027s | embedding_runtime=8.548s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=logistic_regression | label_column=ethnicity
+   primary_metric=accuracy (0.8480)
+   metrics: accuracy=0.8480, macro_f1=0.6449, micro_f1=0.8480, roc_auc=-, ap=-, nmi=-, ari=-
+   notes=classes=5; stratified=True
+
+8. line | node_classification [ok]
+   runtime=0.022s | embedding_runtime=0.144s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=logistic_regression | label_column=ethnicity
+   primary_metric=accuracy (0.7280)
+   metrics: accuracy=0.7280, macro_f1=0.5116, micro_f1=0.7280, roc_auc=-, ap=-, nmi=-, ari=-
+   notes=classes=5; stratified=True
+
+9. metapath2vec | node_classification [skipped]
+   runtime=0.000s | embedding_runtime=0.000s | dim=0 | evaluated=-
+   train=- | test=- | classifier=logistic_regression | label_column=ethnicity
+   primary_metric=accuracy (-)
+   metrics: accuracy=-, macro_f1=-, micro_f1=-, roc_auc=-, ap=-, nmi=-, ari=-
+   skipped_reason=metapath2vec requires a heterogeneous graph with node/edge types; the current benchmark graph is homogeneous.

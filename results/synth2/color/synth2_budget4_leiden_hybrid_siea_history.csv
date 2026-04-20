@@ -1,0 +1,2 @@
+generation,best_score,best_f_score,best_spread,best_mf,best_dcv,average_population_score,population_diversity,best_seed_set,local_search_applied_count,local_search_swap_evaluations,screening_evaluation_calls,full_evaluation_calls,zero_covered_groups_count,bottom_3_avg_group_spread,fraction_groups_covered,weakest_groups_note
+0,-0.03833333333333332,-0.03833333333333332,4.0,0.006666666666666667,0.08333333333333331,-0.03833333333333332,0.8206349206349207,"[233, 375, 63, 72]",4,64,0,67,0,2.0,1.0,"0,1"

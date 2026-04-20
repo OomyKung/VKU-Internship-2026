@@ -11,7 +11,7 @@ import unittest
 import pandas as pd
 
 from fim_hybrid.experiment_runner import ExperimentSettings
-from scripts.run_experiment import build_dataset_config, format_results_report
+from scripts.run_experiment import build_dataset_config, build_results_report_path, format_results_report, save_results_report
 
 
 KEPT_ML_LABEL = "hybrid_siea_ml_two_tier_tuned_swap_local_search"
@@ -227,6 +227,68 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
 
         self.assertIn(str(Path("results") / "toy_graph" / "group_name" / "toy_graph_budget4_results.csv"), report)
 
+    def test_save_results_report_writes_text_file_next_to_csv_outputs(self) -> None:
+        frame = pd.DataFrame(
+            [
+                {
+                    "dataset": "toy_graph",
+                    "diffusion_model": "ic",
+                    "community_method": "leiden",
+                    "method": "hybrid_siea",
+                    "variant_type": "proposed",
+                    "total_spread": 4.65,
+                    "mf": 0.008333,
+                    "dcv": 0.038232,
+                    "f_score": -0.014949,
+                    "runtime_seconds": 3.157337,
+                    "search_runtime_seconds": 2.657337,
+                    "final_eval_runtime_seconds": 0.500000,
+                    "mc_runs_search": 20,
+                    "mc_runs_eval": 20,
+                    "candidate_pool_size": 500,
+                    "optimization_mode": "full",
+                    "node2vec_enabled": False,
+                    "node2vec_mode": "off",
+                    "ml_guidance_mode": "off",
+                    "ml_backend": "none",
+                    "gnn_model_type": pd.NA,
+                    "ml_validation_spearman": float("nan"),
+                    "ml_validation_precision_at_budget": float("nan"),
+                    "community_modularity": 0.451674,
+                    "zero_covered_groups_count": 0,
+                    "bottom_3_avg_group_spread": 1.700000,
+                    "fraction_groups_covered": 1.0,
+                    "weakest_groups_note": "A,B,C",
+                    "delta_f_score": 0.0,
+                }
+            ]
+        )
+        output_dir = Path("test_outputs") / "run_experiment_cli_report"
+        settings = ExperimentSettings(
+            protected_attribute="group/name",
+            budget=4,
+            community_method="leiden",
+            mc_runs_search=20,
+            mc_runs_eval=20,
+            random_seed=42,
+            output_dir=output_dir,
+        )
+
+        report = format_results_report(frame, settings)
+        report_path = build_results_report_path(frame, settings)
+        saved_path = save_results_report(report, frame, settings)
+
+        self.assertIsNotNone(report_path)
+        self.assertEqual(saved_path, report_path)
+        self.assertTrue(saved_path.exists())
+        self.assertEqual(
+            saved_path,
+            output_dir / "toy_graph" / "group_name" / "toy_graph_budget4_report.txt",
+        )
+        saved_text = saved_path.read_text(encoding="utf-8")
+        self.assertIn("Fair Influence Maximization Experiment Summary", saved_text)
+        self.assertIn("toy_graph_budget4_results.csv", saved_text)
+
     def test_format_results_report_shows_gnn_backend_metadata(self) -> None:
         frame = pd.DataFrame(
             [
@@ -250,6 +312,8 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "optimization_mode": "full",
                     "node2vec_enabled": False,
                     "node2vec_mode": "off",
+                    "guidance_mode": "gnn",
+                    "graphsage_enabled": True,
                     "ml_guidance_mode": "two_tier",
                     "ml_backend": "gnn",
                     "gnn_model_type": "graphsage",
@@ -288,6 +352,8 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
 
         self.assertIn("backend=gnn", report)
         self.assertIn("GNN=graphsage", report)
+        self.assertIn("guidance=gnn", report)
+        self.assertIn("GraphSAGE=on", report)
         self.assertIn("GNN config: type=graphsage", report)
 
     def test_format_results_report_shows_gnn_node2vec_metadata(self) -> None:
@@ -313,6 +379,8 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "optimization_mode": "full",
                     "node2vec_enabled": True,
                     "node2vec_mode": "input_concat",
+                    "guidance_mode": "gnn",
+                    "graphsage_enabled": True,
                     "ml_guidance_mode": "two_tier",
                     "ml_backend": "gnn",
                     "gnn_model_type": "graphsage",
@@ -386,6 +454,8 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
                     "optimization_mode": "full",
                     "node2vec_enabled": False,
                     "node2vec_mode": "off",
+                    "guidance_mode": "gnn_ris",
+                    "graphsage_enabled": True,
                     "ris_enabled": True,
                     "ris_mode": "weak_group_weighted",
                     "ml_guidance_mode": "two_tier",
@@ -422,8 +492,10 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
             ris_num_rr_sets=256,
             ris_mode="weak_group_weighted",
             ris_reuse_rr_sets=True,
+            graphsage_weight=1.25,
             gnn_weight=1.0,
             ris_weight=1.0,
+            fair_ris_weight=0.5,
             fairness_urgency_weight=0.25,
             diversity_weight=0.15,
             ml_singleton_runs=15,
@@ -432,9 +504,11 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
         report = format_results_report(frame, settings)
 
         self.assertIn("backend=gnn_ris", report)
+        self.assertIn("guidance=gnn_ris", report)
+        self.assertIn("GraphSAGE=on", report)
         self.assertIn("RIS=weak_group_weighted", report)
         self.assertIn("RIS config: num_rr_sets=256", report)
-        self.assertIn("Guidance weights: gnn=1.0 | ris=1.0", report)
+        self.assertIn("Guidance weights: graphsage=1.25 | ris=1.0 | fair_ris=0.5", report)
 
     def test_format_results_report_can_focus_on_best_ml_vs_cea_fim(self) -> None:
         frame = pd.DataFrame(

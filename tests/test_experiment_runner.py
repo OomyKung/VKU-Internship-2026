@@ -604,6 +604,8 @@ class ExperimentRunnerTestCase(unittest.TestCase):
 
         self.assertIn(KEPT_RIS_ML_LABEL, set(result_frame["method"]))
         ris_row = result_frame[result_frame["method"] == KEPT_RIS_ML_LABEL].iloc[0]
+        self.assertEqual(ris_row["guidance_mode"], "ris")
+        self.assertFalse(bool(ris_row["graphsage_enabled"]))
         self.assertEqual(ris_row["ml_backend"], "ris")
         self.assertTrue(bool(ris_row["ris_enabled"]))
         self.assertEqual(ris_row["ris_mode"], "weak_group_weighted")
@@ -643,6 +645,8 @@ class ExperimentRunnerTestCase(unittest.TestCase):
 
         self.assertIn(KEPT_GNN_RIS_ML_LABEL, set(result_frame["method"]))
         combined_row = result_frame[result_frame["method"] == KEPT_GNN_RIS_ML_LABEL].iloc[0]
+        self.assertEqual(combined_row["guidance_mode"], "gnn_ris")
+        self.assertTrue(bool(combined_row["graphsage_enabled"]))
         self.assertEqual(combined_row["ml_backend"], "gnn_ris")
         self.assertEqual(combined_row["gnn_model_type"], "graphsage")
         self.assertTrue(bool(combined_row["ris_enabled"]))

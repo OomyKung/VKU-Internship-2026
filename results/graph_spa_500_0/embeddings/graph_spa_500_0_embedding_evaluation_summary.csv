@@ -1,0 +1,2 @@
+dataset,method,task,status,runtime_seconds,embedding_runtime_seconds,embedding_dim,node_count,evaluated_count,train_count,test_count,label_column,classifier,edge_feature,accuracy,macro_f1,micro_f1,roc_auc,average_precision,nmi,ari,notes,skipped_reason
+graph_spa_500_0,line,node_classification,skipped,0.0,0.05200800000011441,64,500,,,,color,logistic_regression,,,,,,,,,,Label column 'color' is not present in dataset.node_attributes.

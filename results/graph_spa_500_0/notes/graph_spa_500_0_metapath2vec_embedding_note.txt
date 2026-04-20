@@ -1,0 +1,25 @@
+Dataset: graph_spa_500_0
+Method: metapath2vec
+Family: Heterogeneous graph embedding
+
+What this method does:
+metapath2vec performs random walks constrained by node/edge types and metapaths, so it is designed for heterogeneous graphs rather than plain homogeneous networks.
+
+Typical strengths:
+Useful when typed entities and typed relations matter.
+
+Typical weaknesses:
+Not applicable to homogeneous graphs like the current benchmark graph.
+
+Observed benchmark result:
+status=skipped, runtime=0.000s, embedding_dim=-, label_probe_accuracy=-, uses_features=False
+
+Task-level evaluation:
+- node_classification: status=skipped, label_column=age, runtime=0.000s, accuracy=-, macro_f1=-, micro_f1=-, roc_auc=-, average_precision=-, nmi=-, ari=-
+  skipped_reason: metapath2vec requires a heterogeneous graph with node/edge types; the current benchmark graph is homogeneous.
+
+Why this result likely happened:
+metapath2vec requires a heterogeneous graph with node/edge types; the current benchmark graph is homogeneous.
+
+Caveat:
+This explanation is an inference from the saved benchmark outputs and the current code path. It is a strong engineering interpretation, not a formal causal proof.

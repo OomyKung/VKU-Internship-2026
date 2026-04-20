@@ -1,0 +1,25 @@
+Dataset: graph_spa_500_0
+Method: deepwalk
+Family: Shallow random-walk
+
+What this method does:
+DeepWalk generates short random walks on the graph and learns node vectors from co-occurrence patterns inside those walks. It is effectively a graph version of a word2vec-style neighborhood model.
+
+Typical strengths:
+Captures higher-order structural context beyond direct neighbors.
+
+Typical weaknesses:
+Uses structure only in this benchmark and ignores node attributes.
+
+Observed benchmark result:
+status=ok, runtime=6.999s, embedding_dim=64, label_probe_accuracy=0.7280, uses_features=False
+
+Task-level evaluation:
+- node_classification: status=ok, label_column=age, runtime=0.017s, accuracy=0.7280, macro_f1=0.6799, micro_f1=0.7280, roc_auc=-, average_precision=-, nmi=-, ari=-
+  notes: classes=7; stratified=True
+
+Why this result likely happened:
+deepwalk performed in the middle because random-walk co-occurrence captures higher-order topology better than LINE, but it still does not use node attributes directly.
+
+Caveat:
+This explanation is an inference from the saved benchmark outputs and the current code path. It is a strong engineering interpretation, not a formal causal proof.
