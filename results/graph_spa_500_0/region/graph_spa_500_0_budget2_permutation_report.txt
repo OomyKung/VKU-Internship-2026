@@ -1,0 +1,20 @@
+FIM Algorithm-Stack Permutation Comparison
+------------------------------------------------------------------------
+Protected attribute: region
+Budget: 2
+Final estimator: monte_carlo | mc_runs_eval=3
+
+1. community_aware_fair_greedy [ok]
+   spread=2.0000 | extra=0.0000 | MF=0.0000 | DCV=0.8462 | F-score=-0.4231 | runtime=0.506s
+   modules: diffusion=ic | community=leiden | embedding=none | clustering=none | optimizer=local_search | ranking=fairness_weighted_greedy
+   notes=initial_rr=[12, 18]; greedy=[238, 28]; communities=19; modularity=0.802180
+
+2. infomap_graphcl_maximin [ok]
+   spread=2.0000 | extra=0.0000 | MF=0.0000 | DCV=0.8462 | F-score=-0.4231 | runtime=0.612s
+   modules: diffusion=ic | community=infomap | embedding=graphcl | clustering=spectral | optimizer=local_search | ranking=maximin_greedy
+   notes=GraphCL embedding and spectral clustering are optional exploratory modules; the runnable FIM path uses Infomap plus maximin/worst-group search.; initial_maximin=[271, 377]; communities=60; modularity=0.732486; optional_graphcl_clustering=not_materialized_in_fim_path
+
+3. graphsage_fair_ris_hybrid [ok]
+   spread=2.0000 | extra=0.0000 | MF=0.0000 | DCV=0.8462 | F-score=-0.4231 | runtime=3.633s
+   modules: diffusion=ic | community=leiden | embedding=graphsage | clustering=none | optimizer=hybrid_si_ea | ranking=graphsage_plus_fair_ris
+   notes=ML guidance mode=two_tier; full_pool=500; tier_policy=tuned; backend=gnn_ris; weights=(graphsage=1.000, ris=1.000, fair_ris=0.500, fairness=0.200, diversity=0.000); target=gnn_label_score; target_variance=0.002914; gnn_model_type=graphsage; node2vec_mode=off; feature_shape=(500, 53); edge_index_shape=(2, 1938); cache=hit; label_variance=0.006410; ris_num_rr_sets=16; ris_mode=weak_group_weighted; fair_ris_enabled=True; ris_reuse_rr_sets=True; history=graph_spa_500_0_budget2_leiden_hybrid_siea_ml_gnn_ris_two_tier_tuned_swap_local_search_history.csv; GraphSAGE ranking and fair RIS guidance delegated to existing gnn_ris hybrid path.
