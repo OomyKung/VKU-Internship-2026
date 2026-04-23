@@ -10,7 +10,9 @@ from typing import Any
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
+from sklearn.neural_network import MLPRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
@@ -68,6 +70,17 @@ def _precision_at_k(
     return float(len(overlap) / float(k))
 
 
+@dataclass(frozen=True, slots=True)
+class RankingModelSpec:
+    """Static metadata for one tabular or score-producing ranking model."""
+
+    name: str
+    backend: str
+    objective_type: str
+    optional_dependencies: tuple[str, ...] = ()
+    description: str = ""
+
+
 def _build_feature_matrix(feature_frame: pd.DataFrame, label_frame: pd.DataFrame) -> pd.DataFrame:
     left = feature_frame.reset_index(drop=True).copy()
     right = label_frame.reset_index(drop=True).copy()
@@ -90,6 +103,75 @@ def _build_feature_matrix(feature_frame: pd.DataFrame, label_frame: pd.DataFrame
     if missing_nodes:
         raise ValueError(f"feature_frame and label_frame must cover the same nodes: {missing_nodes[:5]}.")
     return merged
+
+
+def _ranking_model_registry() -> dict[str, RankingModelSpec]:
+    return {
+        "random_forest": RankingModelSpec(
+            name="random_forest",
+            backend="tabular",
+            objective_type="regression",
+            description="Random-forest regressor over handcrafted node features.",
+        ),
+        "xgboost": RankingModelSpec(
+            name="xgboost",
+            backend="tabular",
+            objective_type="regression",
+            optional_dependencies=("xgboost",),
+            description="Gradient-boosted tree regressor over handcrafted node features.",
+        ),
+        "mlp": RankingModelSpec(
+            name="mlp",
+            backend="tabular",
+            objective_type="regression",
+            description="Feed-forward MLP regressor over handcrafted node features.",
+        ),
+        "logistic_regression": RankingModelSpec(
+            name="logistic_regression",
+            backend="tabular",
+            objective_type="binary_top_budget_classification",
+            description=(
+                "Logistic classifier that ranks nodes by probability of belonging to the "
+                "top-budget singleton-utility set."
+            ),
+        ),
+        "graphsage": RankingModelSpec(
+            name="graphsage",
+            backend="gnn",
+            objective_type="regression",
+            optional_dependencies=("torch", "torch_geometric"),
+            description="GraphSAGE regressor used by the GNN ranking backend.",
+        ),
+        "gcn": RankingModelSpec(
+            name="gcn",
+            backend="gnn",
+            objective_type="regression",
+            optional_dependencies=("torch", "torch_geometric"),
+            description="GCN regressor used by the GNN ranking backend.",
+        ),
+        "ris_guidance": RankingModelSpec(
+            name="ris_guidance",
+            backend="ris",
+            objective_type="coverage_prior",
+            description="RIS node-coverage prior used for search-time guidance only.",
+        ),
+    }
+
+
+def available_ranking_models() -> tuple[str, ...]:
+    """Return all supported ranking/scoring model names."""
+
+    return tuple(_ranking_model_registry())
+
+
+def get_ranking_model_spec(model_type: str) -> RankingModelSpec:
+    """Return static metadata for one ranking model."""
+
+    key = str(model_type).strip().lower()
+    registry = _ranking_model_registry()
+    if key not in registry:
+        raise ValueError(f"Unknown ranking model '{model_type}'.")
+    return registry[key]
 
 
 def select_ml_candidate_nodes(
@@ -126,18 +208,28 @@ def select_ml_candidate_nodes(
     return tuple(ranked_nodes[:candidate_count])
 
 
-def _split_training_frame(training_frame: pd.DataFrame, random_seed: int) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _split_training_frame(
+    training_frame: pd.DataFrame,
+    random_seed: int,
+    stratify_labels: pd.Series | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     node_count = len(training_frame)
     if node_count < 4:
         return training_frame.copy(), training_frame.copy()
 
     test_size = max(1, int(round(node_count * 0.25)))
     test_size = min(test_size, node_count - 2)
+    stratify = None
+    if stratify_labels is not None:
+        unique_values = set(pd.Series(stratify_labels).dropna().astype(int).tolist())
+        if len(unique_values) >= 2:
+            stratify = stratify_labels
     train_frame, validation_frame = train_test_split(
         training_frame,
         test_size=test_size,
         random_state=random_seed,
         shuffle=True,
+        stratify=stratify,
     )
     return train_frame.copy(), validation_frame.copy()
 
@@ -211,6 +303,67 @@ def _build_xgboost_pipeline(
     )
 
 
+def _build_mlp_pipeline(
+    categorical_columns: list[str],
+    numeric_columns: list[str],
+    random_seed: int,
+) -> Pipeline:
+    preprocessor = ColumnTransformer(
+        transformers=[
+            (
+                "categorical",
+                OneHotEncoder(handle_unknown="ignore", sparse_output=False),
+                categorical_columns,
+            ),
+            ("numeric", "passthrough", numeric_columns),
+        ]
+    )
+    return Pipeline(
+        steps=[
+            ("preprocessor", preprocessor),
+            (
+                "model",
+                MLPRegressor(
+                    hidden_layer_sizes=(128, 64),
+                    activation="relu",
+                    solver="adam",
+                    max_iter=500,
+                    random_state=random_seed,
+                ),
+            ),
+        ]
+    )
+
+
+def _build_logistic_regression_pipeline(
+    categorical_columns: list[str],
+    numeric_columns: list[str],
+    random_seed: int,
+) -> Pipeline:
+    preprocessor = ColumnTransformer(
+        transformers=[
+            (
+                "categorical",
+                OneHotEncoder(handle_unknown="ignore", sparse_output=False),
+                categorical_columns,
+            ),
+            ("numeric", "passthrough", numeric_columns),
+        ]
+    )
+    return Pipeline(
+        steps=[
+            ("preprocessor", preprocessor),
+            (
+                "model",
+                LogisticRegression(
+                    max_iter=1000,
+                    random_state=random_seed,
+                ),
+            ),
+        ]
+    )
+
+
 def _build_model_pipeline(
     model_type: str,
     categorical_columns: list[str],
@@ -221,7 +374,48 @@ def _build_model_pipeline(
         return _build_random_forest_pipeline(categorical_columns, numeric_columns, random_seed)
     if model_type == "xgboost":
         return _build_xgboost_pipeline(categorical_columns, numeric_columns, random_seed)
-    raise ValueError("model_type must be one of ['random_forest', 'xgboost'].")
+    if model_type == "mlp":
+        return _build_mlp_pipeline(categorical_columns, numeric_columns, random_seed)
+    if model_type == "logistic_regression":
+        return _build_logistic_regression_pipeline(categorical_columns, numeric_columns, random_seed)
+    raise ValueError(
+        "model_type must be one of ['random_forest', 'xgboost', 'mlp', 'logistic_regression']."
+    )
+
+
+def _classification_target(
+    training_frame: pd.DataFrame,
+    budget: int,
+) -> pd.Series:
+    if budget < 1:
+        raise ValueError("budget must be at least 1 for logistic_regression ranking.")
+    if len(training_frame) < 2:
+        raise ValueError("logistic_regression ranking requires at least two nodes.")
+    positive_count = min(max(int(budget), 1), len(training_frame) - 1)
+    ordered = training_frame.sort_values(
+        by=["label_score", "node_id"],
+        ascending=[False, True],
+    )
+    target = pd.Series(0, index=training_frame.index, dtype=int)
+    target.loc[ordered.index[:positive_count]] = 1
+    if target.nunique() < 2:
+        raise ValueError(
+            "logistic_regression ranking requires both positive and negative training labels."
+        )
+    return target
+
+
+def _predict_scores(
+    model_type: str,
+    model: Pipeline,
+    feature_frame: pd.DataFrame,
+) -> pd.Series:
+    if model_type == "logistic_regression":
+        probabilities = model.predict_proba(feature_frame)
+        if probabilities.ndim != 2 or probabilities.shape[1] < 2:
+            raise ValueError("logistic_regression ranking requires binary class probabilities.")
+        return pd.Series(probabilities[:, 1], index=feature_frame.index, dtype=float)
+    return pd.Series(model.predict(feature_frame), index=feature_frame.index, dtype=float)
 
 
 @dataclass(slots=True)
@@ -237,6 +431,7 @@ class MLTrainingResult:
     validation_precision_at_budget: float
     runtime_seconds: float
     model_type: str
+    target_type: str
 
 
 def train_node_utility_model(
@@ -273,7 +468,17 @@ def train_node_utility_model(
         for column_name in training_frame.columns
         if column_name not in excluded_columns and column_name not in categorical_columns
     ]
-    train_frame, validation_frame = _split_training_frame(training_frame, random_seed=random_seed)
+    target_type = "regression"
+    binary_target: pd.Series | None = None
+    if model_type == "logistic_regression":
+        binary_target = _classification_target(training_frame, budget=budget)
+        target_type = "binary_top_budget_classification"
+
+    train_frame, validation_frame = _split_training_frame(
+        training_frame,
+        random_seed=random_seed,
+        stratify_labels=binary_target,
+    )
 
     validation_pipeline = _build_model_pipeline(
         model_type=model_type,
@@ -281,14 +486,20 @@ def train_node_utility_model(
         numeric_columns=numeric_columns,
         random_seed=random_seed,
     )
+    if binary_target is not None:
+        train_target = binary_target.loc[train_frame.index]
+        full_target = binary_target
+    else:
+        train_target = train_frame["label_score"]
+        full_target = training_frame["label_score"]
     validation_pipeline.fit(
         train_frame[categorical_columns + numeric_columns],
-        train_frame["label_score"],
+        train_target,
     )
-    validation_predictions = pd.Series(
-        validation_pipeline.predict(validation_frame[categorical_columns + numeric_columns]),
-        index=validation_frame.index,
-        dtype=float,
+    validation_predictions = _predict_scores(
+        model_type,
+        validation_pipeline,
+        validation_frame[categorical_columns + numeric_columns],
     )
     validation_spearman = _safe_spearman(validation_frame["label_score"], validation_predictions)
     validation_precision_at_budget = _precision_at_k(
@@ -306,12 +517,16 @@ def train_node_utility_model(
     )
     final_model.fit(
         training_frame[categorical_columns + numeric_columns],
-        training_frame["label_score"],
+        full_target,
     )
-    predicted_array = final_model.predict(training_frame[categorical_columns + numeric_columns])
+    predicted_series = _predict_scores(
+        model_type,
+        final_model,
+        training_frame[categorical_columns + numeric_columns],
+    )
     predicted_scores = {
         row.node_id: float(score)
-        for row, score in zip(training_frame.itertuples(index=False), predicted_array, strict=True)
+        for row, score in zip(training_frame.itertuples(index=False), predicted_series, strict=True)
     }
     ranked_nodes = _rank_nodes(predicted_scores)
     candidate_nodes = select_ml_candidate_nodes(
@@ -333,4 +548,5 @@ def train_node_utility_model(
         validation_precision_at_budget=validation_precision_at_budget,
         runtime_seconds=runtime_seconds,
         model_type=model_type,
+        target_type=target_type,
     )

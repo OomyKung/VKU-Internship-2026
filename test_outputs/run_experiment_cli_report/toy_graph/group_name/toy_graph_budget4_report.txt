@@ -22,7 +22,7 @@ Modes present: full
    search=2.657s | eval=0.500s | MF=0.008333 | DCV=0.038232
    pool=500 | kind=proposed
    ZeroCov=0 | FracCov=1.000 | Bottom3=1.700
-   ML=- | guidance=none | backend=none | GNN=- | GraphSAGE=off | N2V=off | RIS=off | rho=- | p@k=-
+   ML=- | ranker=none | guidance=none | backend=none | GNN=- | GraphSAGE=off | N2V=off | RIS=off | rho=- | p@k=-
 
 Highlights
   Best F-score: hybrid_siea (-0.014949)
@@ -33,6 +33,6 @@ hybrid_siea [full]
    dF=+0.000000 | dT=+0.000s | F=-0.014949 | runtime=3.157s
    search=2.657s | eval=0.500s | spread=4.650 | extra=-
    pool=500 | ZeroCov=0 | FracCov=1.000
-   ML=- | guidance=none | backend=none | GNN=- | GraphSAGE=off | N2V=off | RIS=off
+   ML=- | ranker=none | guidance=none | backend=none | GNN=- | GraphSAGE=off | N2V=off | RIS=off
 
 Saved CSV: test_outputs\run_experiment_cli_report\toy_graph\group_name\toy_graph_budget4_results.csv

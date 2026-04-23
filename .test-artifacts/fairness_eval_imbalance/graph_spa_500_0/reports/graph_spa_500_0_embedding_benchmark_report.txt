@@ -1,0 +1,27 @@
+Saved benchmark report to C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\fairness_eval_imbalance\graph_spa_500_0\reports\graph_spa_500_0_embedding_benchmark_report.txt
+Method status counts: {'ok': 1}
+
+
+1. graphsage [ok]
+   runtime=6.780s | dim=64 | nodes=500 | ml_ready=True
+   all_nodes=True | all_finite=True | cosine_mean=0.09837484861559014
+   label_probe=not_requested | accuracy=- | macro_f1=- | type=-
+   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\fairness_eval_imbalance\graph_spa_500_0\embeddings\graph_spa_500_0_graphsage_embeddings.csv | pickle=C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\fairness_eval_imbalance\graph_spa_500_0\embeddings\graph_spa_500_0_graphsage_embeddings.pkl | npy=-
+Evaluation status counts: {'ok': 1}
+
+----------------------------------------------------------------------------------------------------
+Graph Embedding Evaluation Summary
+----------------------------------------------------------------------------------------------------
+Sorted by primary metric within each task: accuracy for node classification, roc_auc for link prediction, nmi for clustering.
+
+1. graphsage | node_classification [ok]
+   runtime=2.890s | embedding_runtime=6.780s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=graphsage | label_column=gender
+   primary_metric=accuracy (0.9440)
+   metrics: accuracy=0.9440, macro_f1=0.9440, micro_f1=0.9440, weighted_f1=0.9440, balanced_accuracy=0.9445, macro_precision=0.9445, macro_recall=0.9445, roc_auc=-, ap=-, nmi=-, ari=-
+   fairness: protected_attribute=region | worst_group_accuracy=0.3333 | accuracy_gap=0.6667 | worst_group_f1=0.2500 | macro_f1_gap=0.7500
+   training: mode=imbalance_only | debias_mode=none | imbalance_mode=focal_loss | group_weight_mode=none | group_robust_weight=0.0000 | early_stop_metric=macro_f1
+   leakage: protected_probe=ok | accuracy=0.9600 | macro_f1=0.8698 | type=linear
+   diagnostics: train_full:n=375,small_groups=6,missing=0 | train:n=300,small_groups=8,missing=0 | validation:n=75,small_groups=8,missing=0 | test:n=125,small_groups=7,missing=0
+   group_errors: collapse_groups=littlerock,sun_village | max_group_error=0.6667
+   notes=classes=2; stratified=True; val=75; val_stratified=True; training_mode=imbalance_only; debias_mode=none; imbalance_mode=focal_loss; early_stop_metric=macro_f1

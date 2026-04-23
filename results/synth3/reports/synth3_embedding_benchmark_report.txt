@@ -1,60 +1,37 @@
-======================================================================================================================
+====================================================================================================================
 Graph Embedding Benchmark Summary
-======================================================================================================================
+====================================================================================================================
 Dataset: synth3
 Output directory: C:\Users\User\Desktop\VKU-Internship-2026\results
 Methods available: deepwalk, node2vec, line, vgae, gcn, graphsage, dgi, graphcl, metapath2vec
 
-1. line [ok]
-   runtime=0.201s | dim=64 | nodes=500 | ml_ready=True
-   all_nodes=True | all_finite=True | cosine_mean=0.7510840270515425
-   label_probe=not_requested | accuracy=-
-   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\synth3\embeddings\synth3_line_embeddings.csv | pickle=- | npy=-
+1. graphsage [ok]
+   runtime=4.956s | dim=64 | nodes=500 | ml_ready=True
+   all_nodes=True | all_finite=True | cosine_mean=0.5163471478438871
+   label_probe=ok | accuracy=1.0
+   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\synth3\embeddings\synth3_graphsage_embeddings.csv | pickle=C:\Users\User\Desktop\VKU-Internship-2026\results\synth3\embeddings\synth3_graphsage_embeddings.pkl | npy=-
 
-2. deepwalk [ok]
-   runtime=5.945s | dim=64 | nodes=500 | ml_ready=True
-   all_nodes=True | all_finite=True | cosine_mean=0.3075053569590925
-   label_probe=not_requested | accuracy=-
-   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\synth3\embeddings\synth3_deepwalk_embeddings.csv | pickle=- | npy=-
+2. dgi [ok]
+   runtime=5.309s | dim=64 | nodes=500 | ml_ready=True
+   all_nodes=True | all_finite=True | cosine_mean=0.9302050016286995
+   label_probe=ok | accuracy=0.992
+   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\synth3\embeddings\synth3_dgi_embeddings.csv | pickle=C:\Users\User\Desktop\VKU-Internship-2026\results\synth3\embeddings\synth3_dgi_embeddings.pkl | npy=-
 
-3. node2vec [ok]
-   runtime=7.020s | dim=64 | nodes=500 | ml_ready=True
-   all_nodes=True | all_finite=True | cosine_mean=0.3075053569590925
-   label_probe=not_requested | accuracy=-
-   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\synth3\embeddings\synth3_node2vec_embeddings.csv | pickle=- | npy=-
+--------------------------------------------------------------------------------------------------------------------
+Graph Embedding Evaluation Summary
+--------------------------------------------------------------------------------------------------------------------
+Sorted by primary metric within each task: accuracy for node classification, roc_auc for link prediction, nmi for clustering.
 
-4. graphsage [ok]
-   runtime=12.358s | dim=64 | nodes=500 | ml_ready=True
-   all_nodes=True | all_finite=True | cosine_mean=0.531324319510069
-   label_probe=not_requested | accuracy=-
-   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\synth3\embeddings\synth3_graphsage_embeddings.csv | pickle=- | npy=-
+1. dgi | node_classification [ok]
+   runtime=0.901s | embedding_runtime=5.309s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=graphsage | label_column=color
+   primary_metric=accuracy (0.9920)
+   metrics: accuracy=0.9920, macro_f1=0.9857, micro_f1=0.9920, weighted_f1=0.9920, roc_auc=-, ap=-, nmi=-, ari=-
+   notes=classes=3; stratified=True; val=75; val_stratified=True; imbalance_mode=focal_loss; early_stop_metric=macro_f1
 
-5. gcn [ok]
-   runtime=12.571s | dim=64 | nodes=500 | ml_ready=True
-   all_nodes=True | all_finite=True | cosine_mean=0.784627770775217
-   label_probe=not_requested | accuracy=-
-   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\synth3\embeddings\synth3_gcn_embeddings.csv | pickle=- | npy=-
-
-6. dgi [ok]
-   runtime=13.618s | dim=64 | nodes=500 | ml_ready=True
-   all_nodes=True | all_finite=True | cosine_mean=0.9232942829480071
-   label_probe=not_requested | accuracy=-
-   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\synth3\embeddings\synth3_dgi_embeddings.csv | pickle=- | npy=-
-
-7. graphcl [ok]
-   runtime=13.727s | dim=64 | nodes=500 | ml_ready=True
-   all_nodes=True | all_finite=True | cosine_mean=0.5913545061126995
-   label_probe=not_requested | accuracy=-
-   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\synth3\embeddings\synth3_graphcl_embeddings.csv | pickle=- | npy=-
-
-8. vgae [ok]
-   runtime=13.790s | dim=64 | nodes=500 | ml_ready=True
-   all_nodes=True | all_finite=True | cosine_mean=0.8676885462206385
-   label_probe=not_requested | accuracy=-
-   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\synth3\embeddings\synth3_vgae_embeddings.csv | pickle=- | npy=-
-
-9. metapath2vec [skipped]
-   runtime=0.000s | dim=- | nodes=500 | ml_ready=False
-   all_nodes=False | all_finite=False | cosine_mean=-
-   label_probe=not_run | accuracy=-
-   skip_reason=metapath2vec requires a heterogeneous graph with node/edge types; the current benchmark graph is homogeneous.
+2. graphsage | node_classification [ok]
+   runtime=1.049s | embedding_runtime=4.956s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=graphsage | label_column=color
+   primary_metric=accuracy (0.9920)
+   metrics: accuracy=0.9920, macro_f1=0.9857, micro_f1=0.9920, weighted_f1=0.9920, roc_auc=-, ap=-, nmi=-, ari=-
+   notes=classes=3; stratified=True; val=75; val_stratified=True; imbalance_mode=focal_loss; early_stop_metric=macro_f1

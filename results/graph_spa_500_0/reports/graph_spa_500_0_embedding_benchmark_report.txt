@@ -1,60 +1,25 @@
-====================================================================================================
-Graph Embedding Benchmark Summary
-====================================================================================================
-Dataset: graph_spa_500_0
-Output directory: C:\Users\User\Desktop\VKU-Internship-2026\results
-Methods available: deepwalk, node2vec, line, vgae, gcn, graphsage, dgi, graphcl, metapath2vec
+Saved benchmark report to C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\reports\graph_spa_500_0_embedding_benchmark_report.txt
+Method status counts: {'ok': 1}
 
-1. line [ok]
-   runtime=0.144s | dim=64 | nodes=500 | ml_ready=True
-   all_nodes=True | all_finite=True | cosine_mean=0.06985922504222171
-   label_probe=not_requested | accuracy=-
-   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\embeddings\graph_spa_500_0_line_embeddings.csv | pickle=- | npy=-
 
-2. deepwalk [ok]
-   runtime=8.132s | dim=64 | nodes=500 | ml_ready=True
+1. deepwalk [ok]
+   runtime=2.366s | dim=64 | nodes=500 | ml_ready=True
    all_nodes=True | all_finite=True | cosine_mean=0.08455347399848628
-   label_probe=not_requested | accuracy=-
-   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\embeddings\graph_spa_500_0_deepwalk_embeddings.csv | pickle=- | npy=-
+   label_probe=ok | accuracy=0.8560 | macro_f1=0.8559 | type=linear
+   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\embeddings\graph_spa_500_0_deepwalk_embeddings.csv | pickle=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\embeddings\graph_spa_500_0_deepwalk_embeddings.pkl | npy=-
+Evaluation status counts: {'ok': 1}
 
-3. node2vec [ok]
-   runtime=8.548s | dim=64 | nodes=500 | ml_ready=True
-   all_nodes=True | all_finite=True | cosine_mean=0.08455347399848628
-   label_probe=not_requested | accuracy=-
-   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\embeddings\graph_spa_500_0_node2vec_embeddings.csv | pickle=- | npy=-
+---------------------------------------------------------------------------------------------------------------------
+Graph Embedding Evaluation Summary
+---------------------------------------------------------------------------------------------------------------------
+Sorted by primary metric within each task: accuracy for node classification, roc_auc for link prediction, nmi for clustering.
 
-4. gcn [ok]
-   runtime=15.524s | dim=64 | nodes=500 | ml_ready=True
-   all_nodes=True | all_finite=True | cosine_mean=0.09709146906627734
-   label_probe=not_requested | accuracy=-
-   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\embeddings\graph_spa_500_0_gcn_embeddings.csv | pickle=- | npy=-
-
-5. graphsage [ok]
-   runtime=15.672s | dim=64 | nodes=500 | ml_ready=True
-   all_nodes=True | all_finite=True | cosine_mean=0.08704102180290761
-   label_probe=not_requested | accuracy=-
-   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\embeddings\graph_spa_500_0_graphsage_embeddings.csv | pickle=- | npy=-
-
-6. vgae [ok]
-   runtime=16.668s | dim=64 | nodes=500 | ml_ready=True
-   all_nodes=True | all_finite=True | cosine_mean=0.08328642837674835
-   label_probe=not_requested | accuracy=-
-   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\embeddings\graph_spa_500_0_vgae_embeddings.csv | pickle=- | npy=-
-
-7. dgi [ok]
-   runtime=16.904s | dim=64 | nodes=500 | ml_ready=True
-   all_nodes=True | all_finite=True | cosine_mean=0.5550709206763601
-   label_probe=not_requested | accuracy=-
-   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\embeddings\graph_spa_500_0_dgi_embeddings.csv | pickle=- | npy=-
-
-8. graphcl [ok]
-   runtime=17.679s | dim=64 | nodes=500 | ml_ready=True
-   all_nodes=True | all_finite=True | cosine_mean=0.28994117012668275
-   label_probe=not_requested | accuracy=-
-   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\embeddings\graph_spa_500_0_graphcl_embeddings.csv | pickle=- | npy=-
-
-9. metapath2vec [skipped]
-   runtime=0.000s | dim=- | nodes=500 | ml_ready=False
-   all_nodes=False | all_finite=False | cosine_mean=-
-   label_probe=not_run | accuracy=-
-   skip_reason=metapath2vec requires a heterogeneous graph with node/edge types; the current benchmark graph is homogeneous.
+1. deepwalk | node_clustering [ok]
+   runtime=1.550s | embedding_runtime=2.366s | dim=64 | evaluated=500
+   train=500 | test=- | classifier=spectral | label_column=gender
+   primary_metric=nmi (0.0558)
+   metrics: accuracy=-, macro_f1=-, micro_f1=-, weighted_f1=-, balanced_accuracy=-, macro_precision=-, macro_recall=-, roc_auc=-, ap=-, nmi=0.0558, ari=0.0017
+   clustering: method=spectral | category=embedding_space | requested_input_mode=embedding | input_mode=embedding | clusters=2 | cluster_sizes=0:483,1:17
+   clustering_metrics: silhouette=0.1387 | davies_bouldin=1.2922 | calinski_harabasz=19.4762
+   robust: boost_factor=- | warmup_epochs=-
+   notes=clusters=2; category=embedding_space; input_mode=embedding

@@ -32,6 +32,16 @@ class BaselineResult:
     normalized_group_spread: dict[str, float]
 
 
+@dataclass(frozen=True, slots=True)
+class BaselineMethodSpec:
+    """Static metadata for one baseline seed-selection method."""
+
+    name: str
+    description: str
+    requires_shared_evaluation: bool = False
+    uses_community_assignments: bool = False
+
+
 def _sort_key(value: Any) -> tuple[str, str]:
     return (type(value).__name__, repr(value))
 
@@ -49,6 +59,14 @@ def _rank_nodes(scores: dict[Any, float], budget: int) -> list[Any]:
         key=lambda node: (-float(scores[node]), _sort_key(node)),
     )
     return ranked_nodes[:budget]
+
+
+def _seed_set_key(seed_nodes: Sequence[Any]) -> tuple[Any, ...]:
+    return tuple(sorted(seed_nodes, key=_sort_key))
+
+
+def _candidate_order(graph: nx.Graph) -> list[Any]:
+    return sorted(graph.nodes(), key=_sort_key)
 
 
 def select_random_seed_set(
@@ -137,6 +155,84 @@ def select_community_round_robin_seed_set(
     return seed_set
 
 
+def _greedy_rank_key(
+    method: str,
+    evaluation,
+) -> tuple[float, float, float, float]:
+    if method == "greedy":
+        return (
+            float(evaluation.total_spread_mean),
+            float(evaluation.f_score),
+            float(evaluation.fairness.mf),
+            -float(evaluation.fairness.dcv),
+        )
+    if method == "fairness_weighted_greedy":
+        return (
+            float(evaluation.f_score),
+            float(evaluation.fairness.mf),
+            float(evaluation.total_spread_mean),
+            -float(evaluation.fairness.dcv),
+        )
+    if method == "maximin_greedy":
+        return (
+            float(evaluation.fairness.mf),
+            float(evaluation.total_spread_mean),
+            float(evaluation.f_score),
+            -float(evaluation.fairness.dcv),
+        )
+    raise ValueError(f"Unsupported greedy baseline method '{method}'.")
+
+
+def _select_greedy_seed_set(
+    dataset: LoadedDataset,
+    protected_group_report: ProtectedGroupReport,
+    method: str,
+    budget: int,
+    propagation_probability: float,
+    mc_runs: int,
+    lambda_weight: float,
+    random_seed: int,
+    diffusion_model: str,
+) -> list[Any]:
+    _validate_budget(dataset.graph, budget)
+    chosen_nodes: list[Any] = []
+    available_nodes = _candidate_order(dataset.graph)
+    evaluation_cache: dict[tuple[Any, ...], object] = {}
+
+    for _ in range(budget):
+        best_candidate: Any | None = None
+        best_key: tuple[float, float, float, float] | None = None
+        for candidate in available_nodes:
+            if candidate in chosen_nodes:
+                continue
+            candidate_seed_set = _seed_set_key([*chosen_nodes, candidate])
+            evaluation = evaluation_cache.get(candidate_seed_set)
+            if evaluation is None:
+                evaluation = evaluate_seed_set(
+                    dataset=dataset,
+                    protected_group_report=protected_group_report,
+                    seed_set=candidate_seed_set,
+                    propagation_probability=propagation_probability,
+                    mc_runs=mc_runs,
+                    random_seed=random_seed,
+                    lambda_weight=lambda_weight,
+                    include_soft_mf=True,
+                    diffusion_model=diffusion_model,
+                )
+                evaluation_cache[candidate_seed_set] = evaluation
+            rank_key = _greedy_rank_key(method, evaluation)
+            if best_key is None or rank_key > best_key or (
+                rank_key == best_key and _sort_key(candidate) < _sort_key(best_candidate)
+            ):
+                best_candidate = candidate
+                best_key = rank_key
+        if best_candidate is None:
+            raise RuntimeError(f"{method} could not select the requested budget.")
+        chosen_nodes.append(best_candidate)
+
+    return chosen_nodes
+
+
 _BASELINE_SELECTORS: dict[str, Callable[[nx.Graph, int, int], list[Any]]] = {
     "random": select_random_seed_set,
     "degree": lambda graph, budget, random_seed: select_degree_seed_set(graph, budget),
@@ -144,31 +240,111 @@ _BASELINE_SELECTORS: dict[str, Callable[[nx.Graph, int, int], list[Any]]] = {
     "community_round_robin": select_community_round_robin_seed_set,
 }
 
+_GREEDY_BASELINE_METHODS = {
+    "greedy",
+    "fairness_weighted_greedy",
+    "maximin_greedy",
+}
+
+
+def _baseline_registry() -> dict[str, BaselineMethodSpec]:
+    return {
+        "random": BaselineMethodSpec(
+            name="random",
+            description="Uniform random seed selection without replacement.",
+        ),
+        "degree": BaselineMethodSpec(
+            name="degree",
+            description="Highest-degree seed selection.",
+        ),
+        "pagerank": BaselineMethodSpec(
+            name="pagerank",
+            description="Highest-PageRank seed selection.",
+        ),
+        "greedy": BaselineMethodSpec(
+            name="greedy",
+            description="Greedy marginal selection maximizing trusted total spread.",
+            requires_shared_evaluation=True,
+        ),
+        "fairness_weighted_greedy": BaselineMethodSpec(
+            name="fairness_weighted_greedy",
+            description="Greedy marginal selection maximizing trusted F-score.",
+            requires_shared_evaluation=True,
+        ),
+        "maximin_greedy": BaselineMethodSpec(
+            name="maximin_greedy",
+            description="Greedy marginal selection maximizing trusted worst-group MF.",
+            requires_shared_evaluation=True,
+        ),
+        "community_round_robin": BaselineMethodSpec(
+            name="community_round_robin",
+            description="Round-robin seeding across detected communities with PageRank ordering.",
+            uses_community_assignments=True,
+        ),
+    }
+
+
+def available_baseline_methods() -> tuple[str, ...]:
+    """Return the supported baseline method names."""
+
+    return tuple(_baseline_registry())
+
+
+def get_baseline_method_spec(method: str) -> BaselineMethodSpec:
+    """Return static metadata for one baseline method."""
+
+    method_key = str(method).strip().lower()
+    registry = _baseline_registry()
+    if method_key not in registry:
+        raise ValueError(f"Unknown baseline method '{method}'.")
+    return registry[method_key]
+
 
 def select_baseline_seed_set(
     dataset: LoadedDataset,
     method: str,
     budget: int,
+    protected_group_report: ProtectedGroupReport | None = None,
+    propagation_probability: float = 0.01,
+    mc_runs: int = 100,
+    lambda_weight: float = 0.5,
     community_result: CommunityDetectionResult | None = None,
     random_seed: int = 42,
+    diffusion_model: str = DEFAULT_DIFFUSION_MODEL,
 ) -> tuple[Any, ...]:
     """Select a baseline seed set without running diffusion or fairness evaluation."""
 
     method_key = method.lower()
-    if method_key not in _BASELINE_SELECTORS:
-        supported = ", ".join(sorted(_BASELINE_SELECTORS))
+    supported_methods = set(_BASELINE_SELECTORS) | _GREEDY_BASELINE_METHODS
+    if method_key not in supported_methods:
+        supported = ", ".join(sorted(supported_methods))
         raise ValueError(f"Unsupported baseline method '{method}'. Supported methods: {supported}.")
 
-    selector = _BASELINE_SELECTORS[method_key]
-    if method_key == "community_round_robin":
-        selected_seeds = select_community_round_robin_seed_set(
-            dataset.graph,
-            budget,
+    if method_key in _GREEDY_BASELINE_METHODS:
+        if protected_group_report is None:
+            raise ValueError(f"{method_key} requires protected_group_report for shared fairness evaluation.")
+        selected_seeds = _select_greedy_seed_set(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            method=method_key,
+            budget=budget,
+            propagation_probability=propagation_probability,
+            mc_runs=mc_runs,
+            lambda_weight=lambda_weight,
             random_seed=random_seed,
-            community_result=community_result,
+            diffusion_model=diffusion_model,
         )
     else:
-        selected_seeds = selector(dataset.graph, budget, random_seed)
+        selector = _BASELINE_SELECTORS[method_key]
+        if method_key == "community_round_robin":
+            selected_seeds = select_community_round_robin_seed_set(
+                dataset.graph,
+                budget,
+                random_seed=random_seed,
+                community_result=community_result,
+            )
+        else:
+            selected_seeds = selector(dataset.graph, budget, random_seed)
 
     return tuple(sorted(selected_seeds, key=_sort_key))
 
@@ -193,8 +369,13 @@ def run_baseline(
         dataset=dataset,
         method=method_key,
         budget=budget,
+        protected_group_report=protected_group_report,
+        propagation_probability=propagation_probability,
+        mc_runs=mc_runs,
+        lambda_weight=lambda_weight,
         community_result=community_result,
         random_seed=random_seed,
+        diffusion_model=diffusion_model,
     )
     evaluation = evaluate_seed_set(
         dataset=dataset,

@@ -1,0 +1,40 @@
+Saved benchmark report to C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\embedding_fairness_validation\dgi_and_graphsage\graph_spa_500_0\reports\graph_spa_500_0_embedding_benchmark_report.txt
+Method status counts: {'ok': 2}
+
+
+1. graphsage [ok]
+   runtime=0.146s | dim=64 | nodes=500 | ml_ready=True
+   all_nodes=True | all_finite=True | cosine_mean=0.1710158013397239
+   label_probe=ok | accuracy=0.9360 | macro_f1=0.9360
+   protected_probe=ok | column=region | accuracy=0.9920 | macro_f1=0.9688
+   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\embedding_fairness_validation\dgi_and_graphsage\graph_spa_500_0\embeddings\graph_spa_500_0_graphsage_embeddings.csv | pickle=C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\embedding_fairness_validation\dgi_and_graphsage\graph_spa_500_0\embeddings\graph_spa_500_0_graphsage_embeddings.pkl | npy=-
+
+
+2. dgi [ok]
+   runtime=3.188s | dim=64 | nodes=500 | ml_ready=True
+   all_nodes=True | all_finite=True | cosine_mean=0.433132998317412
+   label_probe=ok | accuracy=0.8960 | macro_f1=0.8956
+   protected_probe=ok | column=region | accuracy=0.9920 | macro_f1=0.9688
+   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\embedding_fairness_validation\dgi_and_graphsage\graph_spa_500_0\embeddings\graph_spa_500_0_dgi_embeddings.csv | pickle=C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\embedding_fairness_validation\dgi_and_graphsage\graph_spa_500_0\embeddings\graph_spa_500_0_dgi_embeddings.pkl | npy=-
+Evaluation status counts: {'ok': 2}
+
+--------------------------------------------------------------------------------------------------------------------
+Graph Embedding Evaluation Summary
+--------------------------------------------------------------------------------------------------------------------
+Sorted by primary metric within each task: accuracy for node classification, roc_auc for link prediction, nmi for clustering.
+
+1. dgi | node_classification [ok]
+   runtime=0.229s | embedding_runtime=3.188s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=graphsage | label_column=gender
+   primary_metric=accuracy (0.8560)
+   metrics: accuracy=0.8560, macro_f1=0.8555, micro_f1=0.8560, weighted_f1=0.8557, balanced_accuracy=0.8551, macro_precision=0.8577, macro_recall=0.8551, roc_auc=-, ap=-, nmi=-, ari=-
+   fairness: protected_attribute=region | worst_group_accuracy=0.3333 | accuracy_gap=0.6667 | worst_group_macro_f1=0.2500 | macro_f1_gap=0.7500
+   notes=classes=2; stratified=True; val=75; val_stratified=True; imbalance_mode=focal_loss; early_stop_metric=macro_f1
+
+2. graphsage | node_classification [ok]
+   runtime=0.369s | embedding_runtime=0.146s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=graphsage | label_column=gender
+   primary_metric=accuracy (0.8480)
+   metrics: accuracy=0.8480, macro_f1=0.8478, micro_f1=0.8480, weighted_f1=0.8480, balanced_accuracy=0.8477, macro_precision=0.8481, macro_recall=0.8477, roc_auc=-, ap=-, nmi=-, ari=-
+   fairness: protected_attribute=region | worst_group_accuracy=0.0000 | accuracy_gap=1.0000 | worst_group_macro_f1=0.0000 | macro_f1_gap=1.0000
+   notes=classes=2; stratified=True; val=75; val_stratified=True; imbalance_mode=focal_loss; early_stop_metric=macro_f1

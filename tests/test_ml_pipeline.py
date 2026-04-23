@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-import tempfile
+import shutil
 import unittest
+from uuid import uuid4
 
 import networkx as nx
 import pandas as pd
@@ -15,8 +16,34 @@ from fim_hybrid.experiment_runner import ExperimentSettings, _build_gnn_label_fr
 from fim_hybrid.feature_extraction import compute_node_features
 from fim_hybrid.gnn_training import gnn_dependencies_available, train_gnn_node_utility_model
 from fim_hybrid.label_generation import generate_singleton_node_utility_labels
-from fim_hybrid.ml_training import select_ml_candidate_nodes, train_node_utility_model
+from fim_hybrid.ml_training import (
+    available_ranking_models,
+    get_ranking_model_spec,
+    select_ml_candidate_nodes,
+    train_node_utility_model,
+)
 from fim_hybrid.node2vec_embeddings import Node2VecConfig
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+TEST_TMP_ROOT = REPO_ROOT / ".test-artifacts"
+TEST_TMP_ROOT.mkdir(exist_ok=True)
+
+
+class _WorkspaceScratchDir:
+    def __init__(self) -> None:
+        self.path = TEST_TMP_ROOT / f"scratch_{uuid4().hex}"
+
+    def __enter__(self) -> str:
+        self.path.mkdir(parents=True, exist_ok=False)
+        return str(self.path)
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        shutil.rmtree(self.path, ignore_errors=True)
+
+
+def _workspace_tempdir() -> _WorkspaceScratchDir:
+    return _WorkspaceScratchDir()
 
 
 def _toy_ml_fixture() -> tuple[LoadedDataset, object, object]:
@@ -132,6 +159,26 @@ class MLTrainingTestCase(unittest.TestCase):
         self.assertTrue(training_result.validation_precision_at_budget >= 0.0)
         self.assertTrue(training_result.validation_precision_at_budget <= 1.0)
         self.assertEqual(training_result.model_type, "random_forest")
+        self.assertEqual(training_result.target_type, "regression")
+
+    def test_ranking_model_registry_lists_available_models(self) -> None:
+        self.assertEqual(
+            available_ranking_models(),
+            (
+                "random_forest",
+                "xgboost",
+                "mlp",
+                "logistic_regression",
+                "graphsage",
+                "gcn",
+                "ris_guidance",
+            ),
+        )
+        self.assertEqual(get_ranking_model_spec("mlp").objective_type, "regression")
+        self.assertEqual(
+            get_ranking_model_spec("logistic_regression").objective_type,
+            "binary_top_budget_classification",
+        )
 
     def test_train_node_utility_model_runs_with_node2vec_features(self) -> None:
         dataset, protected_group_report, community_result = _toy_ml_fixture()
@@ -195,6 +242,56 @@ class MLTrainingTestCase(unittest.TestCase):
         )
 
         self.assertEqual(training_result.model_type, "xgboost")
+        self.assertEqual(set(training_result.predicted_scores), set(dataset.graph.nodes()))
+
+    def test_train_node_utility_model_can_use_mlp(self) -> None:
+        dataset, protected_group_report, community_result = _toy_ml_fixture()
+        feature_frame = compute_node_features(dataset, protected_group_report, community_result)
+        label_result = generate_singleton_node_utility_labels(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            propagation_probability=1.0,
+            mc_runs=3,
+            lambda_weight=0.5,
+            random_seed=7,
+        )
+
+        training_result = train_node_utility_model(
+            feature_frame=feature_frame,
+            label_frame=label_result.label_frame,
+            budget=3,
+            model_type="mlp",
+            top_fraction=0.5,
+            random_seed=7,
+        )
+
+        self.assertEqual(training_result.model_type, "mlp")
+        self.assertEqual(training_result.target_type, "regression")
+        self.assertEqual(set(training_result.predicted_scores), set(dataset.graph.nodes()))
+
+    def test_train_node_utility_model_can_use_logistic_regression_ranking(self) -> None:
+        dataset, protected_group_report, community_result = _toy_ml_fixture()
+        feature_frame = compute_node_features(dataset, protected_group_report, community_result)
+        label_result = generate_singleton_node_utility_labels(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            propagation_probability=1.0,
+            mc_runs=3,
+            lambda_weight=0.5,
+            random_seed=7,
+        )
+
+        training_result = train_node_utility_model(
+            feature_frame=feature_frame,
+            label_frame=label_result.label_frame,
+            budget=3,
+            model_type="logistic_regression",
+            top_fraction=0.5,
+            random_seed=7,
+        )
+
+        self.assertEqual(training_result.model_type, "logistic_regression")
+        self.assertEqual(training_result.target_type, "binary_top_budget_classification")
         self.assertEqual(set(training_result.predicted_scores), set(dataset.graph.nodes()))
 
     def test_select_ml_candidate_nodes_obeys_precedence_and_budget_floor(self) -> None:
@@ -498,7 +595,7 @@ class GNNTrainingTestCase(unittest.TestCase):
             label_result=label_result,
         )
 
-        with tempfile.TemporaryDirectory() as temp_dir:
+        with _workspace_tempdir() as temp_dir:
             cache_path = Path(temp_dir) / "toy_gnn_scores.pkl"
             first = train_gnn_node_utility_model(
                 dataset=dataset,
@@ -569,7 +666,7 @@ class GNNTrainingTestCase(unittest.TestCase):
             label_result=label_result,
         )
 
-        with tempfile.TemporaryDirectory() as temp_dir:
+        with _workspace_tempdir() as temp_dir:
             cache_path = Path(temp_dir) / "toy_gnn_scores.pkl"
             first_plain = train_gnn_node_utility_model(
                 dataset=dataset,

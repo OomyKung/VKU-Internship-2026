@@ -41,6 +41,15 @@ class NodeClassificationSplit:
 
 
 @dataclass(frozen=True, slots=True)
+class NodeTrainValidationSplit:
+    """Deterministic node train/validation split."""
+
+    train_node_ids: tuple[Any, ...]
+    validation_node_ids: tuple[Any, ...]
+    stratified: bool
+
+
+@dataclass(frozen=True, slots=True)
 class LinkPredictionSplit:
     """Deterministic positive/negative edge train/test split."""
 
@@ -57,6 +66,7 @@ def build_node_classification_split(
     *,
     test_fraction: float = 0.25,
     random_seed: int = 42,
+    use_stratified_split: bool = True,
 ) -> NodeClassificationSplit:
     """Create a reproducible node train/test split."""
 
@@ -74,7 +84,7 @@ def build_node_classification_split(
         raise ValueError("Node classification requires at least two label classes.")
 
     test_size = max(1, int(round(len(normalized_node_ids) * float(test_fraction))))
-    can_stratify = bool(np.all(counts >= 2))
+    can_stratify = bool(use_stratified_split and np.all(counts >= 2))
     if can_stratify:
         test_size = max(test_size, int(unique_labels.size))
     test_size = min(test_size, len(normalized_node_ids) - 1)
@@ -88,6 +98,51 @@ def build_node_classification_split(
     return NodeClassificationSplit(
         train_node_ids=tuple(train_nodes),
         test_node_ids=tuple(test_nodes),
+        stratified=can_stratify,
+    )
+
+
+def build_node_train_validation_split(
+    node_ids: list[Any] | tuple[Any, ...],
+    labels: list[Any] | tuple[Any, ...] | np.ndarray,
+    *,
+    validation_fraction: float = 0.2,
+    random_seed: int = 42,
+    use_stratified_split: bool = True,
+) -> NodeTrainValidationSplit:
+    """Create a reproducible node train/validation split."""
+
+    normalized_node_ids = tuple(node_ids)
+    if len(normalized_node_ids) != len(labels):
+        raise ValueError("node_ids and labels must have the same length.")
+    if len(normalized_node_ids) < 2:
+        raise ValueError("Node train/validation splitting requires at least two labeled nodes.")
+    if not 0.0 < float(validation_fraction) < 1.0:
+        raise ValueError("validation_fraction must be between 0.0 and 1.0.")
+
+    label_array = np.asarray(labels, dtype=object)
+    validation_size = max(1, int(round(len(normalized_node_ids) * float(validation_fraction))))
+    unique_labels, counts = np.unique(label_array, return_counts=True)
+    can_stratify = bool(
+        unique_labels.size >= 2
+        and use_stratified_split
+        and np.all(counts >= 2)
+    )
+    if can_stratify and len(normalized_node_ids) - 1 >= int(unique_labels.size):
+        validation_size = max(validation_size, int(unique_labels.size))
+    else:
+        can_stratify = False
+    validation_size = min(validation_size, len(normalized_node_ids) - 1)
+
+    train_nodes, validation_nodes = train_test_split(
+        list(normalized_node_ids),
+        test_size=validation_size,
+        random_state=int(random_seed),
+        stratify=label_array if can_stratify else None,
+    )
+    return NodeTrainValidationSplit(
+        train_node_ids=tuple(train_nodes),
+        validation_node_ids=tuple(validation_nodes),
         stratified=can_stratify,
     )
 

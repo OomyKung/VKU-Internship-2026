@@ -6,6 +6,7 @@ import unittest
 
 import networkx as nx
 import numpy as np
+import pandas as pd
 
 try:
     import igraph as ig
@@ -208,6 +209,39 @@ class CommunityDetectionTestCase(unittest.TestCase):
 
         self.assertTrue(result.validation.every_node_assigned_exactly_once)
         self.assertGreaterEqual(result.stats.num_communities, 1)
+
+    def test_detect_communities_supports_label_propagation(self) -> None:
+        graph = _two_cluster_graph()
+        result = detect_communities(graph, method="label_propagation", seed=42)
+
+        self.assertTrue(result.validation.every_node_assigned_exactly_once)
+        self.assertEqual(result.category, "graph_native")
+        self.assertEqual(result.resolved_input_mode, "graph")
+
+    def test_detect_communities_can_adapt_embedding_space_clustering(self) -> None:
+        graph = _two_cluster_graph()
+        embeddings = pd.DataFrame(
+            {
+                "node_id": [1, 2, 3, 4, 5, 6],
+                "embedding_0": [0.0, 0.1, 0.2, 10.0, 10.1, 10.2],
+                "embedding_1": [0.0, 0.2, 0.1, 10.0, 10.2, 10.1],
+            }
+        )
+
+        result = detect_communities(
+            graph,
+            method="kmeans",
+            embeddings=embeddings,
+            input_mode="embedding",
+            config={"n_clusters": 2},
+            seed=42,
+        )
+
+        self.assertTrue(result.validation.every_node_assigned_exactly_once)
+        self.assertEqual(result.category, "embedding_space")
+        self.assertEqual(result.requested_input_mode, "embedding")
+        self.assertEqual(result.resolved_input_mode, "embedding")
+        self.assertEqual(result.stats.num_communities, 2)
 
 
 if __name__ == "__main__":

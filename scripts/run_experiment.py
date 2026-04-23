@@ -16,8 +16,9 @@ if str(ROOT) not in sys.path:
 
 from fim_hybrid.config import DatasetConfig  # noqa: E402
 from fim_hybrid.data_loader import resolve_dataset_config  # noqa: E402
-from fim_hybrid.diffusion import DEFAULT_DIFFUSION_MODEL  # noqa: E402
+from fim_hybrid.diffusion import DEFAULT_DIFFUSION_MODEL, SUPPORTED_DIFFUSION_MODELS  # noqa: E402
 from fim_hybrid.experiment_runner import ExperimentSettings, build_results_output_dir, run_experiment  # noqa: E402
+from fim_hybrid.ml_training import available_ranking_models  # noqa: E402
 
 
 def _resolve_repo_path(path_value: str | None) -> Path | None:
@@ -54,6 +55,15 @@ def _format_int(value: object) -> str:
 
 def _format_top_k(value: int) -> str:
     return "all" if int(value) <= 0 else str(int(value))
+
+
+def _diffusion_model_label(diffusion_model: str) -> str:
+    mapping = {
+        "ic": "Independent Cascade",
+        "lt": "Linear Threshold",
+        "wc": "Weighted Cascade",
+    }
+    return mapping.get(str(diffusion_model).strip().lower(), str(diffusion_model))
 
 
 def _display_ml_mode(method: str, ml_guidance_mode: object) -> str:
@@ -132,6 +142,7 @@ def _build_ranked_results_table(result_frame: pd.DataFrame) -> str:
     search_runtime = ordered.get("search_runtime_seconds", pd.Series([float("nan")] * len(ordered)))
     final_eval_runtime = ordered.get("final_eval_runtime_seconds", pd.Series([float("nan")] * len(ordered)))
     ml_backend = ordered.get("ml_backend", pd.Series(["none"] * len(ordered)))
+    ranking_model = ordered.get("ranking_model", pd.Series(["none"] * len(ordered)))
     guidance_mode = ordered.get("guidance_mode", pd.Series(["none"] * len(ordered)))
     gnn_model_type = ordered.get("gnn_model_type", pd.Series([pd.NA] * len(ordered)))
     graphsage_enabled = ordered.get("graphsage_enabled", pd.Series([False] * len(ordered)))
@@ -185,6 +196,7 @@ def _build_ranked_results_table(result_frame: pd.DataFrame) -> str:
         lines.append(
             "   "
             f"ML={_display_ml_mode(str(row['method']), row['ml_guidance_mode'])} | "
+            f"ranker={ranking_model.iloc[index]} | "
             f"guidance={guidance_mode.iloc[index]} | "
             f"backend={_display_ml_backend(ml_backend.iloc[index])} | "
             f"GNN={_display_gnn_model(gnn_model_type.iloc[index])} | "
@@ -262,6 +274,7 @@ def _build_hybrid_delta_table(result_frame: pd.DataFrame, baseline_method: str =
     search_runtime = comparison_rows.get("search_runtime_seconds", pd.Series([float("nan")] * len(comparison_rows)))
     final_eval_runtime = comparison_rows.get("final_eval_runtime_seconds", pd.Series([float("nan")] * len(comparison_rows)))
     ml_backend = comparison_rows.get("ml_backend", pd.Series(["none"] * len(comparison_rows)))
+    ranking_model = comparison_rows.get("ranking_model", pd.Series(["none"] * len(comparison_rows)))
     guidance_mode = comparison_rows.get("guidance_mode", pd.Series(["none"] * len(comparison_rows)))
     gnn_model_type = comparison_rows.get("gnn_model_type", pd.Series([pd.NA] * len(comparison_rows)))
     graphsage_enabled = comparison_rows.get("graphsage_enabled", pd.Series([False] * len(comparison_rows)))
@@ -298,6 +311,7 @@ def _build_hybrid_delta_table(result_frame: pd.DataFrame, baseline_method: str =
         lines.append(
             "   "
             f"ML={_display_ml_mode(str(row['method']), row['ml_guidance_mode'])} | "
+            f"ranker={ranking_model.iloc[index]} | "
             f"guidance={guidance_mode.iloc[index]} | "
             f"backend={_display_ml_backend(ml_backend.iloc[index])} | "
             f"GNN={_display_gnn_model(gnn_model_type.iloc[index])} | "
@@ -343,7 +357,7 @@ def format_results_report(result_frame: pd.DataFrame, settings: ExperimentSettin
         "Fair Influence Maximization Experiment Summary",
         _rule("="),
         f"Dataset: {dataset_names}",
-        f"Diffusion model: {settings.diffusion_model} (Independent Cascade)",
+        f"Diffusion model: {settings.diffusion_model} ({_diffusion_model_label(settings.diffusion_model)})",
         f"Protected attribute: {settings.protected_attribute}",
         f"Budget: {settings.budget} | MC runs: search={search_mc_runs}, eval={eval_mc_runs} | Random seed: {settings.random_seed}",
         "Final evaluation seed: random_seed + 1000000",
@@ -536,6 +550,40 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--protected-attribute", required=True, help="Protected attribute for fairness metrics.")
     parser.add_argument("--community-methods", nargs="+", default=["leiden"], help="Community detection methods to compare.")
     parser.add_argument(
+        "--community-input-mode",
+        choices=["graph", "embedding", "auto"],
+        default="auto",
+        help="Input routing for community methods. Graph-native methods always use the graph directly.",
+    )
+    parser.add_argument(
+        "--community-n-clusters",
+        type=int,
+        default=None,
+        help="Optional fixed cluster count for embedding-space community methods.",
+    )
+    parser.add_argument(
+        "--community-min-cluster-size",
+        type=int,
+        default=None,
+        help="Optional minimum cluster size passed to density-based embedding-space methods.",
+    )
+    parser.add_argument(
+        "--community-embedding-source",
+        choices=["auto", "csv", "feature"],
+        default="auto",
+        help="Embedding-space community source. 'auto' prefers --community-embedding-csv and otherwise falls back to prepared node features.",
+    )
+    parser.add_argument(
+        "--community-embedding-csv",
+        default=None,
+        help="Optional node embedding CSV used by embedding-space community methods.",
+    )
+    parser.add_argument(
+        "--community-method-config-json",
+        default="{}",
+        help="JSON object with additional clustering overrides, e.g. '{\"resolution\":0.8}'.",
+    )
+    parser.add_argument(
         "--baseline-methods",
         nargs="+",
         default=["degree", "pagerank", "community_round_robin", "random"],
@@ -544,11 +592,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--budget", type=int, required=True, help="Fixed seed budget.")
     parser.add_argument(
         "--diffusion-model",
-        choices=[DEFAULT_DIFFUSION_MODEL],
+        choices=list(SUPPORTED_DIFFUSION_MODELS),
         default=DEFAULT_DIFFUSION_MODEL,
-        help="Primary diffusion model used across all experiments. IC is the only supported mainline model.",
+        help="Primary diffusion model used across all experiments.",
     )
-    parser.add_argument("--propagation-prob", type=float, default=0.01, help="Independent Cascade propagation probability.")
+    parser.add_argument(
+        "--spread-estimator",
+        choices=["auto", "mc", "ris_guidance"],
+        default="auto",
+        help="Alias for the search-time spread-estimation/guidance family. Final reported evaluation remains Monte Carlo.",
+    )
+    parser.add_argument(
+        "--propagation-prob",
+        type=float,
+        default=0.01,
+        help="Propagation probability for IC/WC, and default node threshold for LT when node-specific thresholds are absent.",
+    )
     parser.add_argument(
         "--mc-runs",
         type=int,
@@ -602,9 +661,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--derived-group-method",
-        choices=["louvain", "leiden"],
+        choices=["louvain", "leiden", "multilevel", "infomap", "label_propagation", "walktrap"],
         default=None,
-        help="Community detection method used only for derived protected groups. Defaults to the primary community method.",
+        help="Graph-native community detection method used only for derived protected groups. Defaults to the primary community method.",
     )
     parser.add_argument(
         "--only-methods",
@@ -695,9 +754,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--proxy-score-weights", default="{}", help="JSON object overriding cheap swap-proxy weights, e.g. '{\"delta_mf\":0.6,\"delta_dcv\":0.45}'.")
     parser.add_argument(
         "--ml-model-type",
-        choices=["random_forest", "xgboost"],
+        choices=["random_forest", "xgboost", "mlp", "logistic_regression"],
         default="random_forest",
         help="Tabular ML model used for candidate ranking.",
+    )
+    parser.add_argument(
+        "--ranking-model",
+        choices=list(available_ranking_models()),
+        default=None,
+        help="Optional alias selecting the ranking/scoring model family without removing the backend-specific flags.",
     )
     parser.add_argument(
         "--ml-backend",
@@ -710,6 +775,12 @@ def parse_args() -> argparse.Namespace:
         choices=["graphsage", "gcn"],
         default="graphsage",
         help="GNN model used when the GNN backend is enabled.",
+    )
+    parser.add_argument(
+        "--debias-mode",
+        choices=["off", "fairness_first", "worst_group_boost", "repair_fairness"],
+        default="off",
+        help="Optional fairness-control preset mapped onto the existing hybrid-search knobs.",
     )
     parser.add_argument(
         "--gnn-node2vec-mode",
@@ -751,6 +822,50 @@ def main() -> None:
     proxy_score_weights = json.loads(args.proxy_score_weights)
     if not isinstance(proxy_score_weights, dict):
         raise ValueError("--proxy-score-weights must parse to a JSON object.")
+    community_method_config = json.loads(args.community_method_config_json)
+    if not isinstance(community_method_config, dict):
+        raise ValueError("--community-method-config-json must parse to a JSON object.")
+    resolved_ml_backend = args.ml_backend
+    resolved_ml_model_type = args.ml_model_type
+    resolved_gnn_model_type = args.gnn_model_type
+    if args.ranking_model is not None:
+        if args.ranking_model in {"random_forest", "xgboost", "mlp", "logistic_regression"}:
+            resolved_ml_model_type = args.ranking_model
+        elif args.ranking_model in {"graphsage", "gcn"}:
+            resolved_gnn_model_type = args.ranking_model
+        elif args.ranking_model == "ris_guidance":
+            if resolved_ml_backend == "gnn":
+                resolved_ml_backend = "gnn_ris"
+            elif resolved_ml_backend == "tabular":
+                resolved_ml_backend = "ris"
+    if args.spread_estimator == "ris_guidance":
+        if resolved_ml_backend == "gnn":
+            resolved_ml_backend = "gnn_ris"
+        elif resolved_ml_backend == "tabular":
+            resolved_ml_backend = "ris"
+    resolved_fairness_first_init_enabled = args.fairness_first_init_enabled
+    resolved_fairness_first_init_slots = args.fairness_first_init_slots
+    resolved_fairness_first_init_weight = args.fairness_first_init_weight
+    resolved_weakest_group_mutation_weight = args.weakest_group_mutation_weight
+    resolved_zero_group_bonus_weight = args.zero_group_bonus_weight
+    resolved_bridge_to_weak_group_weight = args.bridge_to_weak_group_weight
+    resolved_repair_fairness_weight = args.repair_fairness_weight
+    resolved_repair_bridge_weight = args.repair_bridge_weight
+    resolved_local_search_focus_mode = args.local_search_focus_mode
+    resolved_local_search_bottom_k_groups = args.local_search_bottom_k_groups
+    if args.debias_mode == "fairness_first":
+        resolved_fairness_first_init_enabled = True
+        resolved_fairness_first_init_slots = max(2, resolved_fairness_first_init_slots)
+        resolved_fairness_first_init_weight = max(0.5, resolved_fairness_first_init_weight)
+    elif args.debias_mode == "worst_group_boost":
+        resolved_weakest_group_mutation_weight = max(0.35, resolved_weakest_group_mutation_weight)
+        resolved_zero_group_bonus_weight = max(0.25, resolved_zero_group_bonus_weight)
+        resolved_bridge_to_weak_group_weight = max(0.15, resolved_bridge_to_weak_group_weight)
+        resolved_local_search_focus_mode = "worst_group"
+        resolved_local_search_bottom_k_groups = max(3, resolved_local_search_bottom_k_groups)
+    elif args.debias_mode == "repair_fairness":
+        resolved_repair_fairness_weight = max(0.40, resolved_repair_fairness_weight)
+        resolved_repair_bridge_weight = max(0.20, resolved_repair_bridge_weight)
     settings_kwargs: dict[str, object] = {}
     if args.mc_runs is not None:
         settings_kwargs["mc_runs"] = args.mc_runs
@@ -762,7 +877,14 @@ def main() -> None:
         protected_attribute=args.protected_attribute,
         budget=args.budget,
         diffusion_model=args.diffusion_model,
+        spread_estimator=args.spread_estimator,
         community_method=args.community_methods[0],
+        community_input_mode=args.community_input_mode,
+        community_n_clusters=args.community_n_clusters,
+        community_min_cluster_size=args.community_min_cluster_size,
+        community_embedding_source=args.community_embedding_source,
+        community_embedding_csv=_resolve_repo_path(args.community_embedding_csv),
+        community_method_config=community_method_config,
         propagation_probability=args.propagation_prob,
         enable_final_recheck=args.enable_final_recheck,
         final_recheck_mc_runs=args.final_recheck_mc_runs,
@@ -780,15 +902,16 @@ def main() -> None:
         derive_protected_groups=args.derive_protected_groups,
         derived_group_method=args.derived_group_method,
         use_ml=args.ml,
-        ml_model_type=args.ml_model_type,
-        ml_backend=args.ml_backend,
+        ml_model_type=resolved_ml_model_type,
+        ml_backend=resolved_ml_backend,
         ml_guidance_mode=args.ml_guidance_mode,
         ml_top_fraction=args.ml_top_fraction,
         ml_top_n=args.ml_top_n,
         ml_max_nodes=args.ml_max_nodes,
         ml_singleton_runs=args.ml_singleton_runs,
-        gnn_model_type=args.gnn_model_type,
+        gnn_model_type=resolved_gnn_model_type,
         gnn_node2vec_mode=args.gnn_node2vec_mode,
+        debias_mode=args.debias_mode,
         gnn_hidden_dim=args.gnn_hidden_dim,
         gnn_num_layers=args.gnn_num_layers,
         gnn_dropout=args.gnn_dropout,
@@ -823,19 +946,19 @@ def main() -> None:
         ml_mutation_bias_weight=args.ml_mutation_bias_weight,
         ml_repair_bias_weight=args.ml_repair_bias_weight,
         ml_local_search_bias_weight=args.ml_local_search_bias_weight,
-        fairness_first_init_enabled=args.fairness_first_init_enabled,
-        fairness_first_init_slots=args.fairness_first_init_slots,
-        fairness_first_init_weight=args.fairness_first_init_weight,
+        fairness_first_init_enabled=resolved_fairness_first_init_enabled,
+        fairness_first_init_slots=resolved_fairness_first_init_slots,
+        fairness_first_init_weight=resolved_fairness_first_init_weight,
         weakest_group_k=args.weakest_group_k,
-        weakest_group_mutation_weight=args.weakest_group_mutation_weight,
-        zero_group_bonus_weight=args.zero_group_bonus_weight,
-        bridge_to_weak_group_weight=args.bridge_to_weak_group_weight,
-        repair_fairness_weight=args.repair_fairness_weight,
-        repair_bridge_weight=args.repair_bridge_weight,
+        weakest_group_mutation_weight=resolved_weakest_group_mutation_weight,
+        zero_group_bonus_weight=resolved_zero_group_bonus_weight,
+        bridge_to_weak_group_weight=resolved_bridge_to_weak_group_weight,
+        repair_fairness_weight=resolved_repair_fairness_weight,
+        repair_bridge_weight=resolved_repair_bridge_weight,
         repair_centrality_weight=args.repair_centrality_weight,
         repair_diversity_weight=args.repair_diversity_weight,
-        local_search_focus_mode=args.local_search_focus_mode,
-        local_search_bottom_k_groups=args.local_search_bottom_k_groups,
+        local_search_focus_mode=resolved_local_search_focus_mode,
+        local_search_bottom_k_groups=resolved_local_search_bottom_k_groups,
         local_search_max_trials=args.local_search_max_trials,
         marginal_gain_scoring_enabled=args.marginal_gain_scoring_enabled,
         marginal_gain_delta_mf_weight=args.marginal_gain_delta_mf_weight,
@@ -888,8 +1011,14 @@ def main() -> None:
     )
     columns = [
         "dataset",
+        "protected_attribute",
         "diffusion_model",
+        "requested_spread_estimator",
+        "debias_mode",
         "community_method",
+        "community_category",
+        "community_input_mode",
+        "community_requested_input_mode",
         "method",
         "variant_type",
         "total_spread",
@@ -922,6 +1051,11 @@ def main() -> None:
         "weakest_groups_note",
         "node2vec_enabled",
         "node2vec_mode",
+        "embedding_method",
+        "ranking_model",
+        "search_spread_estimator",
+        "search_guidance_estimator",
+        "final_spread_estimator",
         "guidance_mode",
         "graphsage_enabled",
         "ris_enabled",

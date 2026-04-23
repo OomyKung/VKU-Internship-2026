@@ -1,0 +1,55 @@
+======================================================================================================================
+Fair Influence Maximization Experiment Summary
+======================================================================================================================
+Dataset: twitter
+Diffusion model: ic (Independent Cascade)
+Protected attribute: color
+Budget: 40 | MC runs: search=20, eval=1000 | Random seed: 42
+Final evaluation seed: random_seed + 1000000
+Spread semantics: total activated nodes including seed nodes; extra_spread = total_spread - budget
+Community methods: leiden
+ML: enabled | requested mode=two_tier | backend=gnn_ris | singleton label runs=15
+GNN config: type=graphsage | hidden_dim=64 | layers=2 | dropout=0.2 | lr=0.001 | weight_decay=0.0005 | epochs=50 | node2vec_mode=off
+RIS config: num_rr_sets=256 | random_seed=42 | reuse_rr_sets=True | mode=weak_group_weighted
+Guidance weights: graphsage=1.25 | ris=1.0 | fair_ris=0.5 | fairness=0.25 | diversity=0.15
+Final recheck: disabled
+Node2Vec: supported only as an optional GNN input feature source
+
+----------------------------------------------------------------------------------------------------------------------
+Community: leiden
+----------------------------------------------------------------------------------------------------------------------
+Modes present: full
+
+1. hybrid_siea [full]
+   F=-0.003250 | dF=+0.000000 | runtime=797.949s | spread=51.206 | extra=11.206
+   search=796.855s | eval=1.094s | MF=0.012852 | DCV=0.019352
+   pool=3753 | kind=proposed
+   ZeroCov=0 | FracCov=1.000 | Bottom3=17.069
+   ML=- | guidance=none | backend=none | GNN=- | GraphSAGE=off | N2V=off | RIS=off | rho=- | p@k=-
+
+2. hybrid_siea_ml_gnn_ris_two_tier_tuned_swap_local_search [full]
+   F=-0.011917 | dF=-0.008667 | runtime=169.964s | spread=49.868 | extra=9.868
+   search=168.999s | eval=0.965s | MF=0.012234 | DCV=0.036069
+   pool=3753 | kind=ml_guided
+   ZeroCov=0 | FracCov=1.000 | Bottom3=16.623
+   ML=two_tier | guidance=gnn_ris | backend=gnn_ris | GNN=graphsage | GraphSAGE=on | N2V=off | RIS=weak_group_weighted | rho=0.228476 | p@k=0.100000
+
+Highlights
+  Best F-score: hybrid_siea (-0.003250)
+  Fastest run : hybrid_siea_ml_gnn_ris_two_tier_tuned_swap_local_search (169.964s)
+  Best ML run: hybrid_siea_ml_gnn_ris_two_tier_tuned_swap_local_search (F-score=-0.011917, runtime=169.964s)
+
+Delta vs hybrid_siea
+hybrid_siea [full]
+   dF=+0.000000 | dT=+0.000s | F=-0.003250 | runtime=797.949s
+   search=796.855s | eval=1.094s | spread=51.206 | extra=11.206
+   pool=3753 | ZeroCov=0 | FracCov=1.000
+   ML=- | guidance=none | backend=none | GNN=- | GraphSAGE=off | N2V=off | RIS=off
+
+hybrid_siea_ml_gnn_ris_two_tier_tuned_swap_local_search [full]
+   dF=-0.008667 | dT=-627.984s | F=-0.011917 | runtime=169.964s
+   search=168.999s | eval=0.965s | spread=49.868 | extra=9.868
+   pool=3753 | ZeroCov=0 | FracCov=1.000
+   ML=two_tier | guidance=gnn_ris | backend=gnn_ris | GNN=graphsage | GraphSAGE=on | N2V=off | RIS=weak_group_weighted
+
+Saved CSV: C:\Users\User\Desktop\VKU-Internship-2026\results\twitter\color\twitter_budget40_results.csv

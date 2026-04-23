@@ -1,0 +1,26 @@
+====================================================================================================
+Graph Embedding Benchmark Summary
+====================================================================================================
+Dataset: graph_spa_500_0
+Output directory: C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\embedding_fairness_validation\focal_probe
+Methods available: deepwalk, node2vec, line, vgae, gcn, graphsage, dgi, graphcl, metapath2vec
+
+1. dgi [ok]
+   runtime=3.166s | dim=64 | nodes=500 | ml_ready=True
+   all_nodes=True | all_finite=True | cosine_mean=0.433132998317412
+   label_probe=ok | accuracy=0.8960 | macro_f1=0.8956
+   protected_probe=ok | column=region | accuracy=0.9920 | macro_f1=0.9688
+   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\embedding_fairness_validation\focal_probe\graph_spa_500_0\embeddings\graph_spa_500_0_dgi_embeddings.csv | pickle=C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\embedding_fairness_validation\focal_probe\graph_spa_500_0\embeddings\graph_spa_500_0_dgi_embeddings.pkl | npy=-
+
+----------------------------------------------------------------------------------------------------
+Graph Embedding Evaluation Summary
+----------------------------------------------------------------------------------------------------
+Sorted by primary metric within each task: accuracy for node classification, roc_auc for link prediction, nmi for clustering.
+
+1. dgi | node_classification [ok]
+   runtime=0.292s | embedding_runtime=3.166s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=graphsage | label_column=gender
+   primary_metric=accuracy (0.8560)
+   metrics: accuracy=0.8560, macro_f1=0.8555, micro_f1=0.8560, weighted_f1=0.8557, balanced_accuracy=0.8551, macro_precision=0.8577, macro_recall=0.8551, roc_auc=-, ap=-, nmi=-, ari=-
+   fairness: protected_attribute=region | worst_group_accuracy=0.3333 | accuracy_gap=0.6667 | worst_group_macro_f1=0.2500 | macro_f1_gap=0.7500
+   notes=classes=2; stratified=True; val=75; val_stratified=True; imbalance_mode=focal_loss; early_stop_metric=macro_f1

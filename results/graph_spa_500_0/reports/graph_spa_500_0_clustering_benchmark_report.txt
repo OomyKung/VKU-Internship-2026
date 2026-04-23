@@ -1,0 +1,74 @@
+=====================================================================================================================
+Clustering Benchmark Summary
+=====================================================================================================================
+Dataset: graph_spa_500_0
+Method status counts: {'ok': 11}
+
+---------------------------------------------------------------------------------------------------------------------
+Clustering Comparison
+---------------------------------------------------------------------------------------------------------------------
+1. dbscan_or_hdbscan | embedding_space [ok]
+   input_mode=feature (requested=auto) | runtime=0.042s | clusters=1
+   cluster_sizes=0:500 | largest=500 | smallest=500 | mean=500.0000
+   metrics: modularity=0.0000 | conductance=- | silhouette=- | davies_bouldin=- | calinski_harabasz=- | nmi=0.0000 | ari=0.0000
+   outputs: assignments=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\clustering\graph_spa_500_0_dbscan_or_hdbscan_cluster_assignments.csv | cluster_sizes=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\clustering\graph_spa_500_0_dbscan_or_hdbscan_cluster_sizes.csv
+
+2. gmm | embedding_space [ok]
+   input_mode=feature (requested=auto) | runtime=0.068s | clusters=2
+   cluster_sizes=1:434,0:66 | largest=434 | smallest=66 | mean=250.0000
+   metrics: modularity=0.1106 | conductance=0.3403 | silhouette=0.2392 | davies_bouldin=4.0075 | calinski_harabasz=18.1459 | nmi=0.0052 | ari=0.0002
+   outputs: assignments=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\clustering\graph_spa_500_0_gmm_cluster_assignments.csv | cluster_sizes=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\clustering\graph_spa_500_0_gmm_cluster_sizes.csv
+
+3. agglomerative | embedding_space [ok]
+   input_mode=feature (requested=auto) | runtime=0.080s | clusters=2
+   cluster_sizes=0:454,1:46 | largest=454 | smallest=46 | mean=250.0000
+   metrics: modularity=0.0314 | conductance=0.6946 | silhouette=0.1051 | davies_bouldin=2.1054 | calinski_harabasz=29.7337 | nmi=0.0000 | ari=-0.0005
+   outputs: assignments=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\clustering\graph_spa_500_0_agglomerative_cluster_assignments.csv | cluster_sizes=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\clustering\graph_spa_500_0_agglomerative_cluster_sizes.csv
+
+4. spectral | embedding_space [ok]
+   input_mode=feature (requested=auto) | runtime=0.109s | clusters=2
+   cluster_sizes=0:485,1:15 | largest=485 | smallest=15 | mean=250.0000
+   metrics: modularity=0.0382 | conductance=0.1163 | silhouette=0.1554 | davies_bouldin=1.5114 | calinski_harabasz=16.2992 | nmi=0.0235 | ari=0.0035
+   outputs: assignments=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\clustering\graph_spa_500_0_spectral_cluster_assignments.csv | cluster_sizes=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\clustering\graph_spa_500_0_spectral_cluster_sizes.csv
+
+5. kmeans | embedding_space [ok]
+   input_mode=feature (requested=auto) | runtime=1.982s | clusters=2
+   cluster_sizes=0:393,1:107 | largest=393 | smallest=107 | mean=250.0000
+   metrics: modularity=0.0214 | conductance=0.5204 | silhouette=0.0929 | davies_bouldin=2.7416 | calinski_harabasz=38.2839 | nmi=0.0023 | ari=-0.0005
+   outputs: assignments=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\clustering\graph_spa_500_0_kmeans_cluster_assignments.csv | cluster_sizes=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\clustering\graph_spa_500_0_kmeans_cluster_sizes.csv
+
+6. multilevel | graph_native [ok]
+   input_mode=graph (requested=graph) | runtime=0.010s | clusters=17
+   cluster_sizes=13:49,1:47,12:46,2:40,7:35,11:32,... | largest=49 | smallest=15 | mean=29.4118
+   metrics: modularity=0.8005 | conductance=0.1387 | silhouette=- | davies_bouldin=- | calinski_harabasz=- | nmi=0.0519 | ari=0.0110
+   outputs: assignments=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\clustering\graph_spa_500_0_multilevel_cluster_assignments.csv | cluster_sizes=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\clustering\graph_spa_500_0_multilevel_cluster_sizes.csv
+
+7. leiden | graph_native [ok]
+   input_mode=graph (requested=graph) | runtime=0.010s | clusters=19
+   cluster_sizes=14:48,11:42,2:40,1:39,12:38,13:38,... | largest=48 | smallest=6 | mean=26.3158
+   metrics: modularity=0.8022 | conductance=0.1401 | silhouette=- | davies_bouldin=- | calinski_harabasz=- | nmi=0.0735 | ari=0.0157
+   outputs: assignments=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\clustering\graph_spa_500_0_leiden_cluster_assignments.csv | cluster_sizes=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\clustering\graph_spa_500_0_leiden_cluster_sizes.csv
+
+8. walktrap | graph_native [ok]
+   input_mode=graph (requested=graph) | runtime=0.014s | clusters=32
+   cluster_sizes=3:92,17:64,15:54,1:37,16:34,4:31,... | largest=92 | smallest=2 | mean=15.6250
+   metrics: modularity=0.7542 | conductance=0.1856 | silhouette=- | davies_bouldin=- | calinski_harabasz=- | nmi=0.0422 | ari=0.0001
+   outputs: assignments=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\clustering\graph_spa_500_0_walktrap_cluster_assignments.csv | cluster_sizes=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\clustering\graph_spa_500_0_walktrap_cluster_sizes.csv
+
+9. label_propagation | graph_native [ok]
+   input_mode=graph (requested=graph) | runtime=0.016s | clusters=118
+   cluster_sizes=71:19,31:16,76:12,21:11,87:11,15:10,... | largest=19 | smallest=2 | mean=4.2373
+   metrics: modularity=0.6167 | conductance=0.4382 | silhouette=- | davies_bouldin=- | calinski_harabasz=- | nmi=0.1749 | ari=0.0118
+   outputs: assignments=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\clustering\graph_spa_500_0_label_propagation_cluster_assignments.csv | cluster_sizes=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\clustering\graph_spa_500_0_label_propagation_cluster_sizes.csv
+
+10. louvain | graph_native [ok]
+   input_mode=graph (requested=graph) | runtime=0.033s | clusters=18
+   cluster_sizes=14:47,1:46,13:46,2:40,12:32,11:31,... | largest=47 | smallest=12 | mean=27.7778
+   metrics: modularity=0.7996 | conductance=0.1427 | silhouette=- | davies_bouldin=- | calinski_harabasz=- | nmi=0.0721 | ari=0.0155
+   outputs: assignments=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\clustering\graph_spa_500_0_louvain_cluster_assignments.csv | cluster_sizes=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\clustering\graph_spa_500_0_louvain_cluster_sizes.csv
+
+11. infomap | graph_native [ok]
+   input_mode=graph (requested=graph) | runtime=0.104s | clusters=60
+   cluster_sizes=9:20,40:18,2:17,1:15,30:15,57:15,... | largest=20 | smallest=3 | mean=8.3333
+   metrics: modularity=0.7325 | conductance=0.2564 | silhouette=- | davies_bouldin=- | calinski_harabasz=- | nmi=0.1287 | ari=0.0126
+   outputs: assignments=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\clustering\graph_spa_500_0_infomap_cluster_assignments.csv | cluster_sizes=C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\clustering\graph_spa_500_0_infomap_cluster_sizes.csv

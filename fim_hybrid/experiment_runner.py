@@ -11,6 +11,7 @@ from time import perf_counter
 import pandas as pd
 
 from .baselines import select_baseline_seed_set
+from .clustering import get_clustering_method_spec
 from .community_detection import CommunityQualityMetrics, compute_community_quality_metrics, detect_communities
 from .config import DatasetConfig
 from .data_loader import LoadedDataset, ProtectedGroupReport, load_dataset, verify_protected_groups
@@ -104,7 +105,14 @@ class ExperimentSettings:
     protected_attribute: str
     budget: int
     diffusion_model: str = DEFAULT_DIFFUSION_MODEL
+    spread_estimator: str = "auto"
     community_method: str = "leiden"
+    community_input_mode: str = "auto"
+    community_n_clusters: int | None = None
+    community_min_cluster_size: int | None = None
+    community_embedding_source: str = "auto"
+    community_embedding_csv: Path | None = None
+    community_method_config: dict[str, object] | None = None
     propagation_probability: float = 0.01
     mc_runs: int | None = 20
     mc_runs_search: int | None = None
@@ -139,6 +147,7 @@ class ExperimentSettings:
     ml_model_type: str = "random_forest"
     ml_backend: str = "tabular"
     ml_guidance_mode: str = "off"
+    debias_mode: str = "off"
     ml_top_fraction: float | None = 0.25
     ml_top_n: int | None = None
     ml_max_nodes: int | None = None
@@ -253,6 +262,17 @@ def _resolved_eval_random_seed(settings: ExperimentSettings) -> int:
     """Use a deterministic offset so final reporting is reproducible but independent from search-time streams."""
 
     return int(settings.random_seed) + _FINAL_EVAL_RANDOM_SEED_OFFSET
+
+
+def _validate_registry_aliases(settings: ExperimentSettings) -> None:
+    valid_spread_estimators = {"auto", "mc", "ris_guidance"}
+    if settings.spread_estimator not in valid_spread_estimators:
+        raise ValueError(
+            f"spread_estimator must be one of {sorted(valid_spread_estimators)}."
+        )
+    valid_debias_modes = {"off", "fairness_first", "worst_group_boost", "repair_fairness"}
+    if settings.debias_mode not in valid_debias_modes:
+        raise ValueError(f"debias_mode must be one of {sorted(valid_debias_modes)}.")
 
 
 def _resolved_final_recheck_mc_runs(settings: ExperimentSettings) -> int:
@@ -416,6 +436,68 @@ def _community_columns(quality: CommunityQualityMetrics) -> dict[str, float | in
     }
 
 
+def _community_metadata_columns(community_result) -> dict[str, object]:
+    return {
+        "community_category": getattr(community_result, "category", "graph_native"),
+        "community_input_mode": getattr(community_result, "resolved_input_mode", "graph"),
+        "community_requested_input_mode": getattr(community_result, "requested_input_mode", "graph"),
+    }
+
+
+def _load_community_embedding_frame(path: Path) -> pd.DataFrame:
+    frame = pd.read_csv(path)
+    if "node_id" not in frame.columns:
+        raise ValueError(
+            f"community_embedding_csv '{path}' must contain a node_id column."
+        )
+    return frame
+
+
+def _resolve_community_clustering_inputs(
+    dataset: LoadedDataset,
+    settings: ExperimentSettings,
+    community_method: str,
+) -> tuple[pd.DataFrame | None, pd.DataFrame | None, str, dict[str, object]]:
+    method_spec = get_clustering_method_spec(community_method)
+    method_config = dict(settings.community_method_config or {})
+    if settings.community_n_clusters is not None:
+        method_config.setdefault("n_clusters", int(settings.community_n_clusters))
+    if settings.community_min_cluster_size is not None:
+        method_config.setdefault("min_cluster_size", int(settings.community_min_cluster_size))
+
+    if method_spec.category == "graph_native":
+        return None, None, "graph", method_config
+
+    from .embeddings.features import prepare_benchmark_features
+
+    configured_source = str(settings.community_embedding_source).strip().lower()
+    if configured_source not in {"auto", "csv", "feature"}:
+        raise ValueError(
+            "community_embedding_source must be one of ['auto', 'csv', 'feature']."
+        )
+    if str(settings.community_input_mode).strip().lower() == "graph":
+        raise ValueError(
+            f"community_input_mode='graph' is incompatible with embedding-space community method '{community_method}'."
+        )
+
+    embeddings: pd.DataFrame | None = None
+    features: pd.DataFrame | None = None
+    if configured_source in {"auto", "csv"} and settings.community_embedding_csv is not None:
+        embedding_path = Path(settings.community_embedding_csv)
+        if not embedding_path.is_file():
+            raise FileNotFoundError(f"community_embedding_csv file not found: {embedding_path}")
+        embeddings = _load_community_embedding_frame(embedding_path)
+    if configured_source == "csv" and embeddings is None:
+        raise ValueError(
+            "community_embedding_source='csv' requires community_embedding_csv to be set."
+        )
+    if embeddings is None and configured_source in {"auto", "feature"}:
+        prepared = prepare_benchmark_features(dataset, graph=dataset.graph, random_seed=settings.random_seed)
+        features = prepared.feature_frame.copy()
+
+    return embeddings, features, str(settings.community_input_mode).strip().lower(), method_config
+
+
 def _fairness_diagnostic_columns(
     group_spread: dict[str, float],
     normalized_group_spread: dict[str, float],
@@ -473,11 +555,21 @@ def _baseline_row(
     diffusion_model: str,
     mc_runs_search: int,
     mc_runs_eval: int,
+    community_result=None,
 ) -> dict[str, object]:
     return {
         "dataset": dataset.name,
         "community_method": community_method,
         "diffusion_model": diffusion_model,
+        "ranking_model": "none",
+        "embedding_method": "none",
+        "search_spread_estimator": (
+            "monte_carlo"
+            if method in {"greedy", "fairness_weighted_greedy", "maximin_greedy"}
+            else "not_used"
+        ),
+        "search_guidance_estimator": "none",
+        "final_spread_estimator": "monte_carlo",
         "method": method,
         "variant_type": "baseline",
         "seed_set": json.dumps(list(evaluation.seed_set)),
@@ -507,6 +599,7 @@ def _baseline_row(
             evaluation.fairness.normalized_group_spread,
         ),
         **_community_columns(quality),
+        **({} if community_result is None else _community_metadata_columns(community_result)),
     }
 
 
@@ -526,11 +619,17 @@ def _hybrid_row(
     note: str = "",
     node2vec_enabled: bool = False,
     node2vec_mode: str = "off",
+    community_result=None,
 ) -> dict[str, object]:
     return {
         "dataset": dataset.name,
         "community_method": community_method,
         "diffusion_model": diffusion_model,
+        "ranking_model": "none",
+        "embedding_method": "node2vec" if node2vec_enabled else "none",
+        "search_spread_estimator": "monte_carlo",
+        "search_guidance_estimator": "none",
+        "final_spread_estimator": "monte_carlo",
         "method": label,
         "variant_type": variant_type,
         "seed_set": json.dumps(list(evaluation.seed_set)),
@@ -560,6 +659,7 @@ def _hybrid_row(
             evaluation.fairness.normalized_group_spread,
         ),
         **_community_columns(quality),
+        **({} if community_result is None else _community_metadata_columns(community_result)),
     }
 
 
@@ -587,6 +687,7 @@ def _ml_row(
     search_runtime_seconds: float | None = None,
     mc_runs_search: int | None = None,
     mc_runs_eval: int | None = None,
+    community_result=None,
 ) -> dict[str, object]:
     resolved_search_runtime = runtime_seconds if search_runtime_seconds is None else search_runtime_seconds
     resolved_mc_runs_search = 0 if mc_runs_search is None else int(mc_runs_search)
@@ -595,6 +696,11 @@ def _ml_row(
         "dataset": dataset.name,
         "community_method": community_method,
         "diffusion_model": diffusion_model,
+        "ranking_model": "none" if gnn_model_type is None else gnn_model_type,
+        "embedding_method": "node2vec" if node2vec_enabled else "none",
+        "search_spread_estimator": "monte_carlo",
+        "search_guidance_estimator": "ris_guidance" if ris_enabled else "none",
+        "final_spread_estimator": "monte_carlo",
         "method": label,
         "variant_type": variant_type,
         "seed_set": json.dumps(list(evaluation.seed_set)),
@@ -632,6 +738,7 @@ def _ml_row(
             evaluation.fairness.normalized_group_spread,
         ),
         **_community_columns(quality),
+        **({} if community_result is None else _community_metadata_columns(community_result)),
     }
 
 
@@ -1392,6 +1499,7 @@ def run_loaded_experiment(
     """Run one or more method comparisons on a preloaded dataset."""
 
     validate_diffusion_model(settings.diffusion_model)
+    _validate_registry_aliases(settings)
     mc_runs_search = _resolved_mc_runs_search(settings)
     mc_runs_eval = _resolved_mc_runs_eval(settings)
     resolved_ml_backends = _resolve_ml_backends(settings) if settings.use_ml else ()
@@ -1466,7 +1574,18 @@ def run_loaded_experiment(
     results: list[dict[str, object]] = []
 
     for community_method in methods:
-        community_result = detect_communities(dataset.graph, method=community_method, seed=settings.random_seed)
+        community_embeddings, community_features, community_input_mode, community_method_config = (
+            _resolve_community_clustering_inputs(dataset, settings, community_method)
+        )
+        community_result = detect_communities(
+            dataset.graph,
+            method=community_method,
+            seed=settings.random_seed,
+            embeddings=community_embeddings,
+            features=community_features,
+            input_mode=community_input_mode,
+            config=community_method_config,
+        )
         quality = compute_community_quality_metrics(dataset.graph, community_result)
 
         for baseline_name in baselines:
@@ -1477,8 +1596,13 @@ def run_loaded_experiment(
                 dataset=dataset,
                 method=baseline_name,
                 budget=settings.budget,
+                protected_group_report=protected_group_report,
+                propagation_probability=settings.propagation_probability,
+                mc_runs=mc_runs_search,
+                lambda_weight=settings.lambda_weight,
                 community_result=community_result,
                 random_seed=settings.random_seed,
+                diffusion_model=settings.diffusion_model,
             )
             baseline_search_runtime = perf_counter() - baseline_search_start
             baseline_evaluation = _final_evaluate_seed_set(
@@ -1499,6 +1623,7 @@ def run_loaded_experiment(
                     diffusion_model=settings.diffusion_model,
                     mc_runs_search=mc_runs_search,
                     mc_runs_eval=mc_runs_eval,
+                    community_result=community_result,
                 )
             )
 
@@ -1568,6 +1693,7 @@ def run_loaded_experiment(
                     mc_runs_search=mc_runs_search,
                     mc_runs_eval=mc_runs_eval,
                     note=note,
+                    community_result=community_result,
                 )
             )
 
@@ -1804,6 +1930,7 @@ def run_loaded_experiment(
                     note="; ".join([f"ML guidance mode={guidance_mode}", pool_note, *guidance_note_parts]),
                     node2vec_enabled=node2vec_mode == "input_concat" and ml_backend in {"gnn", "gnn_ris"},
                     node2vec_mode=node2vec_mode,
+                    community_result=community_result,
                 )
                 if ml_history_path is not None:
                     ml_result.history.to_csv(ml_history_path, index=False)
@@ -1819,6 +1946,17 @@ def run_loaded_experiment(
                 ml_row["graphsage_enabled"] = _graphsage_enabled_flag(gnn_model_type, ml_backend=ml_backend)
                 ml_row["ris_enabled"] = bool(uses_ris)
                 ml_row["ris_mode"] = settings.ris_mode if uses_ris else "off"
+                if ml_backend == "tabular":
+                    ml_row["ranking_model"] = settings.ml_model_type
+                elif ml_backend in {"gnn", "gnn_ris"}:
+                    ml_row["ranking_model"] = gnn_model_type or settings.gnn_model_type
+                elif ml_backend == "ris":
+                    ml_row["ranking_model"] = "ris_guidance"
+                else:
+                    ml_row["ranking_model"] = "none"
+                ml_row["search_spread_estimator"] = "monte_carlo"
+                ml_row["search_guidance_estimator"] = "ris_guidance" if uses_ris else "none"
+                ml_row["final_spread_estimator"] = "monte_carlo"
                 results.append(ml_row)
 
     result_frame = pd.DataFrame(results)
@@ -1832,6 +1970,10 @@ def run_loaded_experiment(
             f"{_KEPT_RIS_ML_VARIANT_LABEL}, {_KEPT_GNN_RIS_ML_VARIANT_LABEL}, "
             f"{_KEPT_GNN_RIS_NODE2VEC_ML_VARIANT_LABEL}."
         )
+    if not result_frame.empty:
+        result_frame["protected_attribute"] = settings.protected_attribute
+        result_frame["requested_spread_estimator"] = settings.spread_estimator
+        result_frame["debias_mode"] = settings.debias_mode
     result_frame["comparison_baseline_method"] = "hybrid_siea"
     result_frame["delta_f_score"] = pd.NA
     if not result_frame.empty:

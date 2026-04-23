@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-import tempfile
+import shutil
 import unittest
 from unittest.mock import patch
+from uuid import uuid4
 
 import networkx as nx
 import pandas as pd
@@ -14,6 +15,27 @@ from fim_hybrid.config import DatasetConfig
 from fim_hybrid.data_loader import LoadedDataset, verify_protected_groups
 from fim_hybrid.gnn_training import gnn_dependencies_available
 from fim_hybrid.experiment_runner import ExperimentSettings, run_experiment, run_loaded_experiment
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+TEST_TMP_ROOT = REPO_ROOT / ".test-artifacts"
+TEST_TMP_ROOT.mkdir(exist_ok=True)
+
+
+class _WorkspaceScratchDir:
+    def __init__(self) -> None:
+        self.path = TEST_TMP_ROOT / f"scratch_{uuid4().hex}"
+
+    def __enter__(self) -> str:
+        self.path.mkdir(parents=True, exist_ok=False)
+        return str(self.path)
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        shutil.rmtree(self.path, ignore_errors=True)
+
+
+def _workspace_tempdir() -> _WorkspaceScratchDir:
+    return _WorkspaceScratchDir()
 
 
 KEPT_ML_LABEL = "hybrid_siea_ml_two_tier_tuned_swap_local_search"
@@ -89,6 +111,10 @@ class ExperimentRunnerTestCase(unittest.TestCase):
         self.assertIn("f_score", result_frame.columns)
         self.assertIn("diffusion_model", result_frame.columns)
         self.assertIn("optimization_mode", result_frame.columns)
+        self.assertIn("ranking_model", result_frame.columns)
+        self.assertIn("search_spread_estimator", result_frame.columns)
+        self.assertIn("search_guidance_estimator", result_frame.columns)
+        self.assertIn("final_spread_estimator", result_frame.columns)
         self.assertIn("community_modularity", result_frame.columns)
         self.assertIn("ml_validation_spearman", result_frame.columns)
         self.assertIn("ml_validation_precision_at_budget", result_frame.columns)
@@ -165,12 +191,36 @@ class ExperimentRunnerTestCase(unittest.TestCase):
         ]
         self.assertTrue(first[comparable_columns].equals(second[comparable_columns]))
 
-    def test_run_loaded_experiment_rejects_unsupported_diffusion_model(self) -> None:
+    def test_run_loaded_experiment_supports_linear_threshold(self) -> None:
         dataset, protected_group_report = _toy_experiment_fixture()
         settings = ExperimentSettings(
             protected_attribute="group",
             budget=3,
             diffusion_model="lt",
+            propagation_probability=1.0,
+            mc_runs_search=3,
+            mc_runs_eval=5,
+            population_size=5,
+            generations=3,
+        )
+
+        result_frame = run_loaded_experiment(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            settings=settings,
+            baseline_methods=["degree"],
+            include_ablations=False,
+        )
+
+        self.assertFalse(result_frame.empty)
+        self.assertTrue((result_frame["diffusion_model"] == "lt").all())
+
+    def test_run_loaded_experiment_rejects_unknown_diffusion_model(self) -> None:
+        dataset, protected_group_report = _toy_experiment_fixture()
+        settings = ExperimentSettings(
+            protected_attribute="group",
+            budget=3,
+            diffusion_model="not_a_model",
         )
 
         with self.assertRaisesRegex(ValueError, "Unsupported diffusion_model"):
@@ -217,10 +267,14 @@ class ExperimentRunnerTestCase(unittest.TestCase):
         self.assertEqual(int(ml_row["candidate_pool_size"]), dataset.graph.number_of_nodes())
         self.assertEqual(ml_row["ml_guidance_mode"], "two_tier")
         self.assertEqual(ml_row["ml_backend"], "tabular")
+        self.assertEqual(ml_row["ranking_model"], "random_forest")
+        self.assertEqual(ml_row["search_spread_estimator"], "monte_carlo")
+        self.assertEqual(ml_row["search_guidance_estimator"], "none")
+        self.assertEqual(ml_row["final_spread_estimator"], "monte_carlo")
         self.assertTrue(pd.isna(ml_row["gnn_model_type"]))
 
     def test_run_experiment_loads_custom_dataset_config_end_to_end(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
+        with _workspace_tempdir() as temp_dir:
             temp_path = Path(temp_dir)
             edge_path = temp_path / "edges.txt"
             attribute_path = temp_path / "attributes.csv"
@@ -256,7 +310,7 @@ class ExperimentRunnerTestCase(unittest.TestCase):
             self.assertTrue((result_frame["dataset"] == "custom_dataset").all())
 
     def test_run_experiment_can_use_derived_community_id_protected_groups(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
+        with _workspace_tempdir() as temp_dir:
             temp_path = Path(temp_dir)
             edge_path = temp_path / "edges.txt"
             edge_path.write_text("1 2\n2 3\n3 4\n4 5\n5 6\n6 1\n", encoding="utf-8")
@@ -289,6 +343,63 @@ class ExperimentRunnerTestCase(unittest.TestCase):
             self.assertIn("cea_fim", set(result_frame["method"]))
             self.assertIn("hybrid_siea", set(result_frame["method"]))
             self.assertTrue((result_frame["dataset"] == "custom_derived_groups").all())
+
+    def test_run_loaded_experiment_supports_additional_graph_native_community_method(self) -> None:
+        dataset, protected_group_report = _toy_experiment_fixture()
+        settings = ExperimentSettings(
+            protected_attribute="group",
+            budget=3,
+            community_method="label_propagation",
+            propagation_probability=0.0,
+            mc_runs_search=3,
+            mc_runs_eval=5,
+            population_size=5,
+            generations=3,
+            random_seed=9,
+        )
+
+        result_frame = run_loaded_experiment(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            settings=settings,
+            community_methods=["label_propagation"],
+            baseline_methods=["degree"],
+            include_ablations=False,
+        )
+
+        self.assertTrue((result_frame["community_method"] == "label_propagation").all())
+        self.assertTrue((result_frame["community_category"] == "graph_native").all())
+        self.assertTrue((result_frame["community_input_mode"] == "graph").all())
+
+    def test_run_loaded_experiment_supports_embedding_space_community_method_with_feature_fallback(self) -> None:
+        dataset, protected_group_report = _toy_experiment_fixture()
+        settings = ExperimentSettings(
+            protected_attribute="group",
+            budget=3,
+            community_method="kmeans",
+            community_input_mode="auto",
+            community_n_clusters=2,
+            community_embedding_source="feature",
+            propagation_probability=0.0,
+            mc_runs_search=3,
+            mc_runs_eval=5,
+            population_size=5,
+            generations=3,
+            random_seed=9,
+        )
+
+        result_frame = run_loaded_experiment(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            settings=settings,
+            community_methods=["kmeans"],
+            baseline_methods=["degree"],
+            include_ablations=False,
+        )
+
+        self.assertTrue((result_frame["community_method"] == "kmeans").all())
+        self.assertTrue((result_frame["community_category"] == "embedding_space").all())
+        self.assertTrue((result_frame["community_input_mode"] == "feature").all())
 
     def test_run_loaded_experiment_treats_ml_off_as_single_supported_ml_path(self) -> None:
         dataset, protected_group_report = _toy_experiment_fixture()
@@ -915,7 +1026,7 @@ class ExperimentRunnerTestCase(unittest.TestCase):
 
     def test_results_are_saved_under_protected_attribute_directory(self) -> None:
         dataset, protected_group_report = _toy_experiment_fixture()
-        with tempfile.TemporaryDirectory() as temp_dir:
+        with _workspace_tempdir() as temp_dir:
             output_dir = Path(temp_dir)
             settings = ExperimentSettings(
                 protected_attribute="group",
@@ -956,7 +1067,7 @@ class ExperimentRunnerTestCase(unittest.TestCase):
             dataset.graph.nodes[node_id][protected_attribute] = dataset.graph.nodes[node_id]["group"]
         protected_group_report = verify_protected_groups(dataset, protected_attribute)
 
-        with tempfile.TemporaryDirectory() as temp_dir:
+        with _workspace_tempdir() as temp_dir:
             output_dir = Path(temp_dir)
             settings = ExperimentSettings(
                 protected_attribute=protected_attribute,

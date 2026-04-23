@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from time import perf_counter
 from typing import Any, Iterable, Sequence
 import random as py_random
@@ -14,6 +14,9 @@ except ImportError:
 
 import networkx as nx
 import numpy as np
+import pandas as pd
+
+from .clustering import ClusteringResult, cluster_nodes
 
 
 @dataclass(slots=True)
@@ -62,6 +65,10 @@ class CommunityDetectionResult:
     stats: CommunityStats
     validation: CommunityValidationReport
     runtime_seconds: float
+    category: str = "graph_native"
+    requested_input_mode: str = "graph"
+    resolved_input_mode: str = "graph"
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 def _sort_key(value: Any) -> tuple[str, str]:
@@ -282,6 +289,49 @@ def _build_community_result(
     )
 
 
+def community_result_from_clustering(
+    graph: nx.Graph,
+    clustering_result: ClusteringResult,
+) -> CommunityDetectionResult:
+    """Adapt a generic clustering result into the validated community contract."""
+
+    communities = {
+        int(community_id): tuple(sorted(nodes, key=_sort_key))
+        for community_id, nodes in sorted(clustering_result.clusters.items())
+    }
+    community_id_by_node = {
+        node_id: int(community_id)
+        for node_id, community_id in clustering_result.cluster_id_by_node.items()
+    }
+    validation = validate_communities(
+        graph=graph,
+        community_id_by_node=community_id_by_node,
+        communities=communities,
+    )
+    _raise_for_invalid_validation(validation)
+    metadata = dict(clustering_result.metadata)
+    if clustering_result.modularity is not None:
+        metadata["modularity"] = float(clustering_result.modularity)
+    if clustering_result.mean_conductance is not None:
+        metadata["mean_conductance"] = float(clustering_result.mean_conductance)
+    if clustering_result.nmi is not None:
+        metadata["nmi"] = float(clustering_result.nmi)
+    if clustering_result.ari is not None:
+        metadata["ari"] = float(clustering_result.ari)
+    return CommunityDetectionResult(
+        method=clustering_result.method,
+        community_id_by_node=community_id_by_node,
+        communities=communities,
+        stats=_build_community_stats(communities),
+        validation=validation,
+        runtime_seconds=float(clustering_result.runtime_seconds),
+        category=clustering_result.category,
+        requested_input_mode=clustering_result.requested_input_mode,
+        resolved_input_mode=clustering_result.resolved_input_mode,
+        metadata=metadata,
+    )
+
+
 def _to_igraph(
     graph: nx.Graph,
     weight_attribute: str | None,
@@ -316,6 +366,10 @@ def detect_communities(
     resolution: float = 1.0,
     weight_attribute: str | None = None,
     random_seed: int | None = None,
+    embeddings: pd.DataFrame | np.ndarray | Sequence[Sequence[float]] | None = None,
+    features: pd.DataFrame | np.ndarray | Sequence[Sequence[float]] | None = None,
+    input_mode: str = "graph",
+    config: dict[str, Any] | None = None,
 ) -> CommunityDetectionResult:
     """Detect and validate graph communities with a minimal wrapper."""
 
@@ -324,37 +378,20 @@ def detect_communities(
 
     effective_seed = seed if random_seed is None else random_seed
     method_key = method.lower()
-    work_graph = graph if not graph.is_directed() else graph.to_undirected()
-    start = perf_counter()
-
-    if method_key == "louvain":
-        raw_communities = nx.community.louvain_communities(
-            work_graph,
-            weight=weight_attribute,
-            resolution=resolution,
-            seed=effective_seed,
-        )
-    elif method_key == "leiden":
-        ig_graph, nodes, weights = _to_igraph(work_graph, weight_attribute)
-        ig.set_random_number_generator(py_random.Random(effective_seed))
-        clustering = ig_graph.community_leiden(
-            objective_function="modularity",
-            weights=weights,
-            resolution=resolution,
-        )
-        raw_communities = [[nodes[index] for index in community] for community in clustering]
-    else:
-        raise ValueError(
-            f"Unsupported community detection method '{method}'. Supported methods: louvain, leiden."
-        )
-
-    runtime_seconds = perf_counter() - start
-    return _build_community_result(
-        graph=graph,
-        method=method_key,
-        raw_communities=raw_communities,
-        runtime_seconds=runtime_seconds,
+    method_config = dict(config or {})
+    method_config.setdefault("resolution", float(resolution))
+    if weight_attribute is not None:
+        method_config.setdefault("weight_attribute", weight_attribute)
+    clustering_result = cluster_nodes(
+        graph,
+        method_key,
+        embeddings=embeddings,
+        features=features,
+        config=method_config,
+        random_seed=int(effective_seed),
+        input_mode=input_mode,
     )
+    return community_result_from_clustering(graph, clustering_result)
 
 
 def get_node_community(result: CommunityDetectionResult, node_id: Any) -> int:

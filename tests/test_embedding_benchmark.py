@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from importlib.util import find_spec as real_find_spec
+import json
 from pathlib import Path
 import shutil
 import unittest
@@ -193,6 +194,7 @@ class BenchmarkRunnerTestCase(unittest.TestCase):
             self.assertTrue((result.summary_frame["all_nodes_embedded"]).all())
             self.assertTrue((result.summary_frame["all_finite"]).all())
             self.assertTrue((result.summary_frame["label_probe_status"] == "ok").all())
+            self.assertTrue((result.summary_frame["label_probe_macro_f1"].notna()).all())
             self.assertEqual(
                 set(result.evaluation_frame["task"]),
                 {"node_classification", "link_prediction", "node_clustering"},
@@ -207,6 +209,134 @@ class BenchmarkRunnerTestCase(unittest.TestCase):
                 self.assertTrue((benchmark_dir / f"{dataset.name}_{method_name}_embeddings.pkl").is_file())
                 self.assertTrue((benchmark_dir / f"{dataset.name}_{method_name}_embeddings.npy").is_file())
                 self.assertTrue((benchmark_dir / f"{dataset.name}_{method_name}_embeddings_node_order.json").is_file())
+
+    def test_benchmark_runs_protected_attribute_probe_when_requested(self) -> None:
+        dataset = _toy_dataset()
+        result = run_embedding_benchmark(
+            dataset,
+            methods=["deepwalk"],
+            method_configs={
+                "deepwalk": {"embedding_dim": 4, "walk_length": 6, "num_walks": 4, "window_size": 2, "random_seed": 7},
+            },
+            output_dir=None,
+            export_formats=(),
+            label_column="group",
+            protected_attribute_column="region",
+            run_protected_attribute_probe=True,
+            continue_on_error=False,
+        )
+
+        self.assertEqual(len(result.summary_frame), 1)
+        row = result.summary_frame.iloc[0]
+        self.assertEqual(row["status"], "ok")
+        self.assertEqual(row["protected_probe_status"], "ok")
+        self.assertEqual(row["protected_probe_column"], "region")
+        self.assertGreaterEqual(float(row["protected_probe_accuracy"]), 0.0)
+        self.assertGreaterEqual(float(row["protected_probe_macro_f1"]), 0.0)
+
+    def test_benchmark_supports_adversarial_graphsage_evaluation_when_available(self) -> None:
+        if not pyg_dependencies_available():
+            self.skipTest("torch and torch_geometric are not installed")
+
+        dataset = _toy_dataset()
+        result = run_embedding_benchmark(
+            dataset,
+            methods=["deepwalk"],
+            method_configs={
+                "deepwalk": {"embedding_dim": 4, "walk_length": 6, "num_walks": 4, "window_size": 2, "random_seed": 7},
+            },
+            output_dir=None,
+            export_formats=(),
+            label_column="group",
+            protected_attribute_column="region",
+            evaluation_tasks=["node_classification"],
+            node_classification_model="graphsage",
+            debias_mode="adversarial",
+            early_stop_metric="worst_group_f1",
+            early_stop_patience=3,
+            adversary_loss_weight=1.0,
+            gradient_reversal_lambda=1.0,
+            continue_on_error=False,
+        )
+
+        row = result.evaluation_frame.iloc[0]
+        self.assertEqual(row["status"], "ok")
+        self.assertEqual(row["training_mode"], "adversarial")
+        self.assertEqual(row["debias_mode"], "adversarial")
+        self.assertEqual(row["early_stop_metric"], "worst_group_f1_raw")
+        self.assertIn(str(row["protected_probe_status"]), {"ok", "skipped"})
+
+    def test_benchmark_supports_group_dro_graphsage_evaluation_when_available(self) -> None:
+        if not pyg_dependencies_available():
+            self.skipTest("torch and torch_geometric are not installed")
+
+        dataset = _toy_dataset()
+        result = run_embedding_benchmark(
+            dataset,
+            methods=["deepwalk"],
+            method_configs={
+                "deepwalk": {"embedding_dim": 4, "walk_length": 6, "num_walks": 4, "window_size": 2, "random_seed": 7},
+            },
+            output_dir=None,
+            export_formats=(),
+            label_column="group",
+            protected_attribute_column="region",
+            evaluation_tasks=["node_classification"],
+            node_classification_model="graphsage",
+            training_mode="group_robust",
+            group_weight_mode="group_dro",
+            group_robust_weight=0.5,
+            min_group_support_threshold=2,
+            early_stop_metric="worst_group_f1",
+            early_stop_patience=3,
+            continue_on_error=False,
+        )
+
+        row = result.evaluation_frame.iloc[0]
+        self.assertEqual(row["status"], "ok")
+        self.assertEqual(row["training_mode"], "group_robust")
+        self.assertEqual(row["comparison_mode"], "group_robust")
+        self.assertEqual(row["group_weight_mode"], "group_dro")
+        self.assertAlmostEqual(float(row["group_robust_weight"]), 0.5, places=6)
+        self.assertEqual(int(row["min_group_support_threshold"]), 2)
+        self.assertGreaterEqual(int(row["best_epoch"]), 1)
+        self.assertTrue(json.loads(str(row["training_history_json"])))
+
+    def test_benchmark_supports_anti_collapse_graphsage_mode_alias_when_available(self) -> None:
+        if not pyg_dependencies_available():
+            self.skipTest("torch and torch_geometric are not installed")
+
+        dataset = _toy_dataset()
+        result = run_embedding_benchmark(
+            dataset,
+            methods=["deepwalk"],
+            method_configs={
+                "deepwalk": {"embedding_dim": 4, "walk_length": 6, "num_walks": 4, "window_size": 2, "random_seed": 7},
+            },
+            output_dir=None,
+            export_formats=(),
+            label_column="group",
+            protected_attribute_column="region",
+            evaluation_tasks=["node_classification"],
+            node_classification_model="graphsage",
+            training_mode="anti_collapse_group_robust",
+            min_group_support_threshold=2,
+            min_group_support_train=2,
+            min_group_support_eval=2,
+            early_stop_patience=3,
+            continue_on_error=False,
+        )
+
+        row = result.evaluation_frame.iloc[0]
+        self.assertEqual(row["status"], "ok")
+        self.assertEqual(row["training_mode"], "anti_collapse_group_robust")
+        self.assertEqual(row["comparison_mode"], "anti_collapse_group_robust")
+        self.assertEqual(row["group_weight_mode"], "min_support_boost")
+        self.assertAlmostEqual(float(row["group_robust_weight"]), 0.25, places=6)
+        self.assertAlmostEqual(float(row["min_support_boost_factor"]), 2.0, places=6)
+        self.assertTrue(bool(row["rebalance_batches_by_group"]))
+        self.assertEqual(row["early_stop_metric"], "worst_group_f1_raw")
+        self.assertTrue(json.loads(str(row["training_history_json"])))
 
     def test_benchmark_skips_metapath2vec_on_homogeneous_graph(self) -> None:
         dataset = _toy_dataset()

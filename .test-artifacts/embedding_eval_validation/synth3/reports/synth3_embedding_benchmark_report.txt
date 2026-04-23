@@ -1,0 +1,37 @@
+====================================================================================================
+Graph Embedding Benchmark Summary
+====================================================================================================
+Dataset: synth3
+Output directory: C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\embedding_eval_validation
+Methods available: deepwalk, node2vec, line, vgae, gcn, graphsage, dgi, graphcl, metapath2vec
+
+1. graphsage [ok]
+   runtime=0.257s | dim=64 | nodes=500 | ml_ready=True
+   all_nodes=True | all_finite=True | cosine_mean=0.520940298853338
+   label_probe=ok | accuracy=1.0
+   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\embedding_eval_validation\synth3\embeddings\synth3_graphsage_embeddings.csv | pickle=C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\embedding_eval_validation\synth3\embeddings\synth3_graphsage_embeddings.pkl | npy=-
+
+2. dgi [ok]
+   runtime=3.361s | dim=64 | nodes=500 | ml_ready=True
+   all_nodes=True | all_finite=True | cosine_mean=0.9210054463391917
+   label_probe=ok | accuracy=0.992
+   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\embedding_eval_validation\synth3\embeddings\synth3_dgi_embeddings.csv | pickle=C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\embedding_eval_validation\synth3\embeddings\synth3_dgi_embeddings.pkl | npy=-
+
+----------------------------------------------------------------------------------------------------
+Graph Embedding Evaluation Summary
+----------------------------------------------------------------------------------------------------
+Sorted by primary metric within each task: accuracy for node classification, roc_auc for link prediction, nmi for clustering.
+
+1. dgi | node_classification [ok]
+   runtime=1.163s | embedding_runtime=3.361s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=graphsage | label_column=color
+   primary_metric=accuracy (0.9920)
+   metrics: accuracy=0.9920, macro_f1=0.9857, micro_f1=0.9920, weighted_f1=0.9920, roc_auc=-, ap=-, nmi=-, ari=-
+   notes=classes=3; stratified=True; val=75; val_stratified=True; imbalance_mode=focal_loss; early_stop_metric=macro_f1
+
+2. graphsage | node_classification [ok]
+   runtime=1.146s | embedding_runtime=0.257s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=graphsage | label_column=color
+   primary_metric=accuracy (0.9920)
+   metrics: accuracy=0.9920, macro_f1=0.9857, micro_f1=0.9920, weighted_f1=0.9920, roc_auc=-, ap=-, nmi=-, ari=-
+   notes=classes=3; stratified=True; val=75; val_stratified=True; imbalance_mode=focal_loss; early_stop_metric=macro_f1

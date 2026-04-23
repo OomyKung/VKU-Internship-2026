@@ -1,0 +1,61 @@
+category,name,status,integration_surface,interface,default,optional_dependencies,notes
+diffusion_model,ic,available,shared_evaluation,"simulate_diffusion(dataset, protected_group_report, seed_set, ...)",True,(),Independent Cascade with edge-specific or fallback activation probabilities.
+diffusion_model,lt,available,shared_evaluation,"simulate_diffusion(dataset, protected_group_report, seed_set, ...)",False,(),Linear Threshold using edge weights or normalized incoming influence.
+diffusion_model,wc,available,shared_evaluation,"simulate_diffusion(dataset, protected_group_report, seed_set, ...)",False,(),Weighted Cascade using inverse in-degree activation probabilities.
+spread_estimator,monte_carlo,available,search_and_final_evaluation,"evaluate_seed_set(..., mc_runs=...)",True,(),Trusted final evaluation path used for all reported spread/fairness metrics.
+spread_estimator,ris_guidance,available,search_guidance_only,"generate_ris_guidance(dataset, protected_group_report, propagation_probability, config)",False,(),Reusable RR-set coverage prior for search-time guidance; final reporting remains Monte Carlo.
+seed_selection,random,available,experiment_runner,"select_baseline_seed_set(dataset, method, budget, ...)",False,(),Uniform random seed selection without replacement.
+seed_selection,degree,available,experiment_runner,"select_baseline_seed_set(dataset, method, budget, ...)",False,(),Highest-degree seed selection.
+seed_selection,pagerank,available,experiment_runner,"select_baseline_seed_set(dataset, method, budget, ...)",False,(),Highest-PageRank seed selection.
+seed_selection,greedy,available,experiment_runner,"select_baseline_seed_set(dataset, method, budget, ...)",False,(),Greedy marginal selection maximizing trusted total spread.
+seed_selection,fairness_weighted_greedy,available,experiment_runner,"select_baseline_seed_set(dataset, method, budget, ...)",False,(),Greedy marginal selection maximizing trusted F-score.
+seed_selection,maximin_greedy,available,experiment_runner,"select_baseline_seed_set(dataset, method, budget, ...)",False,(),Greedy marginal selection maximizing trusted worst-group MF.
+seed_selection,community_round_robin,available,experiment_runner,"select_baseline_seed_set(dataset, method, budget, ...)",False,(),Round-robin seeding across detected communities with PageRank ordering.
+fairness_fim_method,cea_fim,available,experiment_runner,"run_loaded_experiment(..., only_methods=['cea_fim'])",False,(),CEA-style comparator implemented as a community EA without swarm guidance or local search.
+fairness_fim_method,hybrid_siea,available,experiment_runner,"run_loaded_experiment(..., only_methods=['hybrid_siea'])",True,(),Unified hybrid swarm-intelligence plus evolutionary optimizer.
+fairness_fim_method,fairness_weighted_greedy,available,experiment_runner_baseline,baseline_methods=['fairness_weighted_greedy'],False,(),Greedy comparator maximizing the trusted F-score objective.
+fairness_fim_method,maximin_greedy,available,experiment_runner_baseline,baseline_methods=['maximin_greedy'],False,(),Greedy comparator maximizing worst-group MF with spread-aware tie-breaking.
+community_detection,louvain,available,experiment_runner_and_clustering_benchmark,"cluster_nodes(graph, method, embeddings=None, features=None, ...)",False,(),graph_native method with preferred input=graph.
+community_detection,leiden,available,experiment_runner_and_clustering_benchmark,"cluster_nodes(graph, method, embeddings=None, features=None, ...)",True,"('igraph',)",graph_native method with preferred input=graph.
+community_detection,multilevel,available,experiment_runner_and_clustering_benchmark,"cluster_nodes(graph, method, embeddings=None, features=None, ...)",False,"('igraph',)",graph_native method with preferred input=graph.
+community_detection,infomap,available,experiment_runner_and_clustering_benchmark,"cluster_nodes(graph, method, embeddings=None, features=None, ...)",False,"('igraph',)",graph_native method with preferred input=graph.
+community_detection,label_propagation,available,experiment_runner_and_clustering_benchmark,"cluster_nodes(graph, method, embeddings=None, features=None, ...)",False,(),graph_native method with preferred input=graph.
+community_detection,walktrap,available,experiment_runner_and_clustering_benchmark,"cluster_nodes(graph, method, embeddings=None, features=None, ...)",False,"('igraph',)",graph_native method with preferred input=graph.
+embedding_clustering,kmeans,available,clustering_benchmark_and_embedding_evaluation,"cluster_nodes(graph, method, embeddings=None, features=None, ...)",True,(),embedding_space method with preferred input=embedding.
+embedding_clustering,spectral,available,clustering_benchmark_and_embedding_evaluation,"cluster_nodes(graph, method, embeddings=None, features=None, ...)",False,(),embedding_space method with preferred input=embedding.
+embedding_clustering,agglomerative,available,clustering_benchmark_and_embedding_evaluation,"cluster_nodes(graph, method, embeddings=None, features=None, ...)",False,(),embedding_space method with preferred input=embedding.
+embedding_clustering,dbscan_or_hdbscan,available,clustering_benchmark_and_embedding_evaluation,"cluster_nodes(graph, method, embeddings=None, features=None, ...)",False,(),embedding_space method with preferred input=embedding.
+embedding_clustering,gmm,available,clustering_benchmark_and_embedding_evaluation,"cluster_nodes(graph, method, embeddings=None, features=None, ...)",False,(),embedding_space method with preferred input=embedding.
+graph_embedding,deepwalk,available,embedding_benchmark,"run_embedding_benchmark(..., methods=[...])",True,(),Random-walk based shallow embeddings using unbiased walks.
+graph_embedding,node2vec,available,embedding_benchmark,"run_embedding_benchmark(..., methods=[...])",False,(),Biased random-walk shallow embeddings.
+graph_embedding,line,available,embedding_benchmark,"run_embedding_benchmark(..., methods=[...])",False,(),First- and second-order proximity embeddings.
+graph_embedding,vgae,available,embedding_benchmark,"run_embedding_benchmark(..., methods=[...])",False,"('torch', 'torch_geometric')",Variational graph autoencoder with a GCN encoder.
+graph_embedding,gcn,available,embedding_benchmark,"run_embedding_benchmark(..., methods=[...])",False,"('torch', 'torch_geometric')",Unsupervised graph autoencoder with a GCN encoder.
+graph_embedding,graphsage,available,embedding_benchmark,"run_embedding_benchmark(..., methods=[...])",True,"('torch', 'torch_geometric')",Unsupervised graph autoencoder with a GraphSAGE encoder.
+graph_embedding,dgi,available,embedding_benchmark,"run_embedding_benchmark(..., methods=[...])",False,"('torch', 'torch_geometric')",Deep Graph Infomax self-supervised embeddings.
+graph_embedding,graphcl,available,embedding_benchmark,"run_embedding_benchmark(..., methods=[...])",False,"('torch', 'torch_geometric')",Graph contrastive learning with two augmented views.
+graph_embedding,metapath2vec,available,embedding_benchmark,"run_embedding_benchmark(..., methods=[...])",False,"('torch', 'torch_geometric')",Heterogeneous graph embeddings over typed metapaths.
+ranking_model,random_forest,available,experiment_runner_ml,"train_node_utility_model(feature_frame, label_frame, budget, model_type=...)",False,(),Random-forest regressor over handcrafted node features.
+ranking_model,xgboost,available,experiment_runner_ml,"train_node_utility_model(feature_frame, label_frame, budget, model_type=...)",False,"('xgboost',)",Gradient-boosted tree regressor over handcrafted node features.
+ranking_model,mlp,available,experiment_runner_ml,"train_node_utility_model(feature_frame, label_frame, budget, model_type=...)",False,(),Feed-forward MLP regressor over handcrafted node features.
+ranking_model,logistic_regression,available,experiment_runner_ml,"train_node_utility_model(feature_frame, label_frame, budget, model_type=...)",False,(),Logistic classifier that ranks nodes by probability of belonging to the top-budget singleton-utility set.
+ranking_model,graphsage,available,experiment_runner_ml,"train_gnn_node_utility_model(dataset, feature_frame, label_frame, budget, model_type=...)",False,"('torch', 'torch_geometric')",GraphSAGE regressor used by the GNN ranking backend.
+ranking_model,gcn,available,experiment_runner_ml,"train_gnn_node_utility_model(dataset, feature_frame, label_frame, budget, model_type=...)",False,"('torch', 'torch_geometric')",GCN regressor used by the GNN ranking backend.
+ranking_model,ris_guidance,available,search_guidance_only,"generate_ris_guidance(dataset, protected_group_report, propagation_probability, config)",False,(),RIS node-coverage prior used for search-time guidance only.
+optimization_mode,greedy_local_search,available,hybrid_optimizer,"HybridSIEAOptimizer(..., local_search_steps>0)",False,(),Swap-based local search refinement inside the hybrid optimizer.
+optimization_mode,evolutionary_algorithm,available,hybrid_optimizer,"HybridSIEAOptimizer(..., crossover_probability>0, mutation_probability>0)",False,(),"Population-based EA core with crossover, mutation, and repair."
+optimization_mode,swarm_intelligence,available,hybrid_optimizer,"HybridSIEAOptimizer(..., disable_swarm_guidance=False)",False,(),Leader-guidance / swarm-style population update component.
+optimization_mode,hybrid_siea,available,experiment_runner,method='hybrid_siea',True,(),Unified SI+EA optimizer with repair and local search.
+optimization_mode,repair_heuristics,available,hybrid_optimizer,HybridSIEAOptimizer._repair_seed_set(...),False,(),"Repair stage enforces valid, diverse, fairness-aware candidate seed sets."
+optimization_mode,swap_local_search,available,hybrid_optimizer,"HybridSIEAOptimizer(..., local_search_swap_trials>0)",False,(),Configurable swap-based neighborhood search.
+optimization_mode,full,available,experiment_runner_cli,--optimization-mode full,True,(),Quality-oriented refinement mode.
+optimization_mode,balanced,available,experiment_runner_cli,--optimization-mode balanced,False,(),Balanced runtime/quality trade-off.
+optimization_mode,fast,available,experiment_runner_cli,--optimization-mode fast,False,(),Runtime-oriented refinement mode.
+bias_fairness_control,fairness_first_initialization,available,experiment_runner,--fairness-first-init-enabled,False,(),Weak-group-aware initialization for hybrid search.
+bias_fairness_control,worst_group_mutation_boost,available,experiment_runner,--weakest-group-mutation-weight,False,(),Boost mutation and local search toward under-covered groups.
+bias_fairness_control,fairness_repair_weighting,available,experiment_runner,--repair-fairness-weight,False,(),Bias repair heuristics toward weak-group support.
+bias_fairness_control,urgency_weighting,available,experiment_runner,--urgency-weight-enabled,False,(),Increase guidance weight on currently weak groups.
+bias_fairness_control,group_robust_weighting,available,embedding_node_classification,training_mode=group_robust / anti_collapse_group_robust,False,(),"Available in the GraphSAGE fairness training stack, not yet wired into FIM ranking training."
+bias_fairness_control,adversarial_debiasing,available,embedding_node_classification,training_mode=anti_collapse_group_robust_with_mild_adversarial,False,(),"Available in the GraphSAGE fairness training stack, not yet wired into FIM ranking training."
+bias_fairness_control,class_weighted_loss,not_yet_wired,planned,-,False,(),Not currently exposed in the FIM ranking pipeline.
+bias_fairness_control,focal_loss,not_yet_wired,planned,-,False,(),Not currently exposed in the FIM ranking pipeline.

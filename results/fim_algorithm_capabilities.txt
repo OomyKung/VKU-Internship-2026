@@ -1,0 +1,81 @@
+FIM Algorithm Capability Summary
+================================================================================
+diffusion_model
+- ic [available] | surface=shared_evaluation | default | notes=Independent Cascade with edge-specific or fallback activation probabilities.
+- lt [available] | surface=shared_evaluation | notes=Linear Threshold using edge weights or normalized incoming influence.
+- wc [available] | surface=shared_evaluation | notes=Weighted Cascade using inverse in-degree activation probabilities.
+
+spread_estimator
+- monte_carlo [available] | surface=search_and_final_evaluation | default | notes=Trusted final evaluation path used for all reported spread/fairness metrics.
+- ris_guidance [available] | surface=search_guidance_only | notes=Reusable RR-set coverage prior for search-time guidance; final reporting remains Monte Carlo.
+
+seed_selection
+- random [available] | surface=experiment_runner | notes=Uniform random seed selection without replacement.
+- degree [available] | surface=experiment_runner | notes=Highest-degree seed selection.
+- pagerank [available] | surface=experiment_runner | notes=Highest-PageRank seed selection.
+- greedy [available] | surface=experiment_runner | notes=Greedy marginal selection maximizing trusted total spread.
+- fairness_weighted_greedy [available] | surface=experiment_runner | notes=Greedy marginal selection maximizing trusted F-score.
+- maximin_greedy [available] | surface=experiment_runner | notes=Greedy marginal selection maximizing trusted worst-group MF.
+- community_round_robin [available] | surface=experiment_runner | notes=Round-robin seeding across detected communities with PageRank ordering.
+
+fairness_fim_method
+- cea_fim [available] | surface=experiment_runner | notes=CEA-style comparator implemented as a community EA without swarm guidance or local search.
+- hybrid_siea [available] | surface=experiment_runner | default | notes=Unified hybrid swarm-intelligence plus evolutionary optimizer.
+- fairness_weighted_greedy [available] | surface=experiment_runner_baseline | notes=Greedy comparator maximizing the trusted F-score objective.
+- maximin_greedy [available] | surface=experiment_runner_baseline | notes=Greedy comparator maximizing worst-group MF with spread-aware tie-breaking.
+
+community_detection
+- louvain [available] | surface=experiment_runner_and_clustering_benchmark | notes=graph_native method with preferred input=graph.
+- leiden [available] | surface=experiment_runner_and_clustering_benchmark | default | deps=igraph | notes=graph_native method with preferred input=graph.
+- multilevel [available] | surface=experiment_runner_and_clustering_benchmark | deps=igraph | notes=graph_native method with preferred input=graph.
+- infomap [available] | surface=experiment_runner_and_clustering_benchmark | deps=igraph | notes=graph_native method with preferred input=graph.
+- label_propagation [available] | surface=experiment_runner_and_clustering_benchmark | notes=graph_native method with preferred input=graph.
+- walktrap [available] | surface=experiment_runner_and_clustering_benchmark | deps=igraph | notes=graph_native method with preferred input=graph.
+
+embedding_clustering
+- kmeans [available] | surface=clustering_benchmark_and_embedding_evaluation | default | notes=embedding_space method with preferred input=embedding.
+- spectral [available] | surface=clustering_benchmark_and_embedding_evaluation | notes=embedding_space method with preferred input=embedding.
+- agglomerative [available] | surface=clustering_benchmark_and_embedding_evaluation | notes=embedding_space method with preferred input=embedding.
+- dbscan_or_hdbscan [available] | surface=clustering_benchmark_and_embedding_evaluation | notes=embedding_space method with preferred input=embedding.
+- gmm [available] | surface=clustering_benchmark_and_embedding_evaluation | notes=embedding_space method with preferred input=embedding.
+
+graph_embedding
+- deepwalk [available] | surface=embedding_benchmark | default | notes=Random-walk based shallow embeddings using unbiased walks.
+- node2vec [available] | surface=embedding_benchmark | notes=Biased random-walk shallow embeddings.
+- line [available] | surface=embedding_benchmark | notes=First- and second-order proximity embeddings.
+- vgae [available] | surface=embedding_benchmark | deps=torch,torch_geometric | notes=Variational graph autoencoder with a GCN encoder.
+- gcn [available] | surface=embedding_benchmark | deps=torch,torch_geometric | notes=Unsupervised graph autoencoder with a GCN encoder.
+- graphsage [available] | surface=embedding_benchmark | default | deps=torch,torch_geometric | notes=Unsupervised graph autoencoder with a GraphSAGE encoder.
+- dgi [available] | surface=embedding_benchmark | deps=torch,torch_geometric | notes=Deep Graph Infomax self-supervised embeddings.
+- graphcl [available] | surface=embedding_benchmark | deps=torch,torch_geometric | notes=Graph contrastive learning with two augmented views.
+- metapath2vec [available] | surface=embedding_benchmark | deps=torch,torch_geometric | notes=Heterogeneous graph embeddings over typed metapaths.
+
+ranking_model
+- random_forest [available] | surface=experiment_runner_ml | notes=Random-forest regressor over handcrafted node features.
+- xgboost [available] | surface=experiment_runner_ml | deps=xgboost | notes=Gradient-boosted tree regressor over handcrafted node features.
+- mlp [available] | surface=experiment_runner_ml | notes=Feed-forward MLP regressor over handcrafted node features.
+- logistic_regression [available] | surface=experiment_runner_ml | notes=Logistic classifier that ranks nodes by probability of belonging to the top-budget singleton-utility set.
+- graphsage [available] | surface=experiment_runner_ml | deps=torch,torch_geometric | notes=GraphSAGE regressor used by the GNN ranking backend.
+- gcn [available] | surface=experiment_runner_ml | deps=torch,torch_geometric | notes=GCN regressor used by the GNN ranking backend.
+- ris_guidance [available] | surface=search_guidance_only | notes=RIS node-coverage prior used for search-time guidance only.
+
+optimization_mode
+- greedy_local_search [available] | surface=hybrid_optimizer | notes=Swap-based local search refinement inside the hybrid optimizer.
+- evolutionary_algorithm [available] | surface=hybrid_optimizer | notes=Population-based EA core with crossover, mutation, and repair.
+- swarm_intelligence [available] | surface=hybrid_optimizer | notes=Leader-guidance / swarm-style population update component.
+- hybrid_siea [available] | surface=experiment_runner | default | notes=Unified SI+EA optimizer with repair and local search.
+- repair_heuristics [available] | surface=hybrid_optimizer | notes=Repair stage enforces valid, diverse, fairness-aware candidate seed sets.
+- swap_local_search [available] | surface=hybrid_optimizer | notes=Configurable swap-based neighborhood search.
+- full [available] | surface=experiment_runner_cli | default | notes=Quality-oriented refinement mode.
+- balanced [available] | surface=experiment_runner_cli | notes=Balanced runtime/quality trade-off.
+- fast [available] | surface=experiment_runner_cli | notes=Runtime-oriented refinement mode.
+
+bias_fairness_control
+- fairness_first_initialization [available] | surface=experiment_runner | notes=Weak-group-aware initialization for hybrid search.
+- worst_group_mutation_boost [available] | surface=experiment_runner | notes=Boost mutation and local search toward under-covered groups.
+- fairness_repair_weighting [available] | surface=experiment_runner | notes=Bias repair heuristics toward weak-group support.
+- urgency_weighting [available] | surface=experiment_runner | notes=Increase guidance weight on currently weak groups.
+- group_robust_weighting [available] | surface=embedding_node_classification | notes=Available in the GraphSAGE fairness training stack, not yet wired into FIM ranking training.
+- adversarial_debiasing [available] | surface=embedding_node_classification | notes=Available in the GraphSAGE fairness training stack, not yet wired into FIM ranking training.
+- class_weighted_loss [not_yet_wired] | surface=planned | notes=Not currently exposed in the FIM ranking pipeline.
+- focal_loss [not_yet_wired] | surface=planned | notes=Not currently exposed in the FIM ranking pipeline.

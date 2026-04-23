@@ -7,7 +7,7 @@ from time import perf_counter
 from typing import Any, Iterable
 
 from .data_loader import LoadedDataset, ProtectedGroupReport
-from .diffusion import DEFAULT_DIFFUSION_MODEL, simulate_independent_cascade, validate_diffusion_model
+from .diffusion import DEFAULT_DIFFUSION_MODEL, simulate_diffusion, validate_diffusion_model
 from .fairness import FairnessMetrics, evaluate_fairness
 
 
@@ -46,17 +46,18 @@ def evaluate_seed_set(
     include_soft_mf: bool = True,
     diffusion_model: str = DEFAULT_DIFFUSION_MODEL,
 ) -> SeedSetEvaluation:
-    """Run the shared IC diffusion, fairness, and F(S) pipeline for one seed set."""
+    """Run the shared diffusion, fairness, and F(S) pipeline for one seed set."""
 
     start = perf_counter()
     validate_diffusion_model(diffusion_model)
-    diffusion_result = simulate_independent_cascade(
+    diffusion_result = simulate_diffusion(
         dataset=dataset,
         protected_group_report=protected_group_report,
         seed_set=seed_set,
         propagation_probability=propagation_probability,
         mc_runs=mc_runs,
         random_seed=random_seed,
+        diffusion_model=diffusion_model,
     )
     fairness = evaluate_fairness(
         group_spread=diffusion_result.group_spread_mean,

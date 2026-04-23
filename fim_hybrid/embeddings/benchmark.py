@@ -12,18 +12,15 @@ from typing import Any
 import networkx as nx
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.model_selection import train_test_split
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 
 from fim_hybrid.data_loader import LoadedDataset
 
 from .base import EmbeddingResult, embedding_columns, sorted_node_ids
 from .evaluation import evaluate_embedding_benchmark, resolve_evaluation_tasks
 from .features import PreparedFeatures, coerce_input_features, prepare_benchmark_features
+from .node_classification_models import resolve_probe_model_type, run_train_test_embedding_probe
 from .registry import (
     create_embedding_model,
     get_method_spec,
@@ -122,46 +119,77 @@ def _pairwise_cosine_mean(frame: pd.DataFrame) -> float:
     return float(np.mean(upper))
 
 
-def _label_probe(
+def _embedding_probe(
     embedding_frame: pd.DataFrame,
     dataset: LoadedDataset,
-    label_column: str | None,
+    target_column: str | None,
     *,
     random_seed: int,
+    requested: bool,
+    model_type: str,
 ) -> dict[str, Any]:
-    if label_column is None:
-        return {"label_probe_status": "not_requested", "label_probe_accuracy": pd.NA}
-    if label_column not in dataset.node_attributes.columns:
+    resolved_model_type = resolve_probe_model_type(model_type)
+    if not requested:
         return {
-            "label_probe_status": "skipped",
-            "label_probe_accuracy": pd.NA,
-            "label_probe_reason": f"Label column '{label_column}' is not present in dataset.node_attributes.",
+            "status": "not_requested",
+            "column": pd.NA,
+            "accuracy": pd.NA,
+            "macro_f1": pd.NA,
+            "model_type": pd.NA,
+            "reason": "",
+        }
+    if target_column is None:
+        return {
+            "status": "skipped",
+            "column": pd.NA,
+            "accuracy": pd.NA,
+            "macro_f1": pd.NA,
+            "model_type": resolved_model_type,
+            "reason": "Probe requires a target column.",
+        }
+    if target_column not in dataset.node_attributes.columns:
+        return {
+            "status": "skipped",
+            "column": target_column,
+            "accuracy": pd.NA,
+            "macro_f1": pd.NA,
+            "model_type": resolved_model_type,
+            "reason": f"Target column '{target_column}' is not present in dataset.node_attributes.",
         }
 
     label_series = (
         dataset.node_attributes.set_index("node_id", drop=False)
-        .reindex(embedding_frame["node_id"].tolist())[label_column]
+        .reindex(embedding_frame["node_id"].tolist())[target_column]
     )
     if label_series.isna().any():
         return {
-            "label_probe_status": "skipped",
-            "label_probe_accuracy": pd.NA,
-            "label_probe_reason": f"Label column '{label_column}' contains missing values.",
+            "status": "skipped",
+            "column": target_column,
+            "accuracy": pd.NA,
+            "macro_f1": pd.NA,
+            "model_type": resolved_model_type,
+            "reason": f"Target column '{target_column}' contains missing values.",
         }
     if label_series.nunique() < 2:
         return {
-            "label_probe_status": "skipped",
-            "label_probe_accuracy": pd.NA,
-            "label_probe_reason": f"Label column '{label_column}' has fewer than two classes.",
+            "status": "skipped",
+            "column": target_column,
+            "accuracy": pd.NA,
+            "macro_f1": pd.NA,
+            "model_type": resolved_model_type,
+            "reason": f"Target column '{target_column}' has fewer than two classes.",
         }
 
     vectors = embedding_frame[embedding_columns(embedding_frame)].to_numpy(dtype=float)
     labels = label_series.astype(str).to_numpy()
     if len(labels) < 4:
         return {
-            "label_probe_status": "skipped",
-            "label_probe_accuracy": pd.NA,
-            "label_probe_reason": "Label probe requires at least four labeled nodes.",
+            "status": "skipped",
+            "column": target_column,
+            "accuracy": pd.NA,
+            "macro_f1": pd.NA,
+            "model_type": resolved_model_type,
+            "reason": "Probe requires at least four labeled nodes.",
         }
 
     unique_counts = label_series.value_counts()
@@ -177,18 +205,34 @@ def _label_probe(
         random_state=random_seed,
         stratify=labels if can_stratify else None,
     )
-    probe = Pipeline(
-        [
-            ("scaler", StandardScaler()),
-            ("model", LogisticRegression(max_iter=1000, random_state=random_seed)),
-        ]
+    probe_result = run_train_test_embedding_probe(
+        train_embeddings=x_train,
+        test_embeddings=x_test,
+        train_labels=y_train,
+        test_labels=y_test,
+        random_seed=random_seed,
+        model_type=resolved_model_type,
     )
-    probe.fit(x_train, y_train)
-    predictions = probe.predict(x_test)
     return {
-        "label_probe_status": "ok",
-        "label_probe_accuracy": float(accuracy_score(y_test, predictions)),
-        "label_probe_reason": "",
+        "status": probe_result["status"],
+        "column": target_column,
+        "accuracy": probe_result["accuracy"],
+        "macro_f1": probe_result["macro_f1"],
+        "model_type": probe_result["model_type"],
+        "reason": probe_result["reason"],
+    }
+
+
+def _prefix_probe_result(prefix: str, probe_result: dict[str, Any]) -> dict[str, Any]:
+    """Apply one output prefix to a generic probe result."""
+
+    return {
+        f"{prefix}_status": probe_result["status"],
+        f"{prefix}_column": probe_result["column"],
+        f"{prefix}_accuracy": probe_result["accuracy"],
+        f"{prefix}_macro_f1": probe_result["macro_f1"],
+        f"{prefix}_model_type": probe_result["model_type"],
+        f"{prefix}_reason": probe_result["reason"],
     }
 
 
@@ -198,7 +242,10 @@ def _summary_row_for_result(
     *,
     symmetrized_directed_graph: bool,
     label_column: str | None,
+    protected_attribute_column: str | None,
+    run_protected_attribute_probe: bool,
     random_seed: int,
+    probe_model_type: str,
 ) -> dict[str, Any]:
     frame = result.embedding_frame
     vector_matrix = frame[result.vector_columns].to_numpy(dtype=float)
@@ -223,7 +270,32 @@ def _summary_row_for_result(
         "pickle_path": result.metadata.get("export_paths", {}).get("pickle", pd.NA),
         "npy_path": result.metadata.get("export_paths", {}).get("npy", pd.NA),
     }
-    row.update(_label_probe(frame, dataset=dataset, label_column=label_column, random_seed=random_seed))
+    row.update(
+        _prefix_probe_result(
+            "label_probe",
+            _embedding_probe(
+                frame,
+                dataset=dataset,
+                target_column=label_column,
+                random_seed=random_seed,
+                requested=label_column is not None,
+                model_type=probe_model_type,
+            ),
+        )
+    )
+    row.update(
+        _prefix_probe_result(
+            "protected_probe",
+            _embedding_probe(
+                frame,
+                dataset=dataset,
+                target_column=protected_attribute_column,
+                random_seed=random_seed,
+                requested=bool(run_protected_attribute_probe),
+                model_type=probe_model_type,
+            ),
+        )
+    )
     return row
 
 
@@ -250,6 +322,9 @@ def _skip_summary_row(
     symmetrized: bool,
     needs_features: bool,
     reason: str,
+    protected_attribute_column: str | None,
+    run_protected_attribute_probe: bool,
+    probe_model_type: str,
 ) -> dict[str, Any]:
     return {
         "dataset": dataset.name,
@@ -268,7 +343,16 @@ def _skip_summary_row(
         "mean_pairwise_cosine": pd.NA,
         "label_probe_status": "not_run",
         "label_probe_accuracy": pd.NA,
+        "label_probe_macro_f1": pd.NA,
+        "label_probe_model_type": pd.NA,
+        "label_probe_column": pd.NA,
         "label_probe_reason": "",
+        "protected_probe_status": "not_run" if run_protected_attribute_probe else "not_requested",
+        "protected_probe_column": protected_attribute_column if protected_attribute_column is not None else pd.NA,
+        "protected_probe_accuracy": pd.NA,
+        "protected_probe_macro_f1": pd.NA,
+        "protected_probe_model_type": resolve_probe_model_type(probe_model_type) if run_protected_attribute_probe else pd.NA,
+        "protected_probe_reason": "",
         "skip_reason": reason,
         "error_message": "",
         "csv_path": pd.NA,
@@ -286,6 +370,9 @@ def _failed_summary_row(
     symmetrized: bool,
     needs_features: bool,
     error_message: str,
+    protected_attribute_column: str | None,
+    run_protected_attribute_probe: bool,
+    probe_model_type: str,
 ) -> dict[str, Any]:
     return {
         "dataset": dataset.name,
@@ -304,7 +391,16 @@ def _failed_summary_row(
         "mean_pairwise_cosine": pd.NA,
         "label_probe_status": "not_run",
         "label_probe_accuracy": pd.NA,
+        "label_probe_macro_f1": pd.NA,
+        "label_probe_model_type": pd.NA,
+        "label_probe_column": pd.NA,
         "label_probe_reason": "",
+        "protected_probe_status": "not_run" if run_protected_attribute_probe else "not_requested",
+        "protected_probe_column": protected_attribute_column if protected_attribute_column is not None else pd.NA,
+        "protected_probe_accuracy": pd.NA,
+        "protected_probe_macro_f1": pd.NA,
+        "protected_probe_model_type": resolve_probe_model_type(probe_model_type) if run_protected_attribute_probe else pd.NA,
+        "protected_probe_reason": "",
         "skip_reason": "",
         "error_message": error_message,
         "csv_path": pd.NA,
@@ -324,8 +420,11 @@ def _run_benchmark_method_job(
     features: PreparedFeatures | None,
     symmetrize_directed: bool,
     label_column: str | None,
+    protected_attribute_column: str | None,
+    run_protected_attribute_probe: bool,
     symmetrized: bool,
     needs_features: bool,
+    probe_model_type: str,
 ) -> tuple[str, EmbeddingResult, dict[str, Any]]:
     result = run_embedding_method(
         dataset,
@@ -341,7 +440,10 @@ def _run_benchmark_method_job(
         result,
         symmetrized_directed_graph=symmetrized,
         label_column=label_column,
+        protected_attribute_column=protected_attribute_column,
+        run_protected_attribute_probe=run_protected_attribute_probe,
         random_seed=int(config.get("random_seed", 42)),
+        probe_model_type=probe_model_type,
     )
     summary_row["uses_features"] = bool(needs_features)
     return method_name, result, summary_row
@@ -421,6 +523,42 @@ def run_embedding_benchmark(
     link_test_fraction: float = 0.25,
     link_negative_ratio: float = 1.0,
     link_prediction_edge_feature: str = "hadamard",
+    node_classification_model: str = "logistic_regression",
+    clustering_method: str = "kmeans",
+    clustering_input_mode: str = "embedding",
+    clustering_n_clusters: int | None = None,
+    clustering_min_cluster_size: int | None = None,
+    clustering_method_config: dict[str, Any] | None = None,
+    training_mode: str | None = None,
+    imbalance_mode: str = "none",
+    debias_mode: str = "none",
+    focal_gamma: float = 2.0,
+    use_stratified_split: bool = True,
+    early_stop_metric: str = "accuracy",
+    early_stop_patience: int = 0,
+    class_weight_smoothing: float = 0.0,
+    node_validation_fraction: float = 0.2,
+    group_robust_weight: float = 0.0,
+    group_weight_mode: str = "none",
+    worst_group_boost_factor: float = 2.0,
+    min_support_boost_factor: float = 2.0,
+    min_group_support_threshold: int | None = None,
+    min_group_support_train: int | None = None,
+    min_group_support_eval: int | None = None,
+    report_small_group_metrics: bool = False,
+    rebalance_batches_by_group: bool = False,
+    fairness_score_alpha: float = 0.25,
+    fairness_score_beta: float = 0.25,
+    probe_model_type: str = "linear",
+    adversary_loss_weight: float = 1.0,
+    gradient_reversal_lambda: float = 1.0,
+    adversary_warmup_epochs: int = 0,
+    group_robust_warmup_epochs: int = 0,
+    adversary_hidden_dim: int = 64,
+    adversary_num_layers: int = 1,
+    adversary_dropout: float = 0.2,
+    protected_attribute_column: str | None = None,
+    run_protected_attribute_probe: bool = False,
     features: PreparedFeatures | pd.DataFrame | np.ndarray | Sequence[Sequence[float]] | None = None,
     max_workers: int | None = None,
     symmetrize_directed: bool = True,
@@ -459,6 +597,9 @@ def run_embedding_benchmark(
                 symmetrized=symmetrized,
                 needs_features=bool(spec.needs_features),
                 reason=dependency_reason or graph_reason or "",
+                protected_attribute_column=protected_attribute_column,
+                run_protected_attribute_probe=run_protected_attribute_probe,
+                probe_model_type=probe_model_type,
             )
             continue
         runnable_methods.append((method_name, config, bool(spec.needs_features), feature_input if spec.needs_features else None))
@@ -476,8 +617,11 @@ def run_embedding_benchmark(
                     features=method_feature_input,
                     symmetrize_directed=symmetrize_directed,
                     label_column=label_column,
+                    protected_attribute_column=protected_attribute_column,
+                    run_protected_attribute_probe=run_protected_attribute_probe,
                     symmetrized=symmetrized,
                     needs_features=needs_features,
+                    probe_model_type=probe_model_type,
                 )
                 results_by_method[method_name] = result
                 summary_rows_by_method[method_name] = summary_row
@@ -491,6 +635,9 @@ def run_embedding_benchmark(
                     symmetrized=symmetrized,
                     needs_features=needs_features,
                     error_message=str(exc),
+                    protected_attribute_column=protected_attribute_column,
+                    run_protected_attribute_probe=run_protected_attribute_probe,
+                    probe_model_type=probe_model_type,
                 )
     else:
         future_to_method: dict[Any, tuple[str, bool]] = {}
@@ -506,8 +653,11 @@ def run_embedding_benchmark(
                     features=method_feature_input,
                     symmetrize_directed=symmetrize_directed,
                     label_column=label_column,
+                    protected_attribute_column=protected_attribute_column,
+                    run_protected_attribute_probe=run_protected_attribute_probe,
                     symmetrized=symmetrized,
                     needs_features=needs_features,
+                    probe_model_type=probe_model_type,
                 )
                 future_to_method[future] = (method_name, needs_features)
 
@@ -527,6 +677,9 @@ def run_embedding_benchmark(
                         symmetrized=symmetrized,
                         needs_features=needs_features,
                         error_message=str(exc),
+                        protected_attribute_column=protected_attribute_column,
+                        run_protected_attribute_probe=run_protected_attribute_probe,
+                        probe_model_type=probe_model_type,
                     )
                     continue
                 results_by_method[completed_method_name] = result
@@ -562,6 +715,41 @@ def run_embedding_benchmark(
             link_test_fraction=link_test_fraction,
             link_negative_ratio=link_negative_ratio,
             link_prediction_edge_feature=link_prediction_edge_feature,
+            node_classification_model=node_classification_model,
+            clustering_method=clustering_method,
+            clustering_input_mode=clustering_input_mode,
+            clustering_n_clusters=clustering_n_clusters,
+            clustering_min_cluster_size=clustering_min_cluster_size,
+            clustering_method_config=clustering_method_config,
+            training_mode=training_mode,
+            imbalance_mode=imbalance_mode,
+            debias_mode=debias_mode,
+            focal_gamma=focal_gamma,
+            use_stratified_split=use_stratified_split,
+            early_stop_metric=early_stop_metric,
+            early_stop_patience=early_stop_patience,
+            class_weight_smoothing=class_weight_smoothing,
+            node_validation_fraction=node_validation_fraction,
+            group_robust_weight=group_robust_weight,
+            group_weight_mode=group_weight_mode,
+            worst_group_boost_factor=worst_group_boost_factor,
+            min_support_boost_factor=min_support_boost_factor,
+            min_group_support_threshold=min_group_support_threshold,
+            min_group_support_train=min_group_support_train,
+            min_group_support_eval=min_group_support_eval,
+            report_small_group_metrics=report_small_group_metrics,
+            rebalance_batches_by_group=rebalance_batches_by_group,
+            fairness_score_alpha=fairness_score_alpha,
+            fairness_score_beta=fairness_score_beta,
+            probe_model_type=probe_model_type,
+            adversary_loss_weight=adversary_loss_weight,
+            gradient_reversal_lambda=gradient_reversal_lambda,
+            adversary_warmup_epochs=adversary_warmup_epochs,
+            group_robust_warmup_epochs=group_robust_warmup_epochs,
+            adversary_hidden_dim=adversary_hidden_dim,
+            adversary_num_layers=adversary_num_layers,
+            adversary_dropout=adversary_dropout,
+            protected_attribute_column=protected_attribute_column,
         )
         benchmark_result.evaluation_frame = evaluation_frame
         if resolved_output_dir is not None and not evaluation_frame.empty:

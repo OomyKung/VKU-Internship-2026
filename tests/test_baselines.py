@@ -7,7 +7,12 @@ import unittest
 import networkx as nx
 import pandas as pd
 
-from fim_hybrid.baselines import run_baseline, select_baseline_seed_set
+from fim_hybrid.baselines import (
+    available_baseline_methods,
+    get_baseline_method_spec,
+    run_baseline,
+    select_baseline_seed_set,
+)
 from fim_hybrid.data_loader import LoadedDataset, ProtectedGroupReport, verify_protected_groups
 
 
@@ -57,6 +62,22 @@ class BaselineTestCase(unittest.TestCase):
         )
 
         self.assertEqual(seed_set, (1, 5))
+
+    def test_baseline_registry_lists_new_greedy_methods(self) -> None:
+        self.assertEqual(
+            available_baseline_methods(),
+            (
+                "random",
+                "degree",
+                "pagerank",
+                "greedy",
+                "fairness_weighted_greedy",
+                "maximin_greedy",
+                "community_round_robin",
+            ),
+        )
+        self.assertTrue(get_baseline_method_spec("greedy").requires_shared_evaluation)
+        self.assertTrue(get_baseline_method_spec("community_round_robin").uses_community_assignments)
 
     def test_random_baseline_is_deterministic_for_same_seed(self) -> None:
         dataset, report = _toy_baseline_dataset()
@@ -137,6 +158,54 @@ class BaselineTestCase(unittest.TestCase):
         self.assertEqual(result.mf, 0.0)
         self.assertEqual(result.f_score, -0.25)
 
+    def test_greedy_baseline_runs_through_shared_evaluation(self) -> None:
+        dataset, report = _toy_baseline_dataset()
+
+        result = run_baseline(
+            dataset=dataset,
+            protected_group_report=report,
+            method="greedy",
+            budget=2,
+            propagation_probability=1.0,
+            mc_runs=3,
+            random_seed=7,
+        )
+
+        self.assertEqual(result.seed_set, (1, 5))
+        self.assertGreaterEqual(result.total_spread_mean, 8.0)
+
+    def test_fairness_weighted_greedy_baseline_is_supported(self) -> None:
+        dataset, report = _toy_baseline_dataset()
+
+        result = run_baseline(
+            dataset=dataset,
+            protected_group_report=report,
+            method="fairness_weighted_greedy",
+            budget=2,
+            propagation_probability=1.0,
+            mc_runs=3,
+            random_seed=7,
+        )
+
+        self.assertEqual(len(result.seed_set), 2)
+        self.assertGreaterEqual(result.f_score, 0.0)
+
+    def test_maximin_greedy_baseline_is_supported(self) -> None:
+        dataset, report = _toy_baseline_dataset()
+
+        result = run_baseline(
+            dataset=dataset,
+            protected_group_report=report,
+            method="maximin_greedy",
+            budget=2,
+            propagation_probability=1.0,
+            mc_runs=3,
+            random_seed=7,
+        )
+
+        self.assertEqual(len(result.seed_set), 2)
+        self.assertGreaterEqual(result.mf, 0.0)
+
     def test_unknown_baseline_method_raises(self) -> None:
         dataset, report = _toy_baseline_dataset()
 
@@ -148,7 +217,23 @@ class BaselineTestCase(unittest.TestCase):
                 budget=2,
             )
 
-    def test_baseline_rejects_unsupported_diffusion_model(self) -> None:
+    def test_baseline_supports_linear_threshold(self) -> None:
+        dataset, report = _toy_baseline_dataset()
+
+        result = run_baseline(
+            dataset=dataset,
+            protected_group_report=report,
+            method="degree",
+            budget=2,
+            propagation_probability=1.0,
+            mc_runs=3,
+            diffusion_model="lt",
+        )
+
+        self.assertEqual(result.method, "degree")
+        self.assertGreaterEqual(result.total_spread_mean, 2.0)
+
+    def test_baseline_rejects_unknown_diffusion_model(self) -> None:
         dataset, report = _toy_baseline_dataset()
 
         with self.assertRaisesRegex(ValueError, "Unsupported diffusion_model"):
@@ -157,7 +242,7 @@ class BaselineTestCase(unittest.TestCase):
                 protected_group_report=report,
                 method="degree",
                 budget=2,
-                diffusion_model="lt",
+                diffusion_model="not_a_model",
             )
 
 

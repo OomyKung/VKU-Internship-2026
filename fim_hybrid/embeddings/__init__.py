@@ -11,6 +11,7 @@ from .benchmark import BenchmarkRunResult, run_embedding_benchmark, run_embeddin
 from .evaluation import (
     available_evaluation_tasks,
     evaluate_embedding_benchmark,
+    evaluate_embedding_benchmark_repeated,
     evaluate_embedding_result,
     evaluation_result_columns,
     resolve_evaluation_tasks,
@@ -33,6 +34,7 @@ __all__ = [
     "EmbeddingFrameworkError",
     "EmbeddingResult",
     "evaluate_embedding_benchmark",
+    "evaluate_embedding_benchmark_repeated",
     "evaluate_embedding_result",
     "evaluation_result_columns",
     "get_method_spec",

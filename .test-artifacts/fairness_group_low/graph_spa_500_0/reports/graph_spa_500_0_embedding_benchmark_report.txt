@@ -1,0 +1,31 @@
+Saved benchmark report to C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\fairness_group_low\graph_spa_500_0\reports\graph_spa_500_0_embedding_benchmark_report.txt
+Method status counts: {'ok': 1}
+
+
+1. graphsage [ok]
+   runtime=4.065s | dim=64 | nodes=500 | ml_ready=True
+   all_nodes=True | all_finite=True | cosine_mean=0.09837484861559014
+   label_probe=not_requested | accuracy=- | macro_f1=- | type=-
+   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\fairness_group_low\graph_spa_500_0\embeddings\graph_spa_500_0_graphsage_embeddings.csv | pickle=C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\fairness_group_low\graph_spa_500_0\embeddings\graph_spa_500_0_graphsage_embeddings.pkl | npy=-
+Evaluation status counts: {'ok': 1}
+
+----------------------------------------------------------------------------------------------------
+Graph Embedding Evaluation Summary
+----------------------------------------------------------------------------------------------------
+Sorted by primary metric within each task: accuracy for node classification, roc_auc for link prediction, nmi for clustering.
+
+1. graphsage | node_classification [ok]
+   runtime=23.601s | embedding_runtime=4.065s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=graphsage | label_column=gender
+   primary_metric=accuracy (0.9440)
+   metrics: accuracy=0.9440, macro_f1=0.9440, micro_f1=0.9440, weighted_f1=0.9440, balanced_accuracy=0.9445, macro_precision=0.9445, macro_recall=0.9445, roc_auc=-, ap=-, nmi=-, ari=-
+   fairness: protected_attribute=region | worst_group_accuracy=0.0000 | accuracy_gap=1.0000 | worst_group_f1=0.0000 | macro_f1_gap=1.0000
+   worst_groups: accuracy=northeast_antelope_valley(n=3) | f1=northeast_antelope_valley(n=3)
+   training: comparison_mode=group_robust | mode=group_robust | debias_mode=none | imbalance_mode=none | group_weight_mode=worst_group_boost | group_robust_weight=0.1000 | early_stop_metric=accuracy
+   robust: boost_factor=2.0000 | min_support=2 | warmup_epochs=20
+   leakage: protected_probe=ok | accuracy=0.9440 | macro_f1=0.7346 | type=linear
+   diagnostics: train_full:n=375,small_groups=6,missing=0 | train:n=300,small_groups=8,missing=0 | validation:n=75,small_groups=8,missing=0 | test:n=125,small_groups=7,missing=0
+   diagnostics_summary: collapsed_groups=littlerock,southeast_antelope_valley,sun_village | small_group_count=7 | max_group_error=1.0000
+   group_errors: collapse_groups=littlerock,southeast_antelope_valley,sun_village | max_group_error=1.0000
+   history: best_epoch=100 | epochs=100 | collapse_epochs=100 | last_worst_group_f1=0.0000 | last_probe_macro_f1=0.7563
+   notes=classes=2; stratified=True; comparison_mode=group_robust; val=75; val_stratified=True; training_mode=group_robust; debias_mode=none; imbalance_mode=none; early_stop_metric=accuracy; group_weight_mode=worst_group_boost; group_robust_weight=0.1; worst_group_boost_factor=2.0; min_group_support_threshold=2; group_robust_warmup_epochs=20

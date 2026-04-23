@@ -9,7 +9,16 @@ import numpy as np
 import pandas as pd
 
 from fim_hybrid.data_loader import LoadedDataset, ProtectedGroupReport, verify_protected_groups
-from fim_hybrid.diffusion import simulate_independent_cascade, simulate_independent_cascade_once
+from fim_hybrid.diffusion import (
+    available_diffusion_models,
+    get_diffusion_model_spec,
+    simulate_independent_cascade,
+    simulate_independent_cascade_once,
+    simulate_linear_threshold,
+    simulate_linear_threshold_once,
+    simulate_weighted_cascade,
+    simulate_weighted_cascade_once,
+)
 
 
 class _CountingRng:
@@ -64,6 +73,11 @@ class DiffusionTestCase(unittest.TestCase):
         self.assertEqual(active_nodes, {1, 2, 3})
         self.assertIsInstance(active_nodes, set)
 
+    def test_diffusion_registry_exposes_supported_models(self) -> None:
+        self.assertEqual(available_diffusion_models(), ("ic", "lt", "wc"))
+        self.assertTrue(get_diffusion_model_spec("ic").default)
+        self.assertEqual(get_diffusion_model_spec("lt").name, "lt")
+
     def test_simulate_once_with_probability_zero_only_keeps_seed(self) -> None:
         dataset, _ = _toy_dataset()
         rng = np.random.default_rng(42)
@@ -76,6 +90,31 @@ class DiffusionTestCase(unittest.TestCase):
         )
 
         self.assertEqual(active_nodes, {1})
+
+    def test_linear_threshold_once_activates_reachable_chain_with_unit_threshold(self) -> None:
+        dataset, _ = _toy_dataset()
+        rng = np.random.default_rng(42)
+
+        active_nodes = simulate_linear_threshold_once(
+            graph=dataset.graph,
+            seed_set=[1],
+            propagation_probability=1.0,
+            rng=rng,
+        )
+
+        self.assertEqual(active_nodes, {1, 2, 3})
+
+    def test_weighted_cascade_once_activates_reachable_chain(self) -> None:
+        dataset, _ = _toy_dataset()
+        rng = np.random.default_rng(42)
+
+        active_nodes = simulate_weighted_cascade_once(
+            graph=dataset.graph,
+            seed_set=[1],
+            rng=rng,
+        )
+
+        self.assertEqual(active_nodes, {1, 2, 3})
 
     def test_monte_carlo_result_includes_zero_covered_groups(self) -> None:
         dataset, report = _toy_dataset()
@@ -159,6 +198,50 @@ class DiffusionTestCase(unittest.TestCase):
         self.assertEqual(first.total_spread_std, second.total_spread_std)
         self.assertEqual(first.group_spread_mean, second.group_spread_mean)
         self.assertEqual(first.group_spread_std, second.group_spread_std)
+
+    def test_linear_threshold_monte_carlo_is_reproducible(self) -> None:
+        dataset, report = _toy_dataset()
+
+        first = simulate_linear_threshold(
+            dataset=dataset,
+            protected_group_report=report,
+            seed_set=[1],
+            propagation_probability=1.0,
+            mc_runs=5,
+            random_seed=7,
+        )
+        second = simulate_linear_threshold(
+            dataset=dataset,
+            protected_group_report=report,
+            seed_set=[1],
+            propagation_probability=1.0,
+            mc_runs=5,
+            random_seed=7,
+        )
+
+        self.assertEqual(first.total_spread_mean, second.total_spread_mean)
+        self.assertEqual(first.group_spread_mean, second.group_spread_mean)
+
+    def test_weighted_cascade_monte_carlo_is_reproducible(self) -> None:
+        dataset, report = _toy_dataset()
+
+        first = simulate_weighted_cascade(
+            dataset=dataset,
+            protected_group_report=report,
+            seed_set=[1],
+            mc_runs=5,
+            random_seed=7,
+        )
+        second = simulate_weighted_cascade(
+            dataset=dataset,
+            protected_group_report=report,
+            seed_set=[1],
+            mc_runs=5,
+            random_seed=7,
+        )
+
+        self.assertEqual(first.total_spread_mean, second.total_spread_mean)
+        self.assertEqual(first.group_spread_mean, second.group_spread_mean)
 
     def test_each_active_node_gets_only_one_chance_per_inactive_neighbor(self) -> None:
         graph = nx.DiGraph()

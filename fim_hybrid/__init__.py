@@ -1,6 +1,25 @@
 """Fair Influence Maximization research package."""
 
-from .baselines import BaselineResult, run_baseline, run_baselines
+from .baselines import (
+    BaselineMethodSpec,
+    BaselineResult,
+    available_baseline_methods,
+    get_baseline_method_spec,
+    run_baseline,
+    run_baselines,
+)
+from .capabilities import CapabilityEntry, capability_entries, capability_frame, save_capability_report
+from .clustering import (
+    ClusteringBenchmarkResult,
+    ClusteringFrameworkError,
+    ClusteringMethodSpec,
+    ClusteringResult,
+    available_clustering_methods,
+    cluster_nodes,
+    clustering_summary_columns,
+    cluster_size_distribution_summary,
+    run_clustering_benchmark,
+)
 from .community_detection import (
     CommunityDetectionResult,
     CommunityQualityMetrics,
@@ -38,9 +57,17 @@ from .data_loader import (
 from .diffusion import (
     DEFAULT_DIFFUSION_MODEL,
     DiffusionResult,
+    DiffusionModelSpec,
     SUPPORTED_DIFFUSION_MODELS,
+    available_diffusion_models,
+    get_diffusion_model_spec,
+    simulate_diffusion,
     simulate_independent_cascade,
     simulate_independent_cascade_once,
+    simulate_linear_threshold,
+    simulate_linear_threshold_once,
+    simulate_weighted_cascade,
+    simulate_weighted_cascade_once,
     validate_diffusion_model,
 )
 from .evaluation import SeedSetEvaluation, compute_f_score, evaluate_seed_set
@@ -77,7 +104,14 @@ from .fairness import (
 from .gnn_training import GNNTrainingResult, train_gnn_node_utility_model
 from .hybrid_optimizer import CandidateEvaluation, HybridOptimizationResult, HybridSIEAConfig, HybridSIEAOptimizer
 from .label_generation import NodeUtilityLabelResult, generate_singleton_node_utility_labels
-from .ml_training import MLTrainingResult, select_ml_candidate_nodes, train_node_utility_model
+from .ml_training import (
+    MLTrainingResult,
+    RankingModelSpec,
+    available_ranking_models,
+    get_ranking_model_spec,
+    select_ml_candidate_nodes,
+    train_node_utility_model,
+)
 from .node2vec_embeddings import (
     Node2VecConfig,
     Node2VecEmbeddingResult,
@@ -89,17 +123,27 @@ from .ris_guidance import RISConfig, RISGuidanceResult, generate_ris_guidance
 
 __all__ = [
     "BaselineResult",
+    "BaselineMethodSpec",
+    "CapabilityEntry",
     "CandidateEvaluation",
+    "ClusteringBenchmarkResult",
+    "ClusteringFrameworkError",
+    "ClusteringMethodSpec",
+    "ClusteringResult",
     "CommunityDetectionResult",
     "CommunityQualityMetrics",
     "CommunityStats",
     "CommunityValidationReport",
     "DEFAULT_DIFFUSION_MODEL",
     "DatasetConfig",
+    "DiffusionModelSpec",
     "LoadedDataset",
     "ProtectedGroupReport",
     "choose_communities",
     "create_embedding_model",
+    "cluster_nodes",
+    "cluster_size_distribution_summary",
+    "clustering_summary_columns",
     "DiffusionResult",
     "detect_communities",
     "EmbeddingFrameworkError",
@@ -107,7 +151,13 @@ __all__ = [
     "ExperimentSettings",
     "evaluate_seed_set",
     "available_embedding_methods",
+    "available_baseline_methods",
+    "available_diffusion_models",
     "available_evaluation_tasks",
+    "available_clustering_methods",
+    "available_ranking_models",
+    "capability_entries",
+    "capability_frame",
     "evaluate_embedding_benchmark",
     "evaluate_embedding_result",
     "FairnessMetrics",
@@ -127,6 +177,9 @@ __all__ = [
     "format_community_debug_report",
     "get_community_stats",
     "get_community_sizes",
+    "get_baseline_method_spec",
+    "get_diffusion_model_spec",
+    "get_ranking_model_spec",
     "get_node_community",
     "get_nodes_in_community",
     "HybridOptimizationResult",
@@ -137,6 +190,7 @@ __all__ = [
     "load_dataset",
     "load_dataset_config_file",
     "MLTrainingResult",
+    "RankingModelSpec",
     "NodeUtilityLabelResult",
     "Node2VecConfig",
     "Node2VecEmbeddingResult",
@@ -145,9 +199,11 @@ __all__ = [
     "prepare_benchmark_features",
     "evaluation_result_columns",
     "run_experiment",
+    "run_clustering_benchmark",
     "run_embedding_benchmark",
     "run_embedding_method",
     "run_loaded_experiment",
+    "save_capability_report",
     "resolve_evaluation_tasks",
     "resolve_dataset_config",
     "resolve_method_names",
@@ -164,6 +220,11 @@ __all__ = [
     "select_ml_candidate_nodes",
     "simulate_independent_cascade",
     "simulate_independent_cascade_once",
+    "simulate_linear_threshold",
+    "simulate_linear_threshold_once",
+    "simulate_weighted_cascade",
+    "simulate_weighted_cascade_once",
+    "simulate_diffusion",
     "SUPPORTED_DIFFUSION_MODELS",
     "train_gnn_node_utility_model",
     "train_node_utility_model",

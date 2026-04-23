@@ -1,0 +1,45 @@
+=====================================================================================================================
+Fair Influence Maximization Experiment Summary
+=====================================================================================================================
+Dataset: graph_spa_500_0
+Diffusion model: ic (Independent Cascade)
+Protected attribute: region
+Budget: 3 | MC runs: search=2, eval=3 | Random seed: 42
+Final evaluation seed: random_seed + 1000000
+Spread semantics: total activated nodes including seed nodes; extra_spread = total_spread - budget
+Community methods: kmeans
+ML: disabled
+Final recheck: disabled
+Node2Vec: supported only as an optional GNN input feature source
+
+---------------------------------------------------------------------------------------------------------------------
+Community: kmeans
+---------------------------------------------------------------------------------------------------------------------
+Modes present: full
+
+1. hybrid_siea [full]
+   F=-0.384615 | dF=+0.000000 | runtime=0.040s | spread=4.000 | extra=1.000
+   search=0.039s | eval=0.001s | MF=0.000000 | DCV=0.769231
+   pool=500 | kind=proposed
+   ZeroCov=10 | FracCov=0.231 | Bottom3=0.000
+   ML=- | ranker=none | guidance=none | backend=none | GNN=- | GraphSAGE=off | N2V=off | RIS=off | rho=- | p@k=-
+
+2. degree [full]
+   F=-0.432401 | dF=-0.047786 | runtime=0.002s | spread=3.333 | extra=0.333
+   search=0.001s | eval=0.001s | MF=0.000000 | DCV=0.864802
+   pool=500 | kind=baseline
+   ZeroCov=11 | FracCov=0.154 | Bottom3=0.000
+   ML=- | ranker=none | guidance=none | backend=none | GNN=- | GraphSAGE=off | N2V=off | RIS=off | rho=- | p@k=-
+
+Highlights
+  Best F-score: hybrid_siea (-0.384615)
+  Fastest run : degree (0.002s)
+
+Delta vs hybrid_siea
+hybrid_siea [full]
+   dF=+0.000000 | dT=+0.000s | F=-0.384615 | runtime=0.040s
+   search=0.039s | eval=0.001s | spread=4.000 | extra=1.000
+   pool=500 | ZeroCov=10 | FracCov=0.231
+   ML=- | ranker=none | guidance=none | backend=none | GNN=- | GraphSAGE=off | N2V=off | RIS=off
+
+Saved CSV: C:\Users\User\Desktop\VKU-Internship-2026\results\graph_spa_500_0\region\graph_spa_500_0_budget3_results.csv

@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 from argparse import Namespace
 from pathlib import Path
-import tempfile
+import shutil
 import unittest
+from uuid import uuid4
 
 import pandas as pd
 
@@ -15,6 +16,26 @@ from scripts.run_experiment import build_dataset_config, build_results_report_pa
 
 
 KEPT_ML_LABEL = "hybrid_siea_ml_two_tier_tuned_swap_local_search"
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+TEST_TMP_ROOT = REPO_ROOT / ".test-artifacts"
+TEST_TMP_ROOT.mkdir(exist_ok=True)
+
+
+class _WorkspaceScratchDir:
+    def __init__(self) -> None:
+        self.path = TEST_TMP_ROOT / f"scratch_{uuid4().hex}"
+
+    def __enter__(self) -> str:
+        self.path.mkdir(parents=True, exist_ok=False)
+        return str(self.path)
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        shutil.rmtree(self.path, ignore_errors=True)
+
+
+def _workspace_tempdir() -> _WorkspaceScratchDir:
+    return _WorkspaceScratchDir()
 
 
 class RunExperimentCliFormattingTestCase(unittest.TestCase):
@@ -630,7 +651,7 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
         self.assertNotIn("hybrid_siea [full]", report)
 
     def test_build_dataset_config_supports_custom_graph_path(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
+        with _workspace_tempdir() as temp_dir:
             edge_path = Path(temp_dir) / "custom_edges.txt"
             edge_path.write_text("1 2\n2 3\n", encoding="utf-8")
             args = Namespace(
@@ -652,7 +673,7 @@ class RunExperimentCliFormattingTestCase(unittest.TestCase):
             self.assertEqual(config.name, "custom_edges")
 
     def test_build_dataset_config_supports_json_dataset_config(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
+        with _workspace_tempdir() as temp_dir:
             temp_path = Path(temp_dir)
             edge_path = temp_path / "edges.csv"
             config_path = temp_path / "dataset.json"

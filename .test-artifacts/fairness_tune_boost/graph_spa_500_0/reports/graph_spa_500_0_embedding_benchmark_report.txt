@@ -1,0 +1,54 @@
+Saved benchmark report to C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\fairness_tune_boost\graph_spa_500_0\reports\graph_spa_500_0_embedding_benchmark_report.txt
+Method status counts: {'ok': 1}
+
+
+1. graphsage [ok]
+   runtime=3.931s | dim=64 | nodes=500 | ml_ready=True
+   all_nodes=True | all_finite=True | cosine_mean=0.09837484861559014
+   label_probe=not_requested | accuracy=- | macro_f1=- | type=-
+   exports: csv=C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\fairness_tune_boost\graph_spa_500_0\embeddings\graph_spa_500_0_graphsage_embeddings.csv | pickle=C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\fairness_tune_boost\graph_spa_500_0\embeddings\graph_spa_500_0_graphsage_embeddings.pkl | npy=-
+Evaluation status counts: {'ok': 1}
+
+----------------------------------------------------------------------------------------------------
+Graph Embedding Evaluation Summary
+----------------------------------------------------------------------------------------------------
+Sorted by primary metric within each task: accuracy for node classification, roc_auc for link prediction, nmi for clustering.
+
+1. graphsage | node_classification [ok]
+   runtime=19.569s | embedding_runtime=3.931s | dim=64 | evaluated=125
+   train=375 | test=125 | classifier=graphsage | label_column=gender
+   primary_metric=accuracy (0.9200)
+   metrics: accuracy=0.9200, macro_f1=0.9197, micro_f1=0.9200, weighted_f1=0.9199, balanced_accuracy=0.9192, macro_precision=0.9222, macro_recall=0.9192, roc_auc=-, ap=-, nmi=-, ari=-
+   fairness: protected_attribute=region | worst_group_accuracy=0.3333 | accuracy_gap=0.6667 | worst_group_f1=0.2500 | macro_f1_gap=0.7500
+   worst_groups: accuracy=northeast_antelope_valley(n=3) | f1=northeast_antelope_valley(n=3)
+   training: comparison_mode=group_robust | mode=group_robust | debias_mode=none | imbalance_mode=none | group_weight_mode=worst_group_boost | group_robust_weight=0.2500 | early_stop_metric=fairness_score
+   robust: boost_factor=3.0000 | min_support=2 | warmup_epochs=10
+   fairness_score: alpha=0.2500 | beta=0.1000
+   leakage: protected_probe=ok | accuracy=0.9760 | macro_f1=0.9287 | type=linear
+   diagnostics: train_full:n=375,small_groups=6,missing=0 | train:n=300,small_groups=8,missing=0 | validation:n=75,small_groups=8,missing=0 | test:n=125,small_groups=7,missing=0
+   diagnostics_summary: collapsed_groups=lake_los_angeles,littlerock,northeast_antelope_valley,southeast_antelope_valley,sun_village | small_group_count=7 | max_group_error=0.6667
+   group_errors: collapse_groups=lake_los_angeles,littlerock,northeast_antelope_valley,... | max_group_error=0.6667
+   history: best_epoch=37 | epochs=47 | collapse_epochs=47 | last_worst_group_f1=0.0000 | last_probe_macro_f1=0.8556
+   notes=classes=2; stratified=True; comparison_mode=group_robust; val=75; val_stratified=True; training_mode=group_robust; debias_mode=none; imbalance_mode=none; early_stop_metric=fairness_score; group_weight_mode=worst_group_boost; group_robust_weight=0.25; worst_group_boost_factor=3.0; min_group_support_threshold=2; group_robust_warmup_epochs=10; fairness_score_alpha=0.25; fairness_score_beta=0.1; probe_model_type=linear
+Comparison status counts: {'ok': 4}
+
+----------------------------------------------------------------------------------------------------
+GraphSAGE Fairness Comparison
+----------------------------------------------------------------------------------------------------
+Ranked by macro_f1 desc, worst_group_f1 desc, worst_group_accuracy desc, macro_f1_gap asc, leakage asc, accuracy_gap asc.
+
+1. graphsage | group_robust [ok]
+   macro_f1=0.9197 | worst_group_f1=0.2500 | worst_group_accuracy=0.3333 | macro_f1_gap=0.7500 | probe_macro_f1=0.9287 | accuracy_gap=0.6667
+   training: mode=group_robust | debias_mode=none | group_weight_mode=worst_group_boost | group_robust_weight=0.2500
+
+2. graphsage | baseline [ok]
+   macro_f1=0.9197 | worst_group_f1=0.2500 | worst_group_accuracy=0.3333 | macro_f1_gap=0.7500 | probe_macro_f1=0.9288 | accuracy_gap=0.6667
+   training: mode=baseline | debias_mode=none | group_weight_mode=none | group_robust_weight=0.0000
+
+3. graphsage | adversarial_group_robust [ok]
+   macro_f1=0.9116 | worst_group_f1=0.2500 | worst_group_accuracy=0.3333 | macro_f1_gap=0.7500 | probe_macro_f1=0.8512 | accuracy_gap=0.6667
+   training: mode=adversarial_group_robust | debias_mode=adversarial | group_weight_mode=worst_group_boost | group_robust_weight=0.2500
+
+4. graphsage | adversarial [ok]
+   macro_f1=0.8874 | worst_group_f1=0.2500 | worst_group_accuracy=0.3333 | macro_f1_gap=0.7500 | probe_macro_f1=0.8512 | accuracy_gap=0.6667
+   training: mode=adversarial | debias_mode=adversarial | group_weight_mode=none | group_robust_weight=0.0000

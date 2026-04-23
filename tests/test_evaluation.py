@@ -89,7 +89,24 @@ class EvaluationTestCase(unittest.TestCase):
         self.assertEqual(evaluation.fairness.dcv, 0.0)
         self.assertEqual(evaluation.f_score, 0.0)
 
-    def test_evaluate_seed_set_rejects_unsupported_diffusion_model(self) -> None:
+    def test_evaluate_seed_set_supports_linear_threshold(self) -> None:
+        dataset, report = _toy_evaluation_dataset()
+
+        evaluation = evaluate_seed_set(
+            dataset=dataset,
+            protected_group_report=report,
+            seed_set=(1,),
+            propagation_probability=1.0,
+            mc_runs=3,
+            random_seed=7,
+            lambda_weight=0.5,
+            diffusion_model="lt",
+        )
+
+        self.assertEqual(evaluation.seed_set, (1,))
+        self.assertGreaterEqual(evaluation.total_spread_mean, 1.0)
+
+    def test_evaluate_seed_set_rejects_unknown_diffusion_model(self) -> None:
         dataset, report = _toy_evaluation_dataset()
 
         with self.assertRaisesRegex(ValueError, "Unsupported diffusion_model"):
@@ -97,7 +114,7 @@ class EvaluationTestCase(unittest.TestCase):
                 dataset=dataset,
                 protected_group_report=report,
                 seed_set=(1,),
-                diffusion_model="lt",
+                diffusion_model="not_a_model",
             )
 
 
