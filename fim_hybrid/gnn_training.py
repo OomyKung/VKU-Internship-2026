@@ -42,6 +42,15 @@ _LABEL_EXCLUDED_COLUMNS = {
 }
 _CATEGORICAL_COLUMNS = ("community_id", "protected_group")
 _SUPPORTED_GNN_MODEL_TYPES = {"graphsage", "gcn"}
+_SUPPORTED_GNN_DEBIAS_MODES = {
+    "none",
+    "off",
+    "class_weighted",
+    "focal_loss",
+    "worst_group_boost",
+    "group_dro",
+    "adversarial",
+}
 
 
 @dataclass(slots=True)
@@ -61,6 +70,55 @@ class GNNTrainingResult:
     loaded_from_cache: bool
     feature_matrix_shape: tuple[int, int]
     edge_index_shape: tuple[int, int]
+    target_column: str = "label_score"
+    debias_mode: str = "none"
+
+
+def _normalize_debias_mode(debias_mode: str) -> str:
+    normalized = str(debias_mode).strip().lower()
+    if normalized not in _SUPPORTED_GNN_DEBIAS_MODES:
+        raise ValueError(
+            f"debias_mode must be one of {sorted(_SUPPORTED_GNN_DEBIAS_MODES)}."
+        )
+    return "none" if normalized == "off" else normalized
+
+
+def _binary_priority_targets(
+    training_frame: pd.DataFrame,
+    *,
+    budget: int,
+    target_column: str,
+) -> pd.Series:
+    if target_column not in training_frame.columns:
+        raise ValueError(f"training_frame must contain target_column='{target_column}'.")
+    if budget < 1:
+        raise ValueError("budget must be at least 1.")
+    if len(training_frame) < 2:
+        raise ValueError("GNN ranking requires at least two nodes.")
+    positive_count = min(max(int(budget), 1), len(training_frame) - 1)
+    ordered = training_frame.sort_values(by=[target_column, "node_id"], ascending=[False, True])
+    targets = pd.Series(0, index=training_frame.index, dtype=int)
+    targets.loc[ordered.index[:positive_count]] = 1
+    if targets.nunique() < 2:
+        raise ValueError("Priority targets are degenerate; ranking requires both positive and negative labels.")
+    return targets
+
+
+def _binary_class_weights(binary_targets: np.ndarray) -> np.ndarray:
+    counts = np.bincount(binary_targets.astype(int), minlength=2).astype(float)
+    weights = np.ones_like(counts, dtype=float)
+    nonzero = counts > 0
+    if not np.all(nonzero):
+        raise ValueError("Binary priority targets must contain both classes.")
+    weights[nonzero] = float(np.sum(counts)) / (float(len(counts)) * counts[nonzero])
+    return weights
+
+
+def _weighted_mean(values: Any, weights: Any) -> Any:
+    weight_sum = weights.sum()
+    if float(weight_sum.detach().cpu().item()) <= 0.0:
+        return values.mean()
+    return (values * weights).sum() / weight_sum
 
 
 def gnn_dependencies_available() -> bool:
@@ -232,6 +290,8 @@ def _load_cached_training_result(
         loaded_from_cache=True,
         feature_matrix_shape=tuple(metadata["feature_matrix_shape"]),
         edge_index_shape=tuple(metadata["edge_index_shape"]),
+        target_column=str(metadata.get("target_column", "label_score")),
+        debias_mode=str(metadata.get("debias_mode", "none")),
     )
 
 
@@ -250,6 +310,8 @@ def _store_cached_training_result(
             "model_type": result.model_type,
             "feature_matrix_shape": list(result.feature_matrix_shape),
             "edge_index_shape": list(result.edge_index_shape),
+            "target_column": result.target_column,
+            "debias_mode": result.debias_mode,
         },
         "predicted_scores": result.predicted_scores,
         "ranked_nodes": list(result.ranked_nodes),
@@ -260,7 +322,7 @@ def _store_cached_training_result(
 
 
 class _NodeScoreGNNModel:
-    """Thin wrapper that builds a small GraphSAGE or GCN regressor."""
+    """Thin wrapper that builds a small GraphSAGE or GCN encoder plus score head."""
 
     def __init__(
         self,
@@ -296,29 +358,34 @@ class _NodeScoreGNNModel:
             def __init__(self) -> None:
                 super().__init__()
                 layer_dims: list[tuple[int, int]] = []
-                if num_layers == 1:
-                    layer_dims.append((input_dim, 1))
-                else:
-                    layer_dims.append((input_dim, hidden_dim))
-                    layer_dims.extend((hidden_dim, hidden_dim) for _ in range(num_layers - 2))
-                    layer_dims.append((hidden_dim, 1))
+                output_dim = max(int(hidden_dim), 1)
+                layer_dims.append((input_dim, output_dim))
+                layer_dims.extend((output_dim, output_dim) for _ in range(max(0, num_layers - 1)))
                 self.convs = nn_module.ModuleList(
                     [conv_cls(in_dim, out_dim) for in_dim, out_dim in layer_dims]
                 )
                 self.dropout = float(dropout)
+                self.score_head = nn_module.Linear(output_dim, 1)
 
-            def forward(self, x: Any, edge_index: Any) -> Any:
+            def encode(self, x: Any, edge_index: Any) -> Any:
                 output = x
                 for layer_index, conv in enumerate(self.convs):
                     output = conv(output, edge_index)
-                    if layer_index < len(self.convs) - 1:
-                        output = nn_module.functional.relu(output)
-                        if self.dropout > 0.0:
-                            output = nn_module.functional.dropout(
-                                output,
-                                p=self.dropout,
-                                training=self.training,
-                            )
+                    output = nn_module.functional.relu(output)
+                    if self.dropout > 0.0 and layer_index < len(self.convs) - 1:
+                        output = nn_module.functional.dropout(
+                            output,
+                            p=self.dropout,
+                            training=self.training,
+                        )
+                return output
+
+            def predict_scores(self, embeddings: Any) -> Any:
+                return self.score_head(embeddings).squeeze(-1)
+
+            def forward(self, x: Any, edge_index: Any) -> Any:
+                output = self.encode(x, edge_index)
+                output = self.predict_scores(output)
                 return output.squeeze(-1)
 
         return GNNRegressor()
@@ -344,6 +411,12 @@ def train_gnn_node_utility_model(
     cache_path: Path | None = None,
     node2vec_mode: str = "off",
     node2vec_config: dict[str, Any] | None = None,
+    debias_mode: str = "none",
+    protected_attribute_column: str | None = "protected_group",
+    focal_gamma: float = 2.0,
+    group_robust_weight: float = 0.25,
+    worst_group_boost_factor: float = 2.0,
+    adversary_loss_weight: float = 0.1,
 ) -> GNNTrainingResult:
     """Train a GNN regressor and derive a filtered candidate pool."""
 
@@ -357,6 +430,15 @@ def train_gnn_node_utility_model(
         epochs=epochs,
     )
     torch, nn_module, data_cls, sage_conv_cls, gcn_conv_cls = _import_gnn_dependencies()
+    resolved_debias_mode = _normalize_debias_mode(debias_mode)
+    if float(group_robust_weight) < 0.0:
+        raise ValueError("group_robust_weight must be non-negative.")
+    if float(worst_group_boost_factor) < 1.0:
+        raise ValueError("worst_group_boost_factor must be at least 1.0.")
+    if float(focal_gamma) < 0.0:
+        raise ValueError("focal_gamma must be non-negative.")
+    if float(adversary_loss_weight) < 0.0:
+        raise ValueError("adversary_loss_weight must be non-negative.")
 
     start = perf_counter()
     training_frame = _build_feature_matrix(feature_frame, label_frame)
@@ -392,6 +474,12 @@ def train_gnn_node_utility_model(
         "node2vec_mode": node2vec_mode,
         "node2vec_config": node2vec_config,
         "feature_columns": encoded_features.columns.tolist(),
+        "debias_mode": resolved_debias_mode,
+        "protected_attribute_column": protected_attribute_column,
+        "focal_gamma": float(focal_gamma),
+        "group_robust_weight": float(group_robust_weight),
+        "worst_group_boost_factor": float(worst_group_boost_factor),
+        "adversary_loss_weight": float(adversary_loss_weight),
     }
     fingerprint = _build_cache_fingerprint(
         node_ids=node_ids,
@@ -428,6 +516,64 @@ def train_gnn_node_utility_model(
         [node_to_index[node_id] for node_id in validation_frame["node_id"]],
         dtype=torch.long,
     )
+    priority_targets = _binary_priority_targets(
+        ordered_frame,
+        budget=budget,
+        target_column=target_column,
+    )
+    priority_tensor = torch.tensor(priority_targets.to_numpy(dtype=np.int64), dtype=torch.long)
+    binary_class_weights = torch.tensor(
+        _binary_class_weights(priority_targets.to_numpy(dtype=np.int64)),
+        dtype=torch.float32,
+    )
+    protected_labels = None
+    if protected_attribute_column is not None:
+        if protected_attribute_column in ordered_frame.columns:
+            protected_labels = ordered_frame[protected_attribute_column].astype(str).copy()
+        elif protected_attribute_column in dataset.node_attributes.columns:
+            protected_labels = (
+                dataset.node_attributes.set_index("node_id", drop=False)
+                .reindex(node_ids)[protected_attribute_column]
+                .astype(str)
+            )
+    if protected_labels is not None and protected_labels.isna().any():
+        protected_labels = None
+    if resolved_debias_mode in {"worst_group_boost", "group_dro", "adversarial"} and protected_labels is None:
+        raise ValueError(
+            f"debias_mode='{resolved_debias_mode}' requires protected labels via protected_attribute_column."
+        )
+
+    protected_tensor = None
+    train_worst_group_weights = None
+    if protected_labels is not None:
+        protected_names = tuple(sorted(protected_labels.unique().tolist()))
+        protected_to_index = {group_name: index for index, group_name in enumerate(protected_names)}
+        protected_indices = np.asarray(
+            [protected_to_index[group_name] for group_name in protected_labels.tolist()],
+            dtype=np.int64,
+        )
+        protected_tensor = torch.tensor(protected_indices, dtype=torch.long)
+        if resolved_debias_mode == "worst_group_boost":
+            train_group_mean = (
+                train_frame.assign(_protected_group=protected_labels.loc[train_frame.index].tolist())
+                .groupby("_protected_group", observed=False)[target_column]
+                .mean()
+            )
+            worst_mean = float(train_group_mean.min())
+            boosted_groups = {
+                str(group_name)
+                for group_name, mean_value in train_group_mean.items()
+                if float(mean_value) <= worst_mean + 1e-12
+            }
+            train_worst_group_weights = torch.tensor(
+                [
+                    float(worst_group_boost_factor)
+                    if str(protected_labels.iloc[int(index)]) in boosted_groups
+                    else 1.0
+                    for index in train_indices.detach().cpu().numpy().tolist()
+                ],
+                dtype=torch.float32,
+            )
 
     model_builder = _NodeScoreGNNModel(
         model_type=model_type,
@@ -440,28 +586,141 @@ def train_gnn_node_utility_model(
         gcn_conv_cls=gcn_conv_cls,
     )
     model = model_builder.module
+    embedding_dim = int(model.score_head.in_features)
+    auxiliary_head = None if resolved_debias_mode != "focal_loss" else nn_module.Linear(embedding_dim, 1)
+    adversary_head = (
+        None
+        if resolved_debias_mode != "adversarial" or protected_tensor is None
+        else nn_module.Linear(embedding_dim, int(len(protected_to_index)))
+    )
+
+    trainable_parameters = list(model.parameters())
+    if auxiliary_head is not None:
+        trainable_parameters.extend(auxiliary_head.parameters())
+    if adversary_head is not None:
+        trainable_parameters.extend(adversary_head.parameters())
     optimizer = torch.optim.Adam(
-        model.parameters(),
+        trainable_parameters,
         lr=float(learning_rate),
         weight_decay=float(weight_decay),
     )
-    loss_fn = nn_module.MSELoss()
+
+    class _GradientReversalFunction(torch.autograd.Function):
+        @staticmethod
+        def forward(ctx: Any, input_tensor: Any, lambda_value: float) -> Any:
+            ctx.lambda_value = float(lambda_value)
+            return input_tensor.view_as(input_tensor)
+
+        @staticmethod
+        def backward(ctx: Any, grad_output: Any) -> tuple[Any, None]:
+            return grad_output.neg() * ctx.lambda_value, None
+
+    def _apply_gradient_reversal(input_tensor: Any, *, lambda_value: float) -> Any:
+        return _GradientReversalFunction.apply(input_tensor, float(lambda_value))
 
     best_state: dict[str, Any] | None = None
     best_validation_loss = float("inf")
+    group_dro_state = (
+        torch.ones(int(len(protected_to_index)), dtype=torch.float32)
+        if resolved_debias_mode == "group_dro" and protected_tensor is not None
+        else None
+    )
     for _ in range(int(epochs)):
         model.train()
+        if auxiliary_head is not None:
+            auxiliary_head.train()
+        if adversary_head is not None:
+            adversary_head.train()
         optimizer.zero_grad()
-        predictions = model(data.x, data.edge_index)
-        train_loss = loss_fn(predictions[train_indices], data.y[train_indices])
+        embeddings = model.encode(data.x, data.edge_index)
+        predictions = model.predict_scores(embeddings)
+        train_predictions = predictions[train_indices]
+        train_targets = data.y[train_indices]
+        loss_vector = nn_module.functional.mse_loss(
+            train_predictions,
+            train_targets,
+            reduction="none",
+        )
+        train_loss = loss_vector.mean()
+
+        if resolved_debias_mode == "class_weighted":
+            sample_weights = binary_class_weights[priority_tensor[train_indices]]
+            train_loss = _weighted_mean(loss_vector, sample_weights)
+        elif resolved_debias_mode == "worst_group_boost":
+            if train_worst_group_weights is None:
+                raise ValueError("worst_group_boost requires protected labels.")
+            train_loss = _weighted_mean(loss_vector, train_worst_group_weights)
+        elif resolved_debias_mode == "group_dro":
+            if protected_tensor is None or group_dro_state is None:
+                raise ValueError("group_dro requires protected labels.")
+            train_group_ids = protected_tensor[train_indices]
+            active_group_indices: list[int] = []
+            group_losses: list[Any] = []
+            for group_index in range(int(group_dro_state.shape[0])):
+                mask = train_group_ids == int(group_index)
+                if not bool(mask.any().detach().cpu().item()):
+                    continue
+                active_group_indices.append(group_index)
+                group_losses.append(loss_vector[mask].mean())
+            if group_losses:
+                group_loss_tensor = torch.stack(group_losses)
+                active_state = group_dro_state[active_group_indices]
+                active_state = active_state * torch.exp(float(group_robust_weight) * group_loss_tensor.detach())
+                active_state = active_state / active_state.sum()
+                updated_state = group_dro_state.clone()
+                updated_state[active_group_indices] = active_state
+                group_dro_state = updated_state
+                train_loss = (group_loss_tensor * active_state).sum()
+
+        if resolved_debias_mode == "focal_loss":
+            if auxiliary_head is None:
+                raise RuntimeError("focal_loss requires an auxiliary priority head.")
+            aux_logits = auxiliary_head(embeddings).squeeze(-1)
+            train_priority_targets = priority_tensor[train_indices].to(dtype=torch.float32)
+            train_aux_logits = aux_logits[train_indices]
+            bce_vector = nn_module.functional.binary_cross_entropy_with_logits(
+                train_aux_logits,
+                train_priority_targets,
+                reduction="none",
+            )
+            positive_weight = float(binary_class_weights[1].item())
+            negative_weight = float(binary_class_weights[0].item())
+            sample_weights = torch.where(
+                train_priority_targets > 0.5,
+                torch.full_like(train_priority_targets, positive_weight),
+                torch.full_like(train_priority_targets, negative_weight),
+            )
+            probabilities = torch.sigmoid(train_aux_logits)
+            pt = torch.where(train_priority_targets > 0.5, probabilities, 1.0 - probabilities)
+            focal_factor = torch.pow(1.0 - pt.clamp(min=1e-6, max=1.0), float(focal_gamma))
+            auxiliary_loss = _weighted_mean(bce_vector * focal_factor, sample_weights)
+            train_loss = train_loss + auxiliary_loss
+
+        if resolved_debias_mode == "adversarial":
+            if adversary_head is None or protected_tensor is None:
+                raise ValueError("adversarial debiasing requires protected labels.")
+            adversary_logits = adversary_head(
+                _apply_gradient_reversal(embeddings[train_indices], lambda_value=1.0)
+            )
+            adversary_loss = nn_module.functional.cross_entropy(
+                adversary_logits,
+                protected_tensor[train_indices],
+            )
+            train_loss = train_loss + (float(adversary_loss_weight) * adversary_loss)
+
         train_loss.backward()
         optimizer.step()
 
         model.eval()
+        if auxiliary_head is not None:
+            auxiliary_head.eval()
+        if adversary_head is not None:
+            adversary_head.eval()
         with torch.no_grad():
-            validation_predictions = model(data.x, data.edge_index)
+            validation_embeddings = model.encode(data.x, data.edge_index)
+            validation_predictions = model.predict_scores(validation_embeddings)
             validation_loss = float(
-                loss_fn(
+                nn_module.functional.mse_loss(
                     validation_predictions[validation_indices],
                     data.y[validation_indices],
                 ).item()
@@ -469,16 +728,39 @@ def train_gnn_node_utility_model(
         if validation_loss < best_validation_loss:
             best_validation_loss = validation_loss
             best_state = {
-                key: value.detach().cpu().clone()
-                for key, value in model.state_dict().items()
+                "model": {
+                    key: value.detach().cpu().clone()
+                    for key, value in model.state_dict().items()
+                },
+                "auxiliary_head": (
+                    None
+                    if auxiliary_head is None
+                    else {
+                        key: value.detach().cpu().clone()
+                        for key, value in auxiliary_head.state_dict().items()
+                    }
+                ),
+                "adversary_head": (
+                    None
+                    if adversary_head is None
+                    else {
+                        key: value.detach().cpu().clone()
+                        for key, value in adversary_head.state_dict().items()
+                    }
+                ),
             }
 
     if best_state is not None:
-        model.load_state_dict(best_state)
+        model.load_state_dict(best_state["model"])
+        if auxiliary_head is not None and best_state["auxiliary_head"] is not None:
+            auxiliary_head.load_state_dict(best_state["auxiliary_head"])
+        if adversary_head is not None and best_state["adversary_head"] is not None:
+            adversary_head.load_state_dict(best_state["adversary_head"])
 
     model.eval()
     with torch.no_grad():
-        predicted_tensor = model(data.x, data.edge_index).detach().cpu()
+        final_embeddings = model.encode(data.x, data.edge_index)
+        predicted_tensor = model.predict_scores(final_embeddings).detach().cpu()
 
     predicted_array = predicted_tensor.numpy().astype(float, copy=False)
     validation_prediction_array = predicted_array[validation_indices.detach().cpu().numpy()]
@@ -522,6 +804,8 @@ def train_gnn_node_utility_model(
         loaded_from_cache=False,
         feature_matrix_shape=(int(feature_matrix.shape[0]), int(feature_matrix.shape[1])),
         edge_index_shape=(int(edge_index.shape[0]), int(edge_index.shape[1])),
+        target_column=target_column,
+        debias_mode=resolved_debias_mode,
     )
     if cache_path is not None:
         _store_cached_training_result(cache_path=cache_path, fingerprint=fingerprint, result=result)

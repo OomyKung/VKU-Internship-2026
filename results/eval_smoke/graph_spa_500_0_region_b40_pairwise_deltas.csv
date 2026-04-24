@@ -1,0 +1,4 @@
+dataset,protected_attribute,budget,reference_stack_name,stack_name,delta_total_spread,delta_extra_spread,delta_mf,delta_dcv,delta_f_score,delta_runtime_seconds
+graph_spa_500_0,region,40,community_aware_fair_greedy,community_aware_fair_greedy,0.0,0.0,0.0,0.0,0.0,0.0
+graph_spa_500_0,region,40,community_aware_fair_greedy,graphsage_fair_ris_hybrid,0.7590000000000003,0.7590000000000003,9.81138398200021e-05,0.003895262681187898,-0.001898574420683901,-15.3725502999987
+graph_spa_500_0,region,40,community_aware_fair_greedy,infomap_graphcl_maximin,0.7439999999999998,0.7439999999999998,-0.0647251184834123,0.4657973091855537,-0.26526121383448287,15.742861600000644

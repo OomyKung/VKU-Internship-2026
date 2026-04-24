@@ -112,6 +112,8 @@ class ExperimentRunnerTestCase(unittest.TestCase):
         self.assertIn("diffusion_model", result_frame.columns)
         self.assertIn("optimization_mode", result_frame.columns)
         self.assertIn("ranking_model", result_frame.columns)
+        self.assertIn("clustering_method", result_frame.columns)
+        self.assertIn("clustering_input_mode", result_frame.columns)
         self.assertIn("search_spread_estimator", result_frame.columns)
         self.assertIn("search_guidance_estimator", result_frame.columns)
         self.assertIn("final_spread_estimator", result_frame.columns)
@@ -448,9 +450,9 @@ class ExperimentRunnerTestCase(unittest.TestCase):
             ml_top_fraction=0.5,
             ml_singleton_runs=3,
         )
-        original_train = experiment_runner_module.train_node_utility_model
+        original_train = experiment_runner_module.train_stack_ranking_model
 
-        with patch("fim_hybrid.experiment_runner.train_node_utility_model") as mocked_train:
+        with patch("fim_hybrid.experiment_runner.train_stack_ranking_model") as mocked_train:
             mocked_train.side_effect = original_train
             run_loaded_experiment(
                 dataset=dataset,

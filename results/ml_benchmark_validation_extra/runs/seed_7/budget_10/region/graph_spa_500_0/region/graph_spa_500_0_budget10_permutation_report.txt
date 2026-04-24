@@ -1,0 +1,31 @@
+FIM Algorithm-Stack Permutation Comparison
+------------------------------------------------------------------------
+Protected attribute: region
+Budget: 10
+Final estimator: monte_carlo | mc_runs_eval=10
+
+1. vgae_fair_ris [ok]
+   spread=10.7000 | extra=0.7000 | MF=0.0000 | DCV=0.3441 | F-score=-0.1720 | runtime=3.036s
+   modules: diffusion=ic | community=leiden | embedding=vgae | clustering=none | ranking=logistic_regression | optimizer=hybrid_si_ea | debias=none
+   notes=Embedding-guided VGAE stack with logistic-regression ranking fallback.; communities=17; modularity=0.802186; embedding_cache=miss; target=label_score; backend=tabular; candidate_pool=250; validation_spearman=0.4680; validation_precision_at_budget=0.1000; history=graph_spa_500_0_vgae_fair_ris_history.csv
+
+2. dgi_fair_ris [ok]
+   spread=10.3000 | extra=0.3000 | MF=0.0000 | DCV=0.4025 | F-score=-0.2012 | runtime=6.554s
+   modules: diffusion=ic | community=leiden | embedding=dgi | clustering=none | ranking=logistic_regression | optimizer=hybrid_si_ea | debias=none
+   notes=Embedding-guided DGI stack with logistic-regression ranking fallback.; communities=17; modularity=0.802186; embedding_cache=miss; target=label_score; backend=tabular; candidate_pool=250; validation_spearman=0.3454; validation_precision_at_budget=0.1000; history=graph_spa_500_0_dgi_fair_ris_history.csv
+
+3. community_aware_fair_greedy [ok]
+   spread=10.4000 | extra=0.4000 | MF=0.0000 | DCV=0.4612 | F-score=-0.2306 | runtime=5.140s
+   modules: diffusion=ic | community=leiden | embedding=none | clustering=none | ranking=fairness_weighted_greedy | optimizer=local_search | debias=none
+   notes=initial_rr=[12, 13, 14, 17, 18, 223, 238, 266, 38, 481]; greedy=[199, 229, 238, 258, 270, 369, 465, 485, 5, 79]; communities=17; modularity=0.802186
+
+4. graphcl_maximin [ok]
+   spread=10.5000 | extra=0.5000 | MF=0.0000 | DCV=0.5178 | F-score=-0.2589 | runtime=6.850s
+   modules: diffusion=ic | community=infomap | embedding=graphcl | clustering=spectral | ranking=logistic_regression | optimizer=local_search | debias=none
+   notes=communities=58; modularity=0.738521; embedding_cache=miss; target=label_score; backend=tabular; candidate_pool=250; validation_spearman=0.0749; validation_precision_at_budget=0.3000; clusters=8; clustering_input_mode=embedding; initial_maximin=[16, 178, 191, 231, 251, 262, 308, 395, 472, 484]
+
+Recommendations
+------------------------------------------------------------------------
+best_interpretable_baseline=community_aware_fair_greedy
+best_practical_ml_default=vgae_fair_ris
+best_exploratory_fairness_heavy=vgae_fair_ris

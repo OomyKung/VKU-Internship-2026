@@ -74,15 +74,19 @@ def _toy_dataset() -> tuple[LoadedDataset, object]:
 
 class FIMPermutationTestCase(unittest.TestCase):
     def test_registry_lists_requested_permutations(self) -> None:
-        self.assertEqual(
-            set(available_fim_permutations()),
+        self.assertTrue(
             {
                 "community_aware_fair_greedy",
-                "graphsage_fair_ris_hybrid",
-                "infomap_graphcl_maximin",
-            },
+                "leiden_graphsage_fair_ris_hybrid",
+                "leiden_gcn_fair_ris_hybrid",
+                "leiden_line_logreg_greedy",
+                "infomap_graphcl_logreg_maximin",
+                "leiden_node2vec_xgboost_hybrid",
+                "leiden_node2vec_kmeans_logreg_hybrid",
+            }.issubset(set(available_fim_permutations()))
         )
         spec = get_fim_permutation_spec("graphsage_fair_ris_hybrid")
+        self.assertEqual(spec.name, "leiden_graphsage_fair_ris_hybrid")
         self.assertEqual(spec.embedding_method, "graphsage")
         self.assertEqual(spec.spread_estimator_final, "monte_carlo")
 
@@ -109,17 +113,19 @@ class FIMPermutationTestCase(unittest.TestCase):
 
             frame = result.summary_frame
             self.assertEqual(frame.loc[0, "status"], "ok")
-            self.assertEqual(frame.loc[0, "permutation_name"], "community_aware_fair_greedy")
+            self.assertEqual(frame.loc[0, "stack_name"], "community_aware_fair_greedy")
             self.assertEqual(frame.loc[0, "final_spread_estimator"], "monte_carlo")
             self.assertIn("total_spread", frame.columns)
             self.assertIn("extra_spread", frame.columns)
             self.assertIn("mf", frame.columns)
             self.assertIn("dcv", frame.columns)
             self.assertIn("f_score", frame.columns)
+            self.assertIn("ranking_model", frame.columns)
+            self.assertIn("clustering_input_mode", frame.columns)
             self.assertTrue(result.comparison_csv_path is not None and result.comparison_csv_path.is_file())
             self.assertTrue(result.report_path is not None and result.report_path.is_file())
 
-    def test_graphsage_fair_ris_hybrid_delegates_to_existing_experiment_runner(self) -> None:
+    def test_leiden_graphsage_fair_ris_hybrid_delegates_to_existing_experiment_runner(self) -> None:
         dataset, report = _toy_dataset()
         fake_frame = pd.DataFrame(
             [
@@ -158,15 +164,72 @@ class FIMPermutationTestCase(unittest.TestCase):
                 dataset,
                 report,
                 config,
-                permutations=["graphsage_fair_ris_hybrid"],
+                permutations=["leiden_graphsage_fair_ris_hybrid"],
             )
 
         self.assertTrue(mocked.called)
         row = result.summary_frame.iloc[0]
         self.assertEqual(row["status"], "ok")
+        self.assertEqual(row["stack_name"], "leiden_graphsage_fair_ris_hybrid")
         self.assertEqual(row["embedding_method"], "graphsage")
+        self.assertEqual(row["ranking_model"], "graphsage")
         self.assertEqual(row["spread_estimator_search"], "fairness_aware_ris")
         self.assertEqual(row["optimizer_mode"], "hybrid_si_ea")
+        self.assertEqual(row["debias_mode"], "worst_group_boost")
+
+    def test_leiden_line_logreg_greedy_runs_end_to_end(self) -> None:
+        dataset, report = _toy_dataset()
+        config = FIMPermutationRunConfig(
+            protected_attribute="group",
+            budget=2,
+            propagation_probability=0.2,
+            mc_runs_search=2,
+            mc_runs_eval=3,
+            random_seed=7,
+        )
+        result = run_fim_permutation_benchmark(
+            dataset,
+            report,
+            config,
+            permutations=["leiden_line_logreg_greedy"],
+        )
+
+        row = result.summary_frame.iloc[0]
+        self.assertEqual(row["status"], "ok")
+        self.assertEqual(row["embedding_method"], "line")
+        self.assertEqual(row["ranking_model"], "logistic_regression")
+        self.assertEqual(row["clustering_method"], "none")
+        self.assertEqual(row["spread_estimator_final"], "monte_carlo")
+
+    def test_clustering_enhanced_stack_runs_or_skips_clearly(self) -> None:
+        dataset, report = _toy_dataset()
+        config = FIMPermutationRunConfig(
+            protected_attribute="group",
+            budget=2,
+            propagation_probability=0.2,
+            mc_runs_search=1,
+            mc_runs_eval=2,
+            random_seed=7,
+            population_size=4,
+            generations=2,
+            local_search_steps=1,
+            ris_num_rr_sets=8,
+        )
+        result = run_fim_permutation_benchmark(
+            dataset,
+            report,
+            config,
+            permutations=["leiden_node2vec_kmeans_logreg_hybrid"],
+        )
+
+        row = result.summary_frame.iloc[0]
+        self.assertIn(row["status"], {"ok", "skipped"})
+        if row["status"] == "ok":
+            self.assertEqual(row["clustering_method"], "kmeans")
+            self.assertEqual(row["ranking_model"], "logistic_regression")
+            self.assertEqual(row["spread_estimator_final"], "monte_carlo")
+        else:
+            self.assertTrue(str(row["skip_reason"]).strip())
 
     def test_failures_become_skipped_rows_when_configured(self) -> None:
         dataset, report = _toy_dataset()
@@ -183,12 +246,12 @@ class FIMPermutationTestCase(unittest.TestCase):
                 dataset,
                 report,
                 config,
-                permutations=["infomap_graphcl_maximin"],
+                permutations=["infomap_graphcl_logreg_maximin"],
             )
 
         row = result.summary_frame.iloc[0]
         self.assertEqual(row["status"], "skipped")
-        self.assertIn("missing optional package", str(row["skipped_reason"]))
+        self.assertIn("missing optional package", str(row["skip_reason"]))
 
     def test_report_includes_side_by_side_metrics(self) -> None:
         dataset, report = _toy_dataset()
@@ -212,6 +275,7 @@ class FIMPermutationTestCase(unittest.TestCase):
         self.assertIn("community_aware_fair_greedy [ok]", text)
         self.assertIn("F-score=", text)
         self.assertIn("modules: diffusion=ic", text)
+        self.assertIn("Recommendations", text)
 
 
 if __name__ == "__main__":

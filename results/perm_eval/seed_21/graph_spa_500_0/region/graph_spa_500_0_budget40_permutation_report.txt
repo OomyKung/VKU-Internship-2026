@@ -1,0 +1,20 @@
+FIM Algorithm-Stack Permutation Comparison
+------------------------------------------------------------------------
+Protected attribute: region
+Budget: 40
+Final estimator: monte_carlo | mc_runs_eval=1000
+
+1. community_aware_fair_greedy [ok]
+   spread=41.3820 | extra=1.3820 | MF=0.0642 | DCV=0.0392 | F-score=0.0125 | runtime=50.708s
+   modules: diffusion=ic | community=leiden | embedding=none | clustering=none | optimizer=local_search | ranking=fairness_weighted_greedy
+   notes=initial_rr=[12, 13, 14, 15, 17, 18, 21, 223, 229, 238, 24, 241, 263, 264, 265, 266, 267, 268, 269, 271, 278, 281, 284, 287, 30, 303, 326, 33, 38, 39, 40, 44, 464, 465, 481, 485, 5, 53, 59, 6]; greedy=[104, 11, 114, 132, 156, 18, 194, 195, 2, 210, 217, 223, 251, 252, 259, 261, 277, 299, 301, 305, 347, 37, 378, 407, 413, 425, 442, 449, 450, 452, 461, 472, 478, 480, 486, 494, 51, 64, 79, 98]; communities=19; modularity=0.802419
+
+2. graphsage_fair_ris_hybrid [ok]
+   spread=42.2960 | extra=2.2960 | MF=0.0610 | DCV=0.0382 | F-score=0.0114 | runtime=29.588s
+   modules: diffusion=ic | community=leiden | embedding=graphsage | clustering=none | optimizer=hybrid_si_ea | ranking=graphsage_plus_fair_ris
+   notes=ML guidance mode=two_tier; full_pool=500; tier_policy=tuned; backend=gnn_ris; weights=(graphsage=1.000, ris=1.000, fair_ris=0.500, fairness=0.200, diversity=0.000); target=gnn_label_score; target_variance=0.002846; gnn_model_type=graphsage; node2vec_mode=off; feature_shape=(500, 53); edge_index_shape=(2, 1938); cache=miss; label_variance=0.003585; ris_num_rr_sets=16; ris_mode=weak_group_weighted; fair_ris_enabled=True; ris_reuse_rr_sets=True; history=graph_spa_500_0_budget40_leiden_hybrid_siea_ml_gnn_ris_two_tier_tuned_swap_local_search_history.csv; GraphSAGE ranking and fair RIS guidance delegated to existing gnn_ris hybrid path.
+
+3. infomap_graphcl_maximin [ok]
+   spread=41.6840 | extra=1.6840 | MF=0.0000 | DCV=0.5477 | F-score=-0.2739 | runtime=55.230s
+   modules: diffusion=ic | community=infomap | embedding=graphcl | clustering=spectral | optimizer=local_search | ranking=maximin_greedy
+   notes=GraphCL embedding and spectral clustering are optional exploratory modules; the runnable FIM path uses Infomap plus maximin/worst-group search.; initial_maximin=[114, 138, 153, 18, 186, 189, 19, 2, 207, 220, 243, 26, 263, 274, 286, 308, 323, 330, 348, 358, 36, 360, 363, 380, 383, 385, 398, 405, 422, 426, 45, 472, 478, 489, 52, 66, 71, 77, 78, 85]; communities=59; modularity=0.733948; optional_graphcl_clustering=not_materialized_in_fim_path

@@ -1,0 +1,63 @@
+FIM Result Evaluation
+=======================================================================================================================
+Report: graph_spa_500_0_region_b10_ml_compare
+Inputs: ml_fim_benchmark
+Rows loaded: 6
+Ranking mode: fim_default
+
+Group 1: dataset=graph_spa_500_0 | protected_attribute=region | budget=200
+------------------------------------------------------------------------
+Rows: 6 methods | ranking=fim_default | aggregated_runs=no
+
+Rank  Method                         F-score   MF      DCV     Spread   Extra   Runtime
+1     community_aware_fair_greedy    0.1955   0.3969  0.0060  204.315  4.315   671.026s
+2     graphsage_fair_ris_hybrid      0.1869   0.3824  0.0085  204.170  4.170   54.433s
+3     gcn_fair_ris_hybrid            0.1792   0.3721  0.0136  204.040  4.040   54.419s
+4     node2vec_xgboost               0.1616   0.3439  0.0207  203.730  3.730   17.876s
+5     deepwalk_mlp                   0.0237   0.1464  0.0990  204.050  4.050   202.058s
+6     line_fast_ml                   -0.1038  0.0000  0.2076  203.710  3.710   215.072s
+
+Instant Insights
+- Overall winner: community_aware_fair_greedy
+- Best spread: community_aware_fair_greedy
+- Best fairness profile: community_aware_fair_greedy
+- Fastest method: node2vec_xgboost
+- Result closeness: decisive overall result; top f_score gap is 0.0085
+- Warning: line_fast_ml shows a fairness collapse signal.
+- Best practical choice: community_aware_fair_greedy
+- Best interpretable baseline: community_aware_fair_greedy
+
+Per-Method Notes
+- community_aware_fair_greedy: Best overall fairness-adjusted result; Best interpretable baseline
+- graphsage_fair_ris_hybrid: Competitive comparison method
+- gcn_fair_ris_hybrid: Competitive comparison method
+- node2vec_xgboost: Fastest evaluated method
+- deepwalk_mlp: Competitive comparison method
+- line_fast_ml: Fairness collapse warning: MF near zero; Negative F-score; not recommended as default
+
+Recommendation
+- best_overall_method=community_aware_fair_greedy
+- best_fairness_first_method=community_aware_fair_greedy
+- best_spread_first_method=community_aware_fair_greedy
+- best_runtime_first_method=node2vec_xgboost
+- best_interpretable_baseline=community_aware_fair_greedy
+- best_exploratory_comparator=n/a
+- best_practical_choice=community_aware_fair_greedy
+
+ML Benchmark Insights
+- Best current overall ML stack: graphsage_fair_ris_hybrid
+- Best fairness-first ML stack: graphsage_fair_ris_hybrid
+- Best spread-first ML stack: graphsage_fair_ris_hybrid
+- Best fast ML stack: node2vec_xgboost
+- Best interpretable baseline: community_aware_fair_greedy
+- Strongest practical default: graphsage_fair_ris_hybrid
+- Fairness collapse warning: line_fast_ml
+
+ML Benchmark Recommendation
+- best_current_overall_ml_stack=graphsage_fair_ris_hybrid
+- best_fairness_first_ml_stack=graphsage_fair_ris_hybrid
+- best_spread_first_ml_stack=graphsage_fair_ris_hybrid
+- best_fast_ml_stack=node2vec_xgboost
+- best_interpretable_baseline=community_aware_fair_greedy
+- strongest_practical_default=graphsage_fair_ris_hybrid
+- stacks_needing_more_work=line_fast_ml

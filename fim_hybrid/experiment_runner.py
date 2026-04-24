@@ -18,12 +18,14 @@ from .data_loader import LoadedDataset, ProtectedGroupReport, load_dataset, veri
 from .diffusion import DEFAULT_DIFFUSION_MODEL, validate_diffusion_model
 from .evaluation import SeedSetEvaluation, evaluate_seed_set
 from .feature_extraction import compute_node_features
-from .gnn_training import GNNTrainingResult, require_gnn_dependencies, train_gnn_node_utility_model
+from .gnn_training import require_gnn_dependencies
 from .hybrid_optimizer import HybridOptimizationResult, HybridSIEAConfig, HybridSIEAOptimizer
 from .label_generation import NodeUtilityLabelResult, generate_singleton_node_utility_labels
-from .ml_training import MLTrainingResult, train_node_utility_model
+from .ml_training import RankingTrainingResult
 from .node2vec_embeddings import Node2VecConfig, build_node2vec_cache_path
-from .ris_guidance import RISConfig, RISGuidanceResult, generate_ris_guidance
+from .ris_guidance import RISConfig, RISGuidanceResult
+from .stack_pipeline import prepare_ris_guidance as prepare_stack_ris_guidance
+from .stack_pipeline import train_ranking_model as train_stack_ranking_model
 
 _KEPT_ML_VARIANT_LABEL = "hybrid_siea_ml_two_tier_tuned_swap_local_search"
 _KEPT_GNN_ML_VARIANT_LABEL = "hybrid_siea_ml_gnn_two_tier_tuned_swap_local_search"
@@ -560,6 +562,8 @@ def _baseline_row(
     return {
         "dataset": dataset.name,
         "community_method": community_method,
+        "clustering_method": "none",
+        "clustering_input_mode": "none",
         "diffusion_model": diffusion_model,
         "ranking_model": "none",
         "embedding_method": "none",
@@ -619,14 +623,23 @@ def _hybrid_row(
     note: str = "",
     node2vec_enabled: bool = False,
     node2vec_mode: str = "off",
+    embedding_method: str = "none",
+    clustering_method: str = "none",
+    clustering_input_mode: str = "none",
     community_result=None,
 ) -> dict[str, object]:
     return {
         "dataset": dataset.name,
         "community_method": community_method,
+        "clustering_method": clustering_method,
+        "clustering_input_mode": clustering_input_mode,
         "diffusion_model": diffusion_model,
         "ranking_model": "none",
-        "embedding_method": "node2vec" if node2vec_enabled else "none",
+        "embedding_method": (
+            embedding_method
+            if embedding_method != "none"
+            else ("node2vec" if node2vec_enabled else "none")
+        ),
         "search_spread_estimator": "monte_carlo",
         "search_guidance_estimator": "none",
         "final_spread_estimator": "monte_carlo",
@@ -888,15 +901,12 @@ def _build_gnn_label_frame(
         label_frame["marginal_proxy_score"],
         column_name="marginal_proxy_score",
     )
-    label_frame["gnn_label_score"] = (
-        0.35 * label_frame["label_score"].astype(float)
-        + 0.20 * label_frame["soft_fair_norm"].astype(float)
-        + 0.20 * label_frame["weak_group_gain_norm"].astype(float)
-        + 0.25 * label_frame["marginal_proxy_norm"].astype(float)
-    )
+    # Keep the historical alias for compatibility, but the canonical supervised
+    # target for FIM ranking remains label_score.
+    label_frame["gnn_label_score"] = label_frame["label_score"].astype(float)
     label_variance = float(label_frame["gnn_label_score"].var(ddof=0))
     if label_variance <= 1e-12:
-        raise ValueError("gnn_label_score is degenerate; adjust label construction or dataset settings.")
+        raise ValueError("label_score / gnn_label_score is degenerate; adjust label construction or dataset settings.")
     return label_frame, perf_counter() - start
 
 
@@ -1057,15 +1067,22 @@ def _prepare_ris_guidance(
     dataset: LoadedDataset,
     protected_group_report: ProtectedGroupReport,
     settings: ExperimentSettings,
+    *,
+    feature_frame: pd.DataFrame,
+    stack_name: str = "experiment_runner_ris",
 ) -> tuple[RISGuidanceResult, float]:
-    start = perf_counter()
-    ris_result = generate_ris_guidance(
+    artifact = prepare_stack_ris_guidance(
         dataset=dataset,
         protected_group_report=protected_group_report,
         propagation_probability=settings.propagation_probability,
+        feature_frame=feature_frame,
+        output_dir=None,
+        protected_attribute=None,
+        stack_name=None,
         config=_ris_config(settings),
     )
-    return ris_result, perf_counter() - start
+    del stack_name
+    return artifact.ris_result, float(artifact.ris_result.runtime_seconds)
 
 
 def _select_ris_scores(
@@ -1118,22 +1135,27 @@ def _build_guidance_score_map(
 
 
 def _prepare_tabular_ml_training(
+    dataset: LoadedDataset,
     feature_frame: pd.DataFrame,
     settings: ExperimentSettings,
     label_result: NodeUtilityLabelResult,
-) -> tuple[MLTrainingResult, float]:
-    start = perf_counter()
-    training_result = train_node_utility_model(
+) -> tuple[RankingTrainingResult, float]:
+    artifact = train_stack_ranking_model(
+        dataset,
         feature_frame=feature_frame,
         label_frame=label_result.label_frame,
         budget=settings.budget,
         model_type=settings.ml_model_type,
+        target_column="label_score",
+        protected_attribute=None,
+        stack_name=None,
+        output_dir=None,
         top_fraction=settings.ml_top_fraction,
         top_n=settings.ml_top_n,
         max_nodes=settings.ml_max_nodes,
         random_seed=settings.random_seed,
     )
-    return training_result, perf_counter() - start
+    return artifact.training_result, float(artifact.training_result.runtime_seconds)
 
 
 def _gnn_cache_path(
@@ -1184,15 +1206,17 @@ def _prepare_gnn_training(
     *,
     target_column: str,
     node2vec_mode: str,
-) -> tuple[GNNTrainingResult, float]:
-    start = perf_counter()
-    training_result = train_gnn_node_utility_model(
-        dataset=dataset,
+) -> tuple[RankingTrainingResult, float]:
+    artifact = train_stack_ranking_model(
+        dataset,
         feature_frame=feature_frame,
         label_frame=label_frame,
         budget=settings.budget,
         model_type=settings.gnn_model_type,
         target_column=target_column,
+        protected_attribute=None,
+        stack_name=None,
+        output_dir=None,
         hidden_dim=settings.gnn_hidden_dim,
         num_layers=settings.gnn_num_layers,
         dropout=settings.gnn_dropout,
@@ -1228,8 +1252,11 @@ def _prepare_gnn_training(
             settings=settings,
             node2vec_mode=node2vec_mode,
         ),
+        debias_mode="none",
+        protected_attribute_column="protected_group",
     )
-    return training_result, perf_counter() - start
+    del community_method
+    return artifact.training_result, float(artifact.training_result.runtime_seconds)
 
 
 def _selected_ml_variants(settings: ExperimentSettings) -> list[tuple[str, str, str, str, bool]]:
@@ -1743,8 +1770,8 @@ def run_loaded_experiment(
                     settings=settings,
                     label_result=label_result,
                 )
-                gnn_label_variance = float(gnn_label_frame["gnn_label_score"].var(ddof=0))
-            training_results_by_variant: dict[tuple[str, str], tuple[MLTrainingResult | GNNTrainingResult, float]] = {}
+                gnn_label_variance = float(gnn_label_frame["label_score"].var(ddof=0))
+            training_results_by_variant: dict[tuple[str, str], tuple[RankingTrainingResult, float]] = {}
             for _, _, ml_backend, node2vec_mode, _ in selected_ml_variants:
                 variant_key = (ml_backend, node2vec_mode)
                 if variant_key in training_results_by_variant:
@@ -1753,6 +1780,7 @@ def run_loaded_experiment(
                     if label_result is None:
                         raise ValueError("label_result was not prepared for the selected tabular variant.")
                     training_results_by_variant[variant_key] = _prepare_tabular_ml_training(
+                        dataset=dataset,
                         feature_frame=plain_feature_frame,
                         settings=settings,
                         label_result=label_result,
@@ -1769,7 +1797,7 @@ def run_loaded_experiment(
                     community_method=community_method,
                     settings=settings,
                     label_frame=gnn_label_frame,
-                    target_column="gnn_label_score",
+                    target_column="label_score",
                     node2vec_mode=node2vec_mode,
                 )
 
@@ -1780,6 +1808,7 @@ def run_loaded_experiment(
                     dataset=dataset,
                     protected_group_report=protected_group_report,
                     settings=settings,
+                    feature_frame=plain_feature_frame,
                 )
 
             for label, guidance_mode, ml_backend, node2vec_mode, uses_ris in selected_ml_variants:
@@ -1818,7 +1847,7 @@ def run_loaded_experiment(
                         cache_status = "hit" if training_result.loaded_from_cache else "miss"
                         guidance_note_parts.extend(
                             [
-                                "target=gnn_label_score",
+                                "target=label_score",
                                 (
                                     f"target_variance={float(gnn_label_variance):.6f}"
                                     if gnn_label_variance is not None
@@ -1844,6 +1873,7 @@ def run_loaded_experiment(
                                 dataset=dataset,
                                 protected_group_report=protected_group_report,
                                 settings=settings,
+                                feature_frame=plain_feature_frame,
                             )
                         backend_preparation_runtime += ris_runtime
                         global_ris_scores = dict(ris_result.global_node_scores)
@@ -1946,6 +1976,13 @@ def run_loaded_experiment(
                 ml_row["graphsage_enabled"] = _graphsage_enabled_flag(gnn_model_type, ml_backend=ml_backend)
                 ml_row["ris_enabled"] = bool(uses_ris)
                 ml_row["ris_mode"] = settings.ris_mode if uses_ris else "off"
+                ml_row["clustering_method"] = "none"
+                ml_row["clustering_input_mode"] = "none"
+                ml_row["embedding_method"] = (
+                    settings.gnn_model_type
+                    if ml_backend in {"gnn", "gnn_ris"}
+                    else "none"
+                )
                 if ml_backend == "tabular":
                     ml_row["ranking_model"] = settings.ml_model_type
                 elif ml_backend in {"gnn", "gnn_ris"}:

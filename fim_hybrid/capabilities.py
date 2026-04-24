@@ -1,20 +1,17 @@
-"""Capability registry and reporting helpers for the FIM algorithm stack."""
+"""Capability registry and reporting helpers for the unified FIM stack."""
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import importlib.util
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 
-from .baselines import available_baseline_methods, get_baseline_method_spec
 from .clustering import available_clustering_methods, get_clustering_method_spec
 from .diffusion import available_diffusion_models, get_diffusion_model_spec
-from .embeddings.registry import get_method_spec as get_embedding_method_spec
+from .embeddings.registry import available_embedding_methods, get_method_spec as get_embedding_method_spec
 from .embeddings.registry import missing_dependency_reason as embedding_missing_dependency_reason
-from .embeddings.registry import available_embedding_methods
 from .gnn_training import gnn_dependencies_available
 from .ml_training import available_ranking_models, get_ranking_model_spec
 
@@ -62,8 +59,8 @@ def _diffusion_entries() -> list[CapabilityEntry]:
                 category="diffusion_model",
                 name=spec.name,
                 status="available",
-                integration_surface="shared_evaluation",
-                interface="simulate_diffusion(dataset, protected_group_report, seed_set, ...)",
+                integration_surface="trusted_fim_pipeline",
+                interface="evaluate_seed_set(..., diffusion_model=...)",
                 default=spec.default,
                 notes=spec.description,
             )
@@ -80,93 +77,44 @@ def _spread_estimator_entries() -> list[CapabilityEntry]:
             integration_surface="search_and_final_evaluation",
             interface="evaluate_seed_set(..., mc_runs=...)",
             default=True,
-            notes="Trusted final evaluation path used for all reported spread/fairness metrics.",
+            notes="Trusted final evaluator for spread, extra_spread, MF, DCV, and F-score.",
         ),
         CapabilityEntry(
             category="spread_estimator",
             name="ris_guidance",
             status="available",
             integration_surface="search_guidance_only",
-            interface="generate_ris_guidance(dataset, protected_group_report, propagation_probability, config)",
-            notes="Reusable RR-set coverage prior for search-time guidance; final reporting remains Monte Carlo.",
+            interface="prepare_ris_guidance(dataset, protected_group_report, propagation_probability, ...)",
+            notes="Search-time RIS guidance only; never replaces the final Monte Carlo path.",
+        ),
+        CapabilityEntry(
+            category="spread_estimator",
+            name="fairness_aware_ris",
+            status="available",
+            integration_surface="search_guidance_only",
+            interface="prepare_ris_guidance(..., mode='weak_group_weighted')",
+            notes="Fair-RIS weighting for search-time guidance only; final reporting remains Monte Carlo.",
         ),
     ]
 
 
-def _seed_selection_entries() -> list[CapabilityEntry]:
-    entries: list[CapabilityEntry] = []
-    for method_name in available_baseline_methods():
-        spec = get_baseline_method_spec(method_name)
-        entries.append(
-            CapabilityEntry(
-                category="seed_selection",
-                name=spec.name,
-                status="available",
-                integration_surface="experiment_runner",
-                interface="select_baseline_seed_set(dataset, method, budget, ...)",
-                notes=spec.description,
-            )
-        )
-    return entries
-
-
-def _fairness_fim_entries() -> list[CapabilityEntry]:
-    return [
-        CapabilityEntry(
-            category="fairness_fim_method",
-            name="cea_fim",
-            status="available",
-            integration_surface="experiment_runner",
-            interface="run_loaded_experiment(..., only_methods=['cea_fim'])",
-            notes="CEA-style comparator implemented as a community EA without swarm guidance or local search.",
-        ),
-        CapabilityEntry(
-            category="fairness_fim_method",
-            name="hybrid_siea",
-            status="available",
-            integration_surface="experiment_runner",
-            interface="run_loaded_experiment(..., only_methods=['hybrid_siea'])",
-            default=True,
-            notes="Unified hybrid swarm-intelligence plus evolutionary optimizer.",
-        ),
-        CapabilityEntry(
-            category="fairness_fim_method",
-            name="fairness_weighted_greedy",
-            status="available",
-            integration_surface="experiment_runner_baseline",
-            interface="baseline_methods=['fairness_weighted_greedy']",
-            notes="Greedy comparator maximizing the trusted F-score objective.",
-        ),
-        CapabilityEntry(
-            category="fairness_fim_method",
-            name="maximin_greedy",
-            status="available",
-            integration_surface="experiment_runner_baseline",
-            interface="baseline_methods=['maximin_greedy']",
-            notes="Greedy comparator maximizing worst-group MF with spread-aware tie-breaking.",
-        ),
-    ]
-
-
-def _community_and_clustering_entries() -> list[CapabilityEntry]:
+def _community_entries() -> list[CapabilityEntry]:
     entries: list[CapabilityEntry] = []
     for method_name in available_clustering_methods():
         spec = get_clustering_method_spec(method_name)
+        if spec.category != "graph_native":
+            continue
         dependencies = ("igraph",) if getattr(spec, "requires_igraph", False) else ()
         entries.append(
             CapabilityEntry(
-                category="community_detection" if spec.category == "graph_native" else "embedding_clustering",
+                category="community_method",
                 name=spec.name,
                 status=_status_for_dependencies(dependencies),
-                integration_surface=(
-                    "experiment_runner_and_clustering_benchmark"
-                    if spec.category == "graph_native"
-                    else "clustering_benchmark_and_embedding_evaluation"
-                ),
-                interface="cluster_nodes(graph, method, embeddings=None, features=None, ...)",
+                integration_surface="trusted_fim_pipeline",
+                interface="detect_communities(graph, method=..., input_mode='graph')",
+                default=spec.name == "leiden",
                 optional_dependencies=dependencies,
-                default=spec.name in {"leiden", "kmeans"},
-                notes=f"{spec.category} method with preferred input={spec.preferred_input_mode}.",
+                notes=f"Graph-native community partition with preferred input={spec.preferred_input_mode}.",
             )
         )
     return entries
@@ -179,14 +127,38 @@ def _embedding_entries() -> list[CapabilityEntry]:
         missing_reason = embedding_missing_dependency_reason(method_name)
         entries.append(
             CapabilityEntry(
-                category="graph_embedding",
+                category="embedding_method",
                 name=spec.name,
                 status="available" if missing_reason is None else "optional_dependency_missing",
-                integration_surface="embedding_benchmark",
-                interface="run_embedding_benchmark(..., methods=[...])",
-                default=spec.name in {"deepwalk", "graphsage"},
+                integration_surface="stack_pipeline",
+                interface="prepare_embedding_frame(dataset, method_name=..., output_dir=...)",
+                default=spec.name == "graphsage",
                 optional_dependencies=tuple(spec.optional_dependencies),
                 notes=spec.description if missing_reason is None else missing_reason,
+            )
+        )
+    return entries
+
+
+def _clustering_entries() -> list[CapabilityEntry]:
+    entries: list[CapabilityEntry] = []
+    for method_name in available_clustering_methods():
+        spec = get_clustering_method_spec(method_name)
+        if spec.category != "embedding_space":
+            continue
+        status = "available"
+        notes = f"Embedding-space clustering with preferred input={spec.preferred_input_mode}."
+        if spec.name == "dbscan_or_hdbscan" and importlib.util.find_spec("hdbscan") is None:
+            notes += " HDBSCAN is unavailable, so DBSCAN fallback is used."
+        entries.append(
+            CapabilityEntry(
+                category="clustering_method",
+                name=spec.name,
+                status=status,
+                integration_surface="stack_pipeline",
+                interface="prepare_optional_clustering(dataset, method_name=..., embeddings=..., features=...)",
+                default=spec.name == "kmeans",
+                notes=notes,
             )
         )
     return entries
@@ -195,6 +167,8 @@ def _embedding_entries() -> list[CapabilityEntry]:
 def _ranking_entries() -> list[CapabilityEntry]:
     entries: list[CapabilityEntry] = []
     for model_name in available_ranking_models():
+        if model_name == "ris_guidance":
+            continue
         spec = get_ranking_model_spec(model_name)
         dependencies = tuple(spec.optional_dependencies)
         status = _status_for_dependencies(dependencies)
@@ -205,20 +179,9 @@ def _ranking_entries() -> list[CapabilityEntry]:
                 category="ranking_model",
                 name=spec.name,
                 status=status,
-                integration_surface=(
-                    "experiment_runner_ml"
-                    if spec.backend in {"tabular", "gnn"}
-                    else "search_guidance_only"
-                ),
-                interface=(
-                    "train_node_utility_model(feature_frame, label_frame, budget, model_type=...)"
-                    if spec.backend == "tabular"
-                    else (
-                        "train_gnn_node_utility_model(dataset, feature_frame, label_frame, budget, model_type=...)"
-                        if spec.backend == "gnn"
-                        else "generate_ris_guidance(dataset, protected_group_report, propagation_probability, config)"
-                    )
-                ),
+                integration_surface="stack_pipeline",
+                interface="train_ranking_model(dataset, feature_frame, label_frame, budget, model_type=...)",
+                default=spec.name == "graphsage",
                 optional_dependencies=dependencies,
                 notes=spec.description,
             )
@@ -226,150 +189,112 @@ def _ranking_entries() -> list[CapabilityEntry]:
     return entries
 
 
-def _optimization_entries() -> list[CapabilityEntry]:
+def _optimizer_entries() -> list[CapabilityEntry]:
     return [
         CapabilityEntry(
-            category="optimization_mode",
-            name="greedy_local_search",
+            category="optimizer_mode",
+            name="greedy",
             status="available",
-            integration_surface="hybrid_optimizer",
-            interface="HybridSIEAOptimizer(..., local_search_steps>0)",
-            notes="Swap-based local search refinement inside the hybrid optimizer.",
+            integration_surface="trusted_fim_pipeline",
+            interface="select_baseline_seed_set(..., method='greedy')",
+            notes="Spread-oriented greedy search over the trusted Monte Carlo search estimator.",
         ),
         CapabilityEntry(
-            category="optimization_mode",
+            category="optimizer_mode",
+            name="local_search",
+            status="available",
+            integration_surface="trusted_fim_pipeline",
+            interface="_swap_local_search(dataset, protected_group_report, initial_seed_set, ...)",
+            notes="Bounded swap local search over the shared search-time evaluator.",
+        ),
+        CapabilityEntry(
+            category="optimizer_mode",
             name="evolutionary_algorithm",
             status="available",
             integration_surface="hybrid_optimizer",
             interface="HybridSIEAOptimizer(..., crossover_probability>0, mutation_probability>0)",
-            notes="Population-based EA core with crossover, mutation, and repair.",
+            notes="Population-based EA component in the unified hybrid optimizer.",
         ),
         CapabilityEntry(
-            category="optimization_mode",
+            category="optimizer_mode",
             name="swarm_intelligence",
             status="available",
             integration_surface="hybrid_optimizer",
             interface="HybridSIEAOptimizer(..., disable_swarm_guidance=False)",
-            notes="Leader-guidance / swarm-style population update component.",
+            notes="Leader-guided swarm component in the unified hybrid optimizer.",
         ),
         CapabilityEntry(
-            category="optimization_mode",
-            name="hybrid_siea",
+            category="optimizer_mode",
+            name="hybrid_si_ea",
             status="available",
-            integration_surface="experiment_runner",
-            interface="method='hybrid_siea'",
+            integration_surface="trusted_fim_pipeline",
+            interface="HybridSIEAOptimizer(...).optimize()",
             default=True,
             notes="Unified SI+EA optimizer with repair and local search.",
         ),
         CapabilityEntry(
-            category="optimization_mode",
+            category="optimizer_mode",
             name="repair_heuristics",
             status="available",
             integration_surface="hybrid_optimizer",
             interface="HybridSIEAOptimizer._repair_seed_set(...)",
-            notes="Repair stage enforces valid, diverse, fairness-aware candidate seed sets.",
-        ),
-        CapabilityEntry(
-            category="optimization_mode",
-            name="swap_local_search",
-            status="available",
-            integration_surface="hybrid_optimizer",
-            interface="HybridSIEAOptimizer(..., local_search_swap_trials>0)",
-            notes="Configurable swap-based neighborhood search.",
-        ),
-        CapabilityEntry(
-            category="optimization_mode",
-            name="full",
-            status="available",
-            integration_surface="experiment_runner_cli",
-            interface="--optimization-mode full",
-            default=True,
-            notes="Quality-oriented refinement mode.",
-        ),
-        CapabilityEntry(
-            category="optimization_mode",
-            name="balanced",
-            status="available",
-            integration_surface="experiment_runner_cli",
-            interface="--optimization-mode balanced",
-            notes="Balanced runtime/quality trade-off.",
-        ),
-        CapabilityEntry(
-            category="optimization_mode",
-            name="fast",
-            status="available",
-            integration_surface="experiment_runner_cli",
-            interface="--optimization-mode fast",
-            notes="Runtime-oriented refinement mode.",
+            notes="Repair stage that keeps candidate seed sets valid and fairness-aware.",
         ),
     ]
 
 
-def _fairness_control_entries() -> list[CapabilityEntry]:
+def _debias_entries() -> list[CapabilityEntry]:
+    gnn_status = "available" if gnn_dependencies_available() else "optional_dependency_missing"
+    gnn_note = "GNN ranking backends only."
     return [
         CapabilityEntry(
-            category="bias_fairness_control",
-            name="fairness_first_initialization",
+            category="debias_mode",
+            name="none",
             status="available",
-            integration_surface="experiment_runner",
-            interface="--fairness-first-init-enabled",
-            notes="Weak-group-aware initialization for hybrid search.",
+            integration_surface="stack_pipeline",
+            interface="train_ranking_model(..., debias_mode='none')",
+            default=True,
+            notes="No explicit debiasing; preserves the non-debiased ML baseline mode.",
         ),
         CapabilityEntry(
-            category="bias_fairness_control",
-            name="worst_group_mutation_boost",
-            status="available",
-            integration_surface="experiment_runner",
-            interface="--weakest-group-mutation-weight",
-            notes="Boost mutation and local search toward under-covered groups.",
+            category="debias_mode",
+            name="class_weighted",
+            status=gnn_status,
+            integration_surface="stack_pipeline",
+            interface="train_ranking_model(..., debias_mode='class_weighted')",
+            notes=f"Priority-class weighted GNN objective. {gnn_note}",
         ),
         CapabilityEntry(
-            category="bias_fairness_control",
-            name="fairness_repair_weighting",
-            status="available",
-            integration_surface="experiment_runner",
-            interface="--repair-fairness-weight",
-            notes="Bias repair heuristics toward weak-group support.",
-        ),
-        CapabilityEntry(
-            category="bias_fairness_control",
-            name="urgency_weighting",
-            status="available",
-            integration_surface="experiment_runner",
-            interface="--urgency-weight-enabled",
-            notes="Increase guidance weight on currently weak groups.",
-        ),
-        CapabilityEntry(
-            category="bias_fairness_control",
-            name="group_robust_weighting",
-            status="available",
-            integration_surface="embedding_node_classification",
-            interface="training_mode=group_robust / anti_collapse_group_robust",
-            notes="Available in the GraphSAGE fairness training stack, not yet wired into FIM ranking training.",
-        ),
-        CapabilityEntry(
-            category="bias_fairness_control",
-            name="adversarial_debiasing",
-            status="available",
-            integration_surface="embedding_node_classification",
-            interface="training_mode=anti_collapse_group_robust_with_mild_adversarial",
-            notes="Available in the GraphSAGE fairness training stack, not yet wired into FIM ranking training.",
-        ),
-        CapabilityEntry(
-            category="bias_fairness_control",
-            name="class_weighted_loss",
-            status="not_yet_wired",
-            integration_surface="planned",
-            interface="-",
-            notes="Not currently exposed in the FIM ranking pipeline.",
-        ),
-        CapabilityEntry(
-            category="bias_fairness_control",
+            category="debias_mode",
             name="focal_loss",
-            status="not_yet_wired",
-            integration_surface="planned",
-            interface="-",
-            notes="Not currently exposed in the FIM ranking pipeline.",
+            status=gnn_status,
+            integration_surface="stack_pipeline",
+            interface="train_ranking_model(..., debias_mode='focal_loss')",
+            notes=f"Auxiliary focal loss on top-budget priority targets. {gnn_note}",
+        ),
+        CapabilityEntry(
+            category="debias_mode",
+            name="worst_group_boost",
+            status=gnn_status,
+            integration_surface="stack_pipeline",
+            interface="train_ranking_model(..., debias_mode='worst_group_boost')",
+            notes=f"Worst-group boosted GNN loss; the strong GraphSAGE stack uses this mode. {gnn_note}",
+        ),
+        CapabilityEntry(
+            category="debias_mode",
+            name="group_dro",
+            status=gnn_status,
+            integration_surface="stack_pipeline",
+            interface="train_ranking_model(..., debias_mode='group_dro')",
+            notes=f"Group DRO-style robust weighting for GNN training. {gnn_note}",
+        ),
+        CapabilityEntry(
+            category="debias_mode",
+            name="adversarial",
+            status=gnn_status,
+            integration_surface="stack_pipeline",
+            interface="train_ranking_model(..., debias_mode='adversarial')",
+            notes=f"Adversarial debiasing head with gradient reversal. {gnn_note}",
         ),
     ]
 
@@ -380,13 +305,12 @@ def capability_entries() -> list[CapabilityEntry]:
     return [
         *_diffusion_entries(),
         *_spread_estimator_entries(),
-        *_seed_selection_entries(),
-        *_fairness_fim_entries(),
-        *_community_and_clustering_entries(),
+        *_community_entries(),
         *_embedding_entries(),
+        *_clustering_entries(),
         *_ranking_entries(),
-        *_optimization_entries(),
-        *_fairness_control_entries(),
+        *_optimizer_entries(),
+        *_debias_entries(),
     ]
 
 
@@ -396,7 +320,10 @@ def capability_frame() -> pd.DataFrame:
     frame = pd.DataFrame([asdict(entry) for entry in capability_entries()])
     if frame.empty:
         return pd.DataFrame(columns=CAPABILITY_COLUMNS)
-    return frame.loc[:, [column for column in CAPABILITY_COLUMNS if column in frame.columns]]
+    for column in CAPABILITY_COLUMNS:
+        if column not in frame.columns:
+            frame[column] = pd.NA
+    return frame.loc[:, CAPABILITY_COLUMNS].copy()
 
 
 def save_capability_report(output_dir: Path | str = "results") -> tuple[Path, Path]:

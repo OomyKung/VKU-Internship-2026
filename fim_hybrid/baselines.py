@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from time import perf_counter
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 import networkx as nx
 import numpy as np
@@ -65,8 +65,29 @@ def _seed_set_key(seed_nodes: Sequence[Any]) -> tuple[Any, ...]:
     return tuple(sorted(seed_nodes, key=_sort_key))
 
 
-def _candidate_order(graph: nx.Graph) -> list[Any]:
-    return sorted(graph.nodes(), key=_sort_key)
+def _candidate_order(
+    graph: nx.Graph,
+    candidate_nodes: Sequence[Any] | None = None,
+    candidate_scores: Mapping[Any, float] | None = None,
+) -> list[Any]:
+    if candidate_nodes is None:
+        nodes = list(graph.nodes())
+    else:
+        nodes = list(dict.fromkeys(candidate_nodes))
+        missing_nodes = [node_id for node_id in nodes if node_id not in graph]
+        if missing_nodes:
+            raise ValueError(
+                "candidate_nodes must all exist in the graph. "
+                f"Missing: {missing_nodes[:5]}."
+            )
+
+    if candidate_scores is None:
+        return sorted(nodes, key=_sort_key)
+
+    return sorted(
+        nodes,
+        key=lambda node_id: (-float(candidate_scores.get(node_id, float("-inf"))), _sort_key(node_id)),
+    )
 
 
 def select_random_seed_set(
@@ -193,10 +214,16 @@ def _select_greedy_seed_set(
     lambda_weight: float,
     random_seed: int,
     diffusion_model: str,
+    candidate_nodes: Sequence[Any] | None = None,
+    candidate_scores: Mapping[Any, float] | None = None,
 ) -> list[Any]:
     _validate_budget(dataset.graph, budget)
     chosen_nodes: list[Any] = []
-    available_nodes = _candidate_order(dataset.graph)
+    available_nodes = _candidate_order(
+        dataset.graph,
+        candidate_nodes=candidate_nodes,
+        candidate_scores=candidate_scores,
+    )
     evaluation_cache: dict[tuple[Any, ...], object] = {}
 
     for _ in range(budget):
@@ -311,6 +338,8 @@ def select_baseline_seed_set(
     community_result: CommunityDetectionResult | None = None,
     random_seed: int = 42,
     diffusion_model: str = DEFAULT_DIFFUSION_MODEL,
+    candidate_nodes: Sequence[Any] | None = None,
+    candidate_scores: Mapping[Any, float] | None = None,
 ) -> tuple[Any, ...]:
     """Select a baseline seed set without running diffusion or fairness evaluation."""
 
@@ -333,6 +362,8 @@ def select_baseline_seed_set(
             lambda_weight=lambda_weight,
             random_seed=random_seed,
             diffusion_model=diffusion_model,
+            candidate_nodes=candidate_nodes,
+            candidate_scores=candidate_scores,
         )
     else:
         selector = _BASELINE_SELECTORS[method_key]
@@ -360,6 +391,8 @@ def run_baseline(
     community_result: CommunityDetectionResult | None = None,
     random_seed: int = 42,
     diffusion_model: str = DEFAULT_DIFFUSION_MODEL,
+    candidate_nodes: Sequence[Any] | None = None,
+    candidate_scores: Mapping[Any, float] | None = None,
 ) -> BaselineResult:
     """Select a seed set with one baseline and evaluate it with Phase 2 metrics."""
 
@@ -376,6 +409,8 @@ def run_baseline(
         community_result=community_result,
         random_seed=random_seed,
         diffusion_model=diffusion_model,
+        candidate_nodes=candidate_nodes,
+        candidate_scores=candidate_scores,
     )
     evaluation = evaluate_seed_set(
         dataset=dataset,
@@ -416,6 +451,8 @@ def run_baselines(
     community_result: CommunityDetectionResult | None = None,
     random_seed: int = 42,
     diffusion_model: str = DEFAULT_DIFFUSION_MODEL,
+    candidate_nodes: Sequence[Any] | None = None,
+    candidate_scores: Mapping[Any, float] | None = None,
 ) -> list[BaselineResult]:
     """Run multiple baselines end-to-end using the Phase 2 evaluation stack."""
 
@@ -431,6 +468,8 @@ def run_baselines(
             community_result=community_result,
             random_seed=random_seed,
             diffusion_model=diffusion_model,
+            candidate_nodes=candidate_nodes,
+            candidate_scores=candidate_scores,
         )
         for method in methods
     ]

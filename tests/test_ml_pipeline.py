@@ -20,9 +20,11 @@ from fim_hybrid.ml_training import (
     available_ranking_models,
     get_ranking_model_spec,
     select_ml_candidate_nodes,
+    train_ranking_model as train_dispatch_ranking_model,
     train_node_utility_model,
 )
 from fim_hybrid.node2vec_embeddings import Node2VecConfig
+from fim_hybrid.stack_pipeline import build_ranking_feature_frame, prepare_optional_clustering
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -130,6 +132,40 @@ class MLLabelGenerationTestCase(unittest.TestCase):
 
 class MLTrainingTestCase(unittest.TestCase):
     """Check model fitting, ranking, and candidate filtering behavior."""
+
+    def test_build_ranking_feature_frame_merges_embedding_clustering_and_ris_inputs(self) -> None:
+        dataset, protected_group_report, community_result = _toy_ml_fixture()
+        embedding_frame = pd.DataFrame(
+            {
+                "node_id": list(sorted(dataset.graph.nodes())),
+                "embedding_0": [float(index) for index, _ in enumerate(sorted(dataset.graph.nodes()), start=1)],
+                "embedding_1": [float(index % 2) for index, _ in enumerate(sorted(dataset.graph.nodes()), start=1)],
+            }
+        )
+        clustering_artifact = prepare_optional_clustering(
+            dataset=dataset,
+            method_name="kmeans",
+            input_mode="embedding",
+            embeddings=embedding_frame,
+            config={"n_clusters": 2},
+            random_seed=7,
+        )
+        merged = build_ranking_feature_frame(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            community_result=community_result,
+            embedding_frame=embedding_frame,
+            clustering_result=clustering_artifact.clustering_result,
+            ris_scores={node_id: float(node_id) for node_id in dataset.graph.nodes()},
+            fair_ris_scores={node_id: float(node_id) / 10.0 for node_id in dataset.graph.nodes()},
+        )
+
+        self.assertEqual(len(merged), dataset.graph.number_of_nodes())
+        self.assertIn("embedding_0", merged.columns)
+        self.assertIn("clustering_cluster_id", merged.columns)
+        self.assertIn("clustering_cluster_size", merged.columns)
+        self.assertIn("ris_score", merged.columns)
+        self.assertIn("fair_ris_score", merged.columns)
 
     def test_train_node_utility_model_runs_end_to_end(self) -> None:
         dataset, protected_group_report, community_result = _toy_ml_fixture()
@@ -292,6 +328,35 @@ class MLTrainingTestCase(unittest.TestCase):
 
         self.assertEqual(training_result.model_type, "logistic_regression")
         self.assertEqual(training_result.target_type, "binary_top_budget_classification")
+        self.assertEqual(set(training_result.predicted_scores), set(dataset.graph.nodes()))
+
+    def test_train_ranking_model_dispatches_tabular_backend(self) -> None:
+        dataset, protected_group_report, community_result = _toy_ml_fixture()
+        feature_frame = compute_node_features(dataset, protected_group_report, community_result)
+        label_result = generate_singleton_node_utility_labels(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            propagation_probability=1.0,
+            mc_runs=3,
+            lambda_weight=0.5,
+            random_seed=7,
+        )
+
+        training_result = train_dispatch_ranking_model(
+            dataset=dataset,
+            feature_frame=feature_frame,
+            label_frame=label_result.label_frame,
+            budget=3,
+            model_type="logistic_regression",
+            target_column="label_score",
+            top_fraction=0.5,
+            random_seed=7,
+        )
+
+        self.assertEqual(training_result.backend, "tabular")
+        self.assertEqual(training_result.model_type, "logistic_regression")
+        self.assertEqual(training_result.target_column, "label_score")
+        self.assertEqual(training_result.debias_mode, "none")
         self.assertEqual(set(training_result.predicted_scores), set(dataset.graph.nodes()))
 
     def test_select_ml_candidate_nodes_obeys_precedence_and_budget_floor(self) -> None:
@@ -483,6 +548,39 @@ class GNNTrainingTestCase(unittest.TestCase):
 
         self.assertEqual(training_result.model_type, "gcn")
         self.assertEqual(set(training_result.predicted_scores), set(dataset.graph.nodes()))
+
+    def test_train_ranking_model_supports_gnn_debias_mode_when_available(self) -> None:
+        if not gnn_dependencies_available():
+            self.skipTest("torch and torch_geometric are not installed")
+
+        dataset, protected_group_report, community_result = _toy_ml_fixture()
+        feature_frame = compute_node_features(dataset, protected_group_report, community_result)
+        label_result = generate_singleton_node_utility_labels(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            propagation_probability=1.0,
+            mc_runs=3,
+            lambda_weight=0.5,
+            random_seed=7,
+        )
+
+        training_result = train_dispatch_ranking_model(
+            dataset=dataset,
+            feature_frame=feature_frame,
+            label_frame=label_result.label_frame,
+            budget=3,
+            model_type="graphsage",
+            target_column="label_score",
+            top_fraction=0.5,
+            random_seed=7,
+            epochs=10,
+            debias_mode="worst_group_boost",
+        )
+
+        self.assertEqual(training_result.backend, "gnn")
+        self.assertEqual(training_result.model_type, "graphsage")
+        self.assertEqual(training_result.debias_mode, "worst_group_boost")
+        self.assertEqual(training_result.target_column, "label_score")
 
     def test_train_gnn_node_utility_model_supports_node2vec_concat_when_available(self) -> None:
         if not gnn_dependencies_available():

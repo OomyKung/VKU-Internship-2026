@@ -106,10 +106,12 @@ from .hybrid_optimizer import CandidateEvaluation, HybridOptimizationResult, Hyb
 from .label_generation import NodeUtilityLabelResult, generate_singleton_node_utility_labels
 from .ml_training import (
     MLTrainingResult,
+    RankingTrainingResult,
     RankingModelSpec,
     available_ranking_models,
     get_ranking_model_spec,
     select_ml_candidate_nodes,
+    train_ranking_model,
     train_node_utility_model,
 )
 from .node2vec_embeddings import (
@@ -128,10 +130,22 @@ from .permutations import (
     format_fim_permutation_report,
     get_fim_permutation_spec,
     permutation_summary_columns,
+    recommend_fim_stacks,
     run_fim_permutation_benchmark,
     run_fim_permutation_benchmark_from_config,
 )
 from .ris_guidance import RISConfig, RISGuidanceResult, generate_ris_guidance
+from .stack_pipeline import (
+    StackClusteringArtifact,
+    StackEmbeddingArtifact,
+    StackRankingArtifact,
+    StackRISArtifact,
+    build_ranking_feature_frame,
+    build_stack_label_frame,
+    prepare_embedding_frame,
+    prepare_optional_clustering,
+    prepare_ris_guidance,
+)
 
 __all__ = [
     "BaselineResult",
@@ -208,6 +222,7 @@ __all__ = [
     "load_dataset",
     "load_dataset_config_file",
     "MLTrainingResult",
+    "RankingTrainingResult",
     "RankingModelSpec",
     "NodeUtilityLabelResult",
     "Node2VecConfig",
@@ -218,6 +233,7 @@ __all__ = [
     "evaluation_result_columns",
     "fim_permutation_specs",
     "permutation_summary_columns",
+    "recommend_fim_stacks",
     "run_experiment",
     "run_clustering_benchmark",
     "run_embedding_benchmark",
@@ -249,13 +265,23 @@ __all__ = [
     "simulate_diffusion",
     "SUPPORTED_DIFFUSION_MODELS",
     "train_gnn_node_utility_model",
+    "train_ranking_model",
     "train_node_utility_model",
+    "StackClusteringArtifact",
+    "StackEmbeddingArtifact",
+    "StackRankingArtifact",
+    "StackRISArtifact",
     "UnsupportedGraphTypeError",
     "validate_diffusion_model",
     "build_node2vec_cache_path",
     "generate_node2vec_embeddings",
     "transform_node2vec_embeddings",
     "generate_ris_guidance",
+    "prepare_embedding_frame",
+    "prepare_optional_clustering",
+    "prepare_ris_guidance",
+    "build_ranking_feature_frame",
+    "build_stack_label_frame",
     "validate_communities",
     "validate_community_assignments",
     "generate_singleton_node_utility_labels",

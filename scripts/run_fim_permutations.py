@@ -20,6 +20,12 @@ from fim_hybrid.permutations import (  # noqa: E402
 from scripts.run_experiment import build_dataset_config  # noqa: E402
 
 
+_LEGACY_PERMUTATION_ALIASES = [
+    "graphsage_fair_ris_hybrid",
+    "infomap_graphcl_maximin",
+]
+
+
 def _resolve_repo_path(path_value: str | None) -> Path | None:
     if path_value is None:
         return None
@@ -30,6 +36,7 @@ def _resolve_repo_path(path_value: str | None) -> Path | None:
 
 
 def parse_args() -> argparse.Namespace:
+    permutation_choices = list(available_fim_permutations()) + _LEGACY_PERMUTATION_ALIASES
     parser = argparse.ArgumentParser(
         description="Compare named FIM algorithm-stack permutations with a shared final Monte Carlo evaluator."
     )
@@ -62,7 +69,7 @@ def parse_args() -> argparse.Namespace:
         "--permutations",
         nargs="+",
         default=list(available_fim_permutations()),
-        choices=list(available_fim_permutations()),
+        choices=permutation_choices,
         help="Permutation names to run.",
     )
     parser.add_argument(
@@ -83,10 +90,12 @@ def parse_args() -> argparse.Namespace:
         help="Convert permutation failures into skipped rows instead of aborting the whole benchmark.",
     )
     parser.add_argument(
+        "--alternate-diffusion-model",
         "--permutation3-diffusion-model",
+        dest="alternate_diffusion_model",
         choices=list(SUPPORTED_DIFFUSION_MODELS),
         default=DEFAULT_DIFFUSION_MODEL,
-        help="Optional IC/LT/WC comparison mode for infomap_graphcl_maximin.",
+        help="Optional IC/LT/WC comparison mode for alternate stack runs.",
     )
     parser.add_argument(
         "--swap-candidate-pool-size",
@@ -99,7 +108,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--generations", type=int, default=5)
     parser.add_argument("--gnn-epochs", type=int, default=30)
     parser.add_argument("--gnn-hidden-dim", type=int, default=32)
+    parser.add_argument("--gnn-num-layers", type=int, default=2)
+    parser.add_argument("--gnn-dropout", type=float, default=0.2)
+    parser.add_argument("--gnn-learning-rate", type=float, default=1e-3)
+    parser.add_argument("--gnn-weight-decay", type=float, default=5e-4)
     parser.add_argument("--ris-num-rr-sets", type=int, default=128)
+    parser.add_argument("--ranking-top-fraction", type=float, default=0.5)
+    parser.add_argument("--ranking-top-n", type=int, default=None)
+    parser.add_argument("--ranking-max-nodes", type=int, default=None)
+    parser.add_argument("--clustering-n-clusters", type=int, default=None)
+    parser.add_argument("--clustering-min-cluster-size", type=int, default=None)
     return parser.parse_args()
 
 
@@ -118,12 +136,22 @@ def main() -> None:
         continue_on_error=args.continue_on_error,
         swap_candidate_pool_size=args.swap_candidate_pool_size,
         local_search_steps=args.local_search_steps,
-        permutation3_diffusion_model=args.permutation3_diffusion_model,
+        alternate_diffusion_model=args.alternate_diffusion_model,
+        permutation3_diffusion_model=args.alternate_diffusion_model,
         population_size=args.population_size,
         generations=args.generations,
         gnn_epochs=args.gnn_epochs,
         gnn_hidden_dim=args.gnn_hidden_dim,
+        gnn_num_layers=args.gnn_num_layers,
+        gnn_dropout=args.gnn_dropout,
+        gnn_learning_rate=args.gnn_learning_rate,
+        gnn_weight_decay=args.gnn_weight_decay,
         ris_num_rr_sets=args.ris_num_rr_sets,
+        ranking_top_fraction=args.ranking_top_fraction,
+        ranking_top_n=args.ranking_top_n,
+        ranking_max_nodes=args.ranking_max_nodes,
+        clustering_n_clusters=args.clustering_n_clusters,
+        clustering_min_cluster_size=args.clustering_min_cluster_size,
     )
     result = run_fim_permutation_benchmark_from_config(
         dataset_config=dataset_config,

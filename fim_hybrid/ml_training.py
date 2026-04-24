@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 from time import perf_counter
 from typing import Any
 
 import pandas as pd
+from pandas.api.types import is_bool_dtype, is_numeric_dtype
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LogisticRegression
@@ -386,14 +387,17 @@ def _build_model_pipeline(
 def _classification_target(
     training_frame: pd.DataFrame,
     budget: int,
+    target_column: str,
 ) -> pd.Series:
     if budget < 1:
         raise ValueError("budget must be at least 1 for logistic_regression ranking.")
     if len(training_frame) < 2:
         raise ValueError("logistic_regression ranking requires at least two nodes.")
     positive_count = min(max(int(budget), 1), len(training_frame) - 1)
+    if target_column not in training_frame.columns:
+        raise ValueError(f"training_frame must contain target_column='{target_column}'.")
     ordered = training_frame.sort_values(
-        by=["label_score", "node_id"],
+        by=[target_column, "node_id"],
         ascending=[False, True],
     )
     target = pd.Series(0, index=training_frame.index, dtype=int)
@@ -432,6 +436,30 @@ class MLTrainingResult:
     runtime_seconds: float
     model_type: str
     target_type: str
+    target_column: str = "label_score"
+
+
+@dataclass(slots=True)
+class RankingTrainingResult:
+    """Normalized ranking-model output across tabular and GNN backends."""
+
+    model: Any
+    training_frame: pd.DataFrame
+    predicted_scores: dict[Any, float]
+    ranked_nodes: tuple[Any, ...]
+    candidate_nodes: tuple[Any, ...]
+    validation_spearman: float
+    validation_precision_at_budget: float
+    runtime_seconds: float
+    model_type: str
+    backend: str
+    target_type: str
+    target_column: str
+    loaded_from_cache: bool = False
+    feature_matrix_shape: tuple[int, int] | None = None
+    edge_index_shape: tuple[int, int] | None = None
+    debias_mode: str = "none"
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 def train_node_utility_model(
@@ -439,6 +467,7 @@ def train_node_utility_model(
     label_frame: pd.DataFrame,
     budget: int,
     model_type: str = "random_forest",
+    target_column: str = "label_score",
     top_fraction: float | None = None,
     top_n: int | None = None,
     max_nodes: int | None = None,
@@ -448,8 +477,8 @@ def train_node_utility_model(
 
     start = perf_counter()
     training_frame = _build_feature_matrix(feature_frame, label_frame)
-    if "label_score" not in training_frame.columns:
-        raise ValueError("label_frame must contain a label_score column.")
+    if target_column not in training_frame.columns:
+        raise ValueError(f"label_frame must contain target_column='{target_column}'.")
 
     excluded_columns = {
         "node_id",
@@ -460,18 +489,27 @@ def train_node_utility_model(
         "singleton_soft_fair_score",
         "spread_norm",
         "soft_fair_norm",
+        "weak_group_gain_norm",
+        "target_attainment_norm",
         "label_score",
+        "gnn_label_score",
+        str(target_column),
     }
-    categorical_columns = ["community_id", "protected_group"]
-    numeric_columns = [
-        column_name
-        for column_name in training_frame.columns
-        if column_name not in excluded_columns and column_name not in categorical_columns
+    candidate_columns = [
+        column_name for column_name in training_frame.columns if column_name not in excluded_columns
     ]
+    categorical_columns: list[str] = []
+    numeric_columns: list[str] = []
+    for column_name in candidate_columns:
+        column = training_frame[column_name]
+        if is_numeric_dtype(column) or is_bool_dtype(column):
+            numeric_columns.append(column_name)
+            continue
+        categorical_columns.append(column_name)
     target_type = "regression"
     binary_target: pd.Series | None = None
     if model_type == "logistic_regression":
-        binary_target = _classification_target(training_frame, budget=budget)
+        binary_target = _classification_target(training_frame, budget=budget, target_column=target_column)
         target_type = "binary_top_budget_classification"
 
     train_frame, validation_frame = _split_training_frame(
@@ -490,8 +528,8 @@ def train_node_utility_model(
         train_target = binary_target.loc[train_frame.index]
         full_target = binary_target
     else:
-        train_target = train_frame["label_score"]
-        full_target = training_frame["label_score"]
+        train_target = train_frame[target_column]
+        full_target = training_frame[target_column]
     validation_pipeline.fit(
         train_frame[categorical_columns + numeric_columns],
         train_target,
@@ -501,10 +539,10 @@ def train_node_utility_model(
         validation_pipeline,
         validation_frame[categorical_columns + numeric_columns],
     )
-    validation_spearman = _safe_spearman(validation_frame["label_score"], validation_predictions)
+    validation_spearman = _safe_spearman(validation_frame[target_column], validation_predictions)
     validation_precision_at_budget = _precision_at_k(
         node_ids=validation_frame["node_id"],
-        true_scores=validation_frame["label_score"],
+        true_scores=validation_frame[target_column],
         predicted_scores=validation_predictions,
         k=min(budget, len(validation_frame)),
     )
@@ -549,4 +587,116 @@ def train_node_utility_model(
         runtime_seconds=runtime_seconds,
         model_type=model_type,
         target_type=target_type,
+        target_column=target_column,
+    )
+
+
+def train_ranking_model(
+    *,
+    feature_frame: pd.DataFrame,
+    label_frame: pd.DataFrame,
+    budget: int,
+    model_type: str = "random_forest",
+    target_column: str = "label_score",
+    top_fraction: float | None = None,
+    top_n: int | None = None,
+    max_nodes: int | None = None,
+    random_seed: int = 42,
+    dataset: Any | None = None,
+    hidden_dim: int = 64,
+    num_layers: int = 2,
+    dropout: float = 0.2,
+    learning_rate: float = 1e-3,
+    weight_decay: float = 5e-4,
+    epochs: int = 100,
+    cache_path: Any | None = None,
+    node2vec_mode: str = "off",
+    node2vec_config: dict[str, Any] | None = None,
+    debias_mode: str = "none",
+    protected_attribute_column: str | None = "protected_group",
+    focal_gamma: float = 2.0,
+    group_robust_weight: float = 0.25,
+    worst_group_boost_factor: float = 2.0,
+) -> RankingTrainingResult:
+    """Train one ranking/scoring model through a normalized backend dispatcher."""
+
+    spec = get_ranking_model_spec(model_type)
+    if spec.backend == "tabular":
+        result = train_node_utility_model(
+            feature_frame=feature_frame,
+            label_frame=label_frame,
+            budget=budget,
+            model_type=model_type,
+            target_column=target_column,
+            top_fraction=top_fraction,
+            top_n=top_n,
+            max_nodes=max_nodes,
+            random_seed=random_seed,
+        )
+        return RankingTrainingResult(
+            model=result.model,
+            training_frame=result.training_frame,
+            predicted_scores=result.predicted_scores,
+            ranked_nodes=result.ranked_nodes,
+            candidate_nodes=result.candidate_nodes,
+            validation_spearman=result.validation_spearman,
+            validation_precision_at_budget=result.validation_precision_at_budget,
+            runtime_seconds=result.runtime_seconds,
+            model_type=result.model_type,
+            backend=spec.backend,
+            target_type=result.target_type,
+            target_column=result.target_column,
+            debias_mode="none",
+        )
+    if spec.backend == "gnn":
+        if dataset is None:
+            raise ValueError("dataset is required when training a GNN ranking model.")
+        from .gnn_training import train_gnn_node_utility_model
+
+        result = train_gnn_node_utility_model(
+            dataset=dataset,
+            feature_frame=feature_frame,
+            label_frame=label_frame,
+            budget=budget,
+            model_type=model_type,
+            target_column=target_column,
+            hidden_dim=hidden_dim,
+            num_layers=num_layers,
+            dropout=dropout,
+            learning_rate=learning_rate,
+            weight_decay=weight_decay,
+            epochs=epochs,
+            top_fraction=top_fraction,
+            top_n=top_n,
+            max_nodes=max_nodes,
+            random_seed=random_seed,
+            cache_path=cache_path,
+            node2vec_mode=node2vec_mode,
+            node2vec_config=node2vec_config,
+            debias_mode=debias_mode,
+            protected_attribute_column=protected_attribute_column,
+            focal_gamma=focal_gamma,
+            group_robust_weight=group_robust_weight,
+            worst_group_boost_factor=worst_group_boost_factor,
+        )
+        return RankingTrainingResult(
+            model=result.model,
+            training_frame=result.training_frame,
+            predicted_scores=result.predicted_scores,
+            ranked_nodes=result.ranked_nodes,
+            candidate_nodes=result.candidate_nodes,
+            validation_spearman=result.validation_spearman,
+            validation_precision_at_budget=result.validation_precision_at_budget,
+            runtime_seconds=result.runtime_seconds,
+            model_type=result.model_type,
+            backend=spec.backend,
+            target_type="regression",
+            target_column=target_column,
+            loaded_from_cache=result.loaded_from_cache,
+            feature_matrix_shape=result.feature_matrix_shape,
+            edge_index_shape=result.edge_index_shape,
+            debias_mode=debias_mode,
+        )
+    raise ValueError(
+        f"ranking model '{model_type}' uses backend '{spec.backend}', which is not trainable via train_ranking_model()."
     )

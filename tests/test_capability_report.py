@@ -42,12 +42,18 @@ class CapabilityReportTestCase(unittest.TestCase):
         self.assertFalse(frame.empty)
         self.assertTrue({"category", "name", "status", "integration_surface"}.issubset(frame.columns))
         self.assertIn("diffusion_model", set(frame["category"]))
-        self.assertIn("seed_selection", set(frame["category"]))
+        self.assertIn("spread_estimator", set(frame["category"]))
+        self.assertIn("community_method", set(frame["category"]))
+        self.assertIn("clustering_method", set(frame["category"]))
         self.assertIn("ranking_model", set(frame["category"]))
-        self.assertIn("hybrid_siea", set(frame["name"]))
+        self.assertIn("optimizer_mode", set(frame["category"]))
+        self.assertIn("debias_mode", set(frame["category"]))
+        self.assertIn("hybrid_si_ea", set(frame["name"]))
         self.assertIn("lt", set(frame["name"]))
         self.assertIn("greedy", set(frame["name"]))
         self.assertIn("mlp", set(frame["name"]))
+        self.assertIn("worst_group_boost", set(frame["name"]))
+        self.assertTrue(set(frame["status"]).issubset({"available", "optional_dependency_missing", "not_yet_wired", "skipped"}))
 
     def test_save_capability_report_writes_csv_and_text(self) -> None:
         with _workspace_tempdir() as temp_dir:

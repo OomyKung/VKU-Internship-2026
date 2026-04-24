@@ -1,0 +1,60 @@
+FIM Result Evaluation
+====================================================================================================
+Report: graph_spa_500_0_region_b10_ml_validation_extra
+Inputs: ml_fim_benchmark
+Rows loaded: 4
+Ranking mode: fim_default
+
+Group 1: dataset=graph_spa_500_0 | protected_attribute=region | budget=10
+------------------------------------------------------------------------
+Rows: 4 methods | ranking=fim_default | aggregated_runs=no
+
+Rank  Method                         F-score   MF      DCV     Spread   Extra   Runtime
+1     vgae_fair_ris                  -0.1720  0.0000  0.3441  10.700   0.700   3.036s
+2     dgi_fair_ris                   -0.2012  0.0000  0.4025  10.300   0.300   6.554s
+3     community_aware_fair_greedy    -0.2306  0.0000  0.4612  10.400   0.400   5.140s
+4     graphcl_maximin                -0.2589  0.0000  0.5178  10.500   0.500   6.850s
+
+Instant Insights
+- Overall winner: vgae_fair_ris
+- Best spread: vgae_fair_ris
+- Best fairness profile: vgae_fair_ris
+- Fastest method: vgae_fair_ris
+- Result closeness: decisive overall result; top f_score gap is 0.0292
+- Warning: vgae_fair_ris, dgi_fair_ris, community_aware_fair_greedy, graphcl_maximin shows a fairness collapse signal.
+- Best practical choice: vgae_fair_ris
+- Best interpretable baseline: community_aware_fair_greedy
+- Best exploratory comparator: graphcl_maximin
+
+Per-Method Notes
+- vgae_fair_ris: Best overall fairness-adjusted result; Fastest evaluated method; Fairness collapse warning: MF near zero; Fairness collapse warning: DCV extremely high; Negative F-score; not recommended as default
+- dgi_fair_ris: Fairness collapse warning: MF near zero; Fairness collapse warning: DCV extremely high; Negative F-score; not recommended as default
+- community_aware_fair_greedy: Best interpretable baseline; Fairness collapse warning: MF near zero; Fairness collapse warning: DCV extremely high; Negative F-score; not recommended as default
+- graphcl_maximin: Exploratory comparator; Fairness collapse warning: MF near zero; Fairness collapse warning: DCV extremely high; Negative F-score; not recommended as default
+
+Recommendation
+- best_overall_method=vgae_fair_ris
+- best_fairness_first_method=vgae_fair_ris
+- best_spread_first_method=vgae_fair_ris
+- best_runtime_first_method=vgae_fair_ris
+- best_interpretable_baseline=community_aware_fair_greedy
+- best_exploratory_comparator=graphcl_maximin
+- best_practical_choice=vgae_fair_ris
+
+ML Benchmark Insights
+- Best current overall ML stack: vgae_fair_ris
+- Best fairness-first ML stack: vgae_fair_ris
+- Best spread-first ML stack: vgae_fair_ris
+- Best fast ML stack: vgae_fair_ris
+- Best interpretable baseline: community_aware_fair_greedy
+- Strongest practical default: vgae_fair_ris
+- Fairness collapse warning: dgi_fair_ris, graphcl_maximin, vgae_fair_ris
+
+ML Benchmark Recommendation
+- best_current_overall_ml_stack=vgae_fair_ris
+- best_fairness_first_ml_stack=vgae_fair_ris
+- best_spread_first_ml_stack=vgae_fair_ris
+- best_fast_ml_stack=vgae_fair_ris
+- best_interpretable_baseline=community_aware_fair_greedy
+- strongest_practical_default=vgae_fair_ris
+- stacks_needing_more_work=dgi_fair_ris, graphcl_maximin, vgae_fair_ris

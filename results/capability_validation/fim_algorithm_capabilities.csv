@@ -1,0 +1,45 @@
+category,name,status,integration_surface,interface,default,optional_dependencies,notes
+diffusion_model,ic,available,trusted_fim_pipeline,"evaluate_seed_set(..., diffusion_model=...)",True,(),Independent Cascade with edge-specific or fallback activation probabilities.
+diffusion_model,lt,available,trusted_fim_pipeline,"evaluate_seed_set(..., diffusion_model=...)",False,(),Linear Threshold using edge weights or normalized incoming influence.
+diffusion_model,wc,available,trusted_fim_pipeline,"evaluate_seed_set(..., diffusion_model=...)",False,(),Weighted Cascade using inverse in-degree activation probabilities.
+spread_estimator,monte_carlo,available,search_and_final_evaluation,"evaluate_seed_set(..., mc_runs=...)",True,(),"Trusted final evaluator for spread, extra_spread, MF, DCV, and F-score."
+spread_estimator,ris_guidance,available,search_guidance_only,"prepare_ris_guidance(dataset, protected_group_report, propagation_probability, ...)",False,(),Search-time RIS guidance only; never replaces the final Monte Carlo path.
+spread_estimator,fairness_aware_ris,available,search_guidance_only,"prepare_ris_guidance(..., mode='weak_group_weighted')",False,(),Fair-RIS weighting for search-time guidance only; final reporting remains Monte Carlo.
+community_method,louvain,available,trusted_fim_pipeline,"detect_communities(graph, method=..., input_mode='graph')",False,(),Graph-native community partition with preferred input=graph.
+community_method,leiden,available,trusted_fim_pipeline,"detect_communities(graph, method=..., input_mode='graph')",True,"('igraph',)",Graph-native community partition with preferred input=graph.
+community_method,multilevel,available,trusted_fim_pipeline,"detect_communities(graph, method=..., input_mode='graph')",False,"('igraph',)",Graph-native community partition with preferred input=graph.
+community_method,infomap,available,trusted_fim_pipeline,"detect_communities(graph, method=..., input_mode='graph')",False,"('igraph',)",Graph-native community partition with preferred input=graph.
+community_method,label_propagation,available,trusted_fim_pipeline,"detect_communities(graph, method=..., input_mode='graph')",False,(),Graph-native community partition with preferred input=graph.
+community_method,walktrap,available,trusted_fim_pipeline,"detect_communities(graph, method=..., input_mode='graph')",False,"('igraph',)",Graph-native community partition with preferred input=graph.
+embedding_method,deepwalk,available,stack_pipeline,"prepare_embedding_frame(dataset, method_name=..., output_dir=...)",False,(),Random-walk based shallow embeddings using unbiased walks.
+embedding_method,node2vec,available,stack_pipeline,"prepare_embedding_frame(dataset, method_name=..., output_dir=...)",False,(),Biased random-walk shallow embeddings.
+embedding_method,line,available,stack_pipeline,"prepare_embedding_frame(dataset, method_name=..., output_dir=...)",False,(),First- and second-order proximity embeddings.
+embedding_method,vgae,available,stack_pipeline,"prepare_embedding_frame(dataset, method_name=..., output_dir=...)",False,"('torch', 'torch_geometric')",Variational graph autoencoder with a GCN encoder.
+embedding_method,gcn,available,stack_pipeline,"prepare_embedding_frame(dataset, method_name=..., output_dir=...)",False,"('torch', 'torch_geometric')",Unsupervised graph autoencoder with a GCN encoder.
+embedding_method,graphsage,available,stack_pipeline,"prepare_embedding_frame(dataset, method_name=..., output_dir=...)",True,"('torch', 'torch_geometric')",Unsupervised graph autoencoder with a GraphSAGE encoder.
+embedding_method,dgi,available,stack_pipeline,"prepare_embedding_frame(dataset, method_name=..., output_dir=...)",False,"('torch', 'torch_geometric')",Deep Graph Infomax self-supervised embeddings.
+embedding_method,graphcl,available,stack_pipeline,"prepare_embedding_frame(dataset, method_name=..., output_dir=...)",False,"('torch', 'torch_geometric')",Graph contrastive learning with two augmented views.
+embedding_method,metapath2vec,available,stack_pipeline,"prepare_embedding_frame(dataset, method_name=..., output_dir=...)",False,"('torch', 'torch_geometric')",Heterogeneous graph embeddings over typed metapaths.
+clustering_method,kmeans,available,stack_pipeline,"prepare_optional_clustering(dataset, method_name=..., embeddings=..., features=...)",True,(),Embedding-space clustering with preferred input=embedding.
+clustering_method,spectral,available,stack_pipeline,"prepare_optional_clustering(dataset, method_name=..., embeddings=..., features=...)",False,(),Embedding-space clustering with preferred input=embedding.
+clustering_method,agglomerative,available,stack_pipeline,"prepare_optional_clustering(dataset, method_name=..., embeddings=..., features=...)",False,(),Embedding-space clustering with preferred input=embedding.
+clustering_method,dbscan_or_hdbscan,available,stack_pipeline,"prepare_optional_clustering(dataset, method_name=..., embeddings=..., features=...)",False,(),"Embedding-space clustering with preferred input=embedding. HDBSCAN is unavailable, so DBSCAN fallback is used."
+clustering_method,gmm,available,stack_pipeline,"prepare_optional_clustering(dataset, method_name=..., embeddings=..., features=...)",False,(),Embedding-space clustering with preferred input=embedding.
+ranking_model,random_forest,available,stack_pipeline,"train_ranking_model(dataset, feature_frame, label_frame, budget, model_type=...)",False,(),Random-forest regressor over handcrafted node features.
+ranking_model,xgboost,available,stack_pipeline,"train_ranking_model(dataset, feature_frame, label_frame, budget, model_type=...)",False,"('xgboost',)",Gradient-boosted tree regressor over handcrafted node features.
+ranking_model,mlp,available,stack_pipeline,"train_ranking_model(dataset, feature_frame, label_frame, budget, model_type=...)",False,(),Feed-forward MLP regressor over handcrafted node features.
+ranking_model,logistic_regression,available,stack_pipeline,"train_ranking_model(dataset, feature_frame, label_frame, budget, model_type=...)",False,(),Logistic classifier that ranks nodes by probability of belonging to the top-budget singleton-utility set.
+ranking_model,graphsage,available,stack_pipeline,"train_ranking_model(dataset, feature_frame, label_frame, budget, model_type=...)",True,"('torch', 'torch_geometric')",GraphSAGE regressor used by the GNN ranking backend.
+ranking_model,gcn,available,stack_pipeline,"train_ranking_model(dataset, feature_frame, label_frame, budget, model_type=...)",False,"('torch', 'torch_geometric')",GCN regressor used by the GNN ranking backend.
+optimizer_mode,greedy,available,trusted_fim_pipeline,"select_baseline_seed_set(..., method='greedy')",False,(),Spread-oriented greedy search over the trusted Monte Carlo search estimator.
+optimizer_mode,local_search,available,trusted_fim_pipeline,"_swap_local_search(dataset, protected_group_report, initial_seed_set, ...)",False,(),Bounded swap local search over the shared search-time evaluator.
+optimizer_mode,evolutionary_algorithm,available,hybrid_optimizer,"HybridSIEAOptimizer(..., crossover_probability>0, mutation_probability>0)",False,(),Population-based EA component in the unified hybrid optimizer.
+optimizer_mode,swarm_intelligence,available,hybrid_optimizer,"HybridSIEAOptimizer(..., disable_swarm_guidance=False)",False,(),Leader-guided swarm component in the unified hybrid optimizer.
+optimizer_mode,hybrid_si_ea,available,trusted_fim_pipeline,HybridSIEAOptimizer(...).optimize(),True,(),Unified SI+EA optimizer with repair and local search.
+optimizer_mode,repair_heuristics,available,hybrid_optimizer,HybridSIEAOptimizer._repair_seed_set(...),False,(),Repair stage that keeps candidate seed sets valid and fairness-aware.
+debias_mode,none,available,stack_pipeline,"train_ranking_model(..., debias_mode='none')",True,(),No explicit debiasing; preserves the non-debiased ML baseline mode.
+debias_mode,class_weighted,available,stack_pipeline,"train_ranking_model(..., debias_mode='class_weighted')",False,(),Priority-class weighted GNN objective. GNN ranking backends only.
+debias_mode,focal_loss,available,stack_pipeline,"train_ranking_model(..., debias_mode='focal_loss')",False,(),Auxiliary focal loss on top-budget priority targets. GNN ranking backends only.
+debias_mode,worst_group_boost,available,stack_pipeline,"train_ranking_model(..., debias_mode='worst_group_boost')",False,(),Worst-group boosted GNN loss; the strong GraphSAGE stack uses this mode. GNN ranking backends only.
+debias_mode,group_dro,available,stack_pipeline,"train_ranking_model(..., debias_mode='group_dro')",False,(),Group DRO-style robust weighting for GNN training. GNN ranking backends only.
+debias_mode,adversarial,available,stack_pipeline,"train_ranking_model(..., debias_mode='adversarial')",False,(),Adversarial debiasing head with gradient reversal. GNN ranking backends only.
