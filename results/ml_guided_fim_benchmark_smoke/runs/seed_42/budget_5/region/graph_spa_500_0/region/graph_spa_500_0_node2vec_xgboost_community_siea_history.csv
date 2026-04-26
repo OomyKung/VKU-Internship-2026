@@ -1,0 +1,2 @@
+generation,best_score,best_f_score,best_spread,best_mf,best_dcv,average_population_score,population_diversity,best_seed_set,local_search_applied_count,local_search_swap_evaluations,screening_evaluation_calls,full_evaluation_calls,zero_covered_groups_count,bottom_3_avg_group_spread,fraction_groups_covered,weakest_groups_note
+0,-0.31192363096714676,-0.31192363096714676,5.5,0.0,0.6238472619342935,-0.3233004249807352,0.8194444444444443,"[12, 227, 243, 263, 481]",4,4,0,13,7,0.0,0.46153846153846156,"desert_view_highlands,littlerock,northeast_antelope_valley"

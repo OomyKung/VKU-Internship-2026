@@ -68,6 +68,41 @@ class FeatureExtractionTestCase(unittest.TestCase):
         self.assertIn("fraction_neighbors_in_undercovered_groups", feature_frame.columns)
         self.assertFalse(feature_frame.isna().any().any())
 
+    def test_community_feature_modes_control_explicit_ml_columns(self) -> None:
+        dataset, report, community_result = _toy_feature_dataset()
+
+        no_community = compute_node_features(
+            dataset,
+            report,
+            community_result,
+            use_community_features_for_ml=False,
+        )
+        basic = compute_node_features(
+            dataset,
+            report,
+            community_result,
+            community_feature_mode="basic",
+        )
+        full = compute_node_features(
+            dataset,
+            report,
+            community_result,
+            community_feature_mode="full",
+        )
+
+        self.assertNotIn("community_id", no_community.columns)
+        self.assertNotIn("cross_community_degree", no_community.columns)
+        self.assertIn("structural_score", no_community.columns)
+        self.assertIn("community_id", basic.columns)
+        self.assertIn("community_group_fraction_a", full.columns)
+        self.assertIn("community_protected_group_entropy", full.columns)
+
+    def test_invalid_community_feature_mode_fails_clearly(self) -> None:
+        dataset, report, community_result = _toy_feature_dataset()
+
+        with self.assertRaisesRegex(ValueError, "community_feature_mode"):
+            compute_node_features(dataset, report, community_result, community_feature_mode="everything")
+
     def test_compute_node_features_is_deterministic(self) -> None:
         dataset, report, community_result = _toy_feature_dataset()
 

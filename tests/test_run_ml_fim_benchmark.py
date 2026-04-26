@@ -91,10 +91,27 @@ class RunMlFimBenchmarkTestCase(unittest.TestCase):
         )
         stack_names = [spec.name for spec in specs]
         self.assertIn("community_aware_fair_greedy", stack_names)
-        self.assertIn("graphsage_fair_ris_hybrid", stack_names)
-        self.assertIn("gcn_fair_ris_hybrid", stack_names)
-        self.assertIn("dgi_fair_ris", stack_names)
-        self.assertIn("vgae_fair_ris", stack_names)
+        self.assertIn("graphsage_community_siea", stack_names)
+        self.assertIn("node2vec_xgboost_community_siea", stack_names)
+        self.assertIn("gcn_community_siea", stack_names)
+        self.assertNotIn("deepwalk_mlp", stack_names)
+        self.assertNotIn("line_fast_ml", stack_names)
+
+    def test_resolve_ml_benchmark_specs_includes_weak_baselines_only_when_requested(self) -> None:
+        specs = resolve_ml_benchmark_specs(
+            ml_stacks=["strong_ml"],
+            include_baseline=True,
+            include_weak_ml_baselines=True,
+            embedding_methods=None,
+            ranking_models=None,
+            community_method=None,
+            clustering_method=None,
+            spread_estimator_search=None,
+            spread_estimator_final="monte_carlo",
+            optimizer_mode=None,
+        )
+        stack_names = [spec.name for spec in specs]
+        self.assertIn("line_fast_ml", stack_names)
         self.assertIn("deepwalk_mlp", stack_names)
 
     def test_resolve_ml_benchmark_specs_generates_custom_stack_when_filters_eliminate_named_ones(self) -> None:

@@ -1,0 +1,3 @@
+validation_role,dataset,protected_attribute,budget,random_seed,stack_name,status,skip_reason,total_spread,extra_spread,mf,dcv,f_score,runtime_seconds,final_spread_estimator,mc_runs_search,mc_runs_eval
+candidate,graph_spa_500_0,region,10,7,line_fast_ml,ok,,12.0,2.0,0.0,0.6484509288616714,-0.3242254644308357,2.6804911000035645,monte_carlo,2,3
+fallback,graph_spa_500_0,region,10,7,line_fast_ml,ok,,12.0,2.0,0.0,0.6484509288616714,-0.3242254644308357,2.6804911000035645,monte_carlo,2,3

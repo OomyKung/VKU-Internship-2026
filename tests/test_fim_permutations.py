@@ -14,6 +14,8 @@ import pandas as pd
 from fim_hybrid.data_loader import LoadedDataset, verify_protected_groups
 from fim_hybrid.permutations import (
     FIMPermutationRunConfig,
+    _combine_guidance_scores,
+    _hybrid_optimizer_config,
     available_fim_permutations,
     format_fim_permutation_report,
     get_fim_permutation_spec,
@@ -252,6 +254,43 @@ class FIMPermutationTestCase(unittest.TestCase):
         row = result.summary_frame.iloc[0]
         self.assertEqual(row["status"], "skipped")
         self.assertIn("missing optional package", str(row["skip_reason"]))
+
+    def test_selected_pipeline_config_controls_hybrid_ml_score_stages(self) -> None:
+        spec = get_fim_permutation_spec("leiden_node2vec_xgboost_hybrid")
+        default_config = FIMPermutationRunConfig(protected_attribute="group", budget=2)
+        disabled_config = FIMPermutationRunConfig(
+            protected_attribute="group",
+            budget=2,
+            use_ml_scores_in_initialization=False,
+            use_ml_scores_in_mutation=False,
+            use_ml_scores_in_repair=False,
+            use_ml_scores_in_local_search=False,
+        )
+
+        default_optimizer_config = _hybrid_optimizer_config(spec, default_config)
+        disabled_optimizer_config = _hybrid_optimizer_config(spec, disabled_config)
+
+        self.assertGreater(default_optimizer_config.ml_initialization_bias, 0.0)
+        self.assertGreater(default_optimizer_config.ml_mutation_bias_weight, 0.0)
+        self.assertEqual(disabled_optimizer_config.ml_initialization_bias, 0.0)
+        self.assertEqual(disabled_optimizer_config.ml_mutation_bias_weight, 0.0)
+        self.assertEqual(disabled_optimizer_config.ml_repair_bias_weight, 0.0)
+        self.assertEqual(disabled_optimizer_config.ml_local_search_bias_weight, 0.0)
+
+    def test_combined_guidance_scores_include_configurable_bonus_weights(self) -> None:
+        spec = get_fim_permutation_spec("leiden_node2vec_xgboost_hybrid")
+
+        scores = _combine_guidance_scores(
+            spec,
+            ranking_scores={1: 0.1, 2: 0.2},
+            ris_scores={1: 0.0, 2: 0.0},
+            fair_ris_scores={1: 0.0, 2: 0.0},
+            ml_score_weight=1.0,
+            fairness_bonus_scores={1: 1.0, 2: 0.0},
+            fairness_bonus_weight=2.0,
+        )
+
+        self.assertGreater(scores[1], scores[2])
 
     def test_report_includes_side_by_side_metrics(self) -> None:
         dataset, report = _toy_dataset()

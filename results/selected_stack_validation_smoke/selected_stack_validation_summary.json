@@ -1,0 +1,48 @@
+{
+  "candidate_stack": "line_fast_ml",
+  "fallback_stack": "line_fast_ml",
+  "validation_seeds": [
+    7
+  ],
+  "accepted": true,
+  "final_selected_stack": "line_fast_ml",
+  "final_reason": "accepted_after_validation: candidate met F-score closeness/ratio gate and DCV delta gate",
+  "validation_close_fscore_threshold": 0.005,
+  "min_validation_fscore_ratio": 0.85,
+  "max_validation_dcv_delta": 0.015,
+  "f_score_gap": 0.0,
+  "dcv_delta": 0.0,
+  "runtime_speedup": 1.0,
+  "candidate": {
+    "successful_runs": 1,
+    "failed_runs": 0,
+    "mean_f_score": -0.3242254644308357,
+    "std_f_score": null,
+    "mean_mf": 0.0,
+    "std_mf": null,
+    "mean_dcv": 0.6484509288616714,
+    "std_dcv": null,
+    "mean_total_spread": 12.0,
+    "std_total_spread": null,
+    "mean_extra_spread": 2.0,
+    "std_extra_spread": null,
+    "mean_runtime_seconds": 2.6804911000035645,
+    "std_runtime_seconds": null
+  },
+  "fallback": {
+    "successful_runs": 1,
+    "failed_runs": 0,
+    "mean_f_score": -0.3242254644308357,
+    "std_f_score": null,
+    "mean_mf": 0.0,
+    "std_mf": null,
+    "mean_dcv": 0.6484509288616714,
+    "std_dcv": null,
+    "mean_total_spread": 12.0,
+    "std_total_spread": null,
+    "mean_extra_spread": 2.0,
+    "std_extra_spread": null,
+    "mean_runtime_seconds": 2.6804911000035645,
+    "std_runtime_seconds": null
+  }
+}

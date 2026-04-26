@@ -1,0 +1,7 @@
+validation_role,dataset,protected_attribute,budget,random_seed,stack_name,status,skip_reason,total_spread,extra_spread,mf,dcv,f_score,runtime_seconds,final_spread_estimator,mc_runs_search,mc_runs_eval
+candidate,graph_spa_500_0,region,40,7,graphsage_fair_ris_hybrid,ok,,42.045,2.0450000000000017,0.0608530805687203,0.0494509852746542,0.005701047647033,6.049158600006194,monte_carlo,20,200
+fallback,graph_spa_500_0,region,40,7,community_aware_fair_greedy,ok,,41.565,1.5649999999999977,0.06666666666666667,0.041055453646251,0.012805606510207831,54.79870899999878,monte_carlo,20,200
+candidate,graph_spa_500_0,region,40,21,graphsage_fair_ris_hybrid,ok,,42.145,2.145000000000003,0.0620379146919431,0.0389714095747036,0.0115332525586197,5.957144100000733,monte_carlo,20,200
+fallback,graph_spa_500_0,region,40,21,community_aware_fair_greedy,ok,,41.395,1.3950000000000031,0.0675,0.039808527171346045,0.01384573641432698,65.00009439999849,monte_carlo,20,200
+candidate,graph_spa_500_0,region,40,42,graphsage_fair_ris_hybrid,ok,,42.115,2.115000000000002,0.0683333333333333,0.0511864767409701,0.0085734282961816,6.265351800000644,monte_carlo,20,200
+fallback,graph_spa_500_0,region,40,42,community_aware_fair_greedy,ok,,41.345,1.3449999999999989,0.064739336492891,0.030735419040623373,0.017001958726133814,49.92341739999756,monte_carlo,20,200

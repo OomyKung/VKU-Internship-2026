@@ -1,0 +1,41 @@
+FIM Algorithm-Stack Permutation Comparison
+------------------------------------------------------------------------
+Protected attribute: region
+Budget: 200
+Final estimator: monte_carlo | mc_runs_eval=200
+
+1. community_aware_fair_greedy [ok]
+   spread=203.9800 | extra=3.9800 | MF=0.3958 | DCV=0.0052 | F-score=0.1953 | runtime=594.630s
+   modules: diffusion=ic | community=leiden | embedding=none | clustering=none | ranking=fairness_weighted_greedy | optimizer=local_search | debias=none
+   notes=initial_rr=[0, 1, 10, 101, 104, 108, 110, 112, 115, 116, 117, 119, 12, 126, 127, 13, 134, 14, 140, 141, 15, 16, 160, 163, 164, 165, 17, 172, 178, 18, 186, 19, 191, 192, 196, 2, 20, 21, 216, 22, 223, 224, 226, 227, 228, 229, 23, 230, 231, 238, 239, 24, 241, 243, 245, 246, 249, 25, 251, 252, 256, 26, 261, 263, 264, 265, 266, 267, 268, 269, 27, 270, 271, 272, 273, 274, 275, 276, 278, 279, 28, 280, 281, 282, 284, 285, 287, 289, 29, 291, 293, 295, 297, 298, 299, 3, 30, 300, 301, 303, 308, 309, 310, 312, 313, 315, 317, 318, 32, 320, 321, 322, 326, 327, 33, 330, 331, 338, 339, 34, 340, 344, 347, 349, 35, 350, 357, 36, 362, 369, 37, 371, 38, 380, 384, 39, 393, 40, 400, 403, 405, 42, 423, 428, 43, 44, 45, 452, 461, 464, 465, 467, 468, 469, 47, 470, 471, 472, 473, 476, 478, 481, 482, 483, 484, 485, 486, 487, 488, 489, 49, 490, 492, 493, 495, 5, 50, 52, 53, 55, 58, 59, 6, 60, 61, 62, 74, 77, 79, 8, 80, 81, 84, 85, 87, 9, 90, 95, 97, 99]; greedy=[0, 1, 102, 103, 106, 108, 11, 111, 112, 113, 114, 115, 116, 12, 126, 127, 128, 130, 132, 134, 135, 139, 141, 145, 146, 149, 150, 151, 154, 157, 159, 16, 160, 163, 165, 168, 17, 175, 177, 182, 183, 187, 189, 190, 191, 196, 197, 198, 200, 202, 204, 205, 21, 211, 212, 219, 222, 223, 225, 230, 232, 235, 236, 239, 240, 243, 244, 25, 250, 253, 254, 258, 26, 260, 261, 264, 265, 268, 27, 270, 271, 273, 275, 276, 278, 281, 282, 283, 287, 288, 292, 293, 297, 298, 300, 303, 311, 312, 313, 314, 315, 318, 319, 320, 332, 333, 34, 341, 344, 346, 35, 350, 351, 352, 355, 357, 358, 360, 365, 367, 369, 370, 371, 373, 376, 377, 378, 38, 380, 384, 388, 39, 390, 394, 396, 398, 40, 401, 402, 403, 405, 408, 41, 411, 412, 414, 419, 420, 422, 423, 424, 426, 428, 433, 435, 438, 444, 445, 448, 45, 457, 462, 463, 464, 465, 467, 469, 477, 478, 479, 48, 481, 486, 489, 490, 491, 492, 493, 494, 495, 5, 51, 52, 53, 57, 58, 59, 63, 66, 68, 69, 71, 8, 80, 82, 85, 86, 89, 96, 97]; communities=18; modularity=0.801776
+
+2. graphsage_fair_ris_hybrid [ok]
+   spread=203.9200 | extra=3.9200 | MF=0.3729 | DCV=0.0087 | F-score=0.1821 | runtime=47.758s
+   modules: diffusion=ic | community=leiden | embedding=graphsage | clustering=none | ranking=graphsage | optimizer=hybrid_si_ea | debias=worst_group_boost
+   notes=ML guidance mode=two_tier; full_pool=500; tier_policy=tuned; backend=gnn_ris; weights=(graphsage=1.000, ris=1.000, fair_ris=0.500, fairness=0.200, diversity=0.000); target=label_score; target_variance=0.007692; gnn_model_type=graphsage; node2vec_mode=off; feature_shape=(500, 52); edge_index_shape=(2, 1938); cache=miss; label_variance=0.007692; ris_num_rr_sets=64; ris_mode=weak_group_weighted; fair_ris_enabled=True; ris_reuse_rr_sets=True; history=graph_spa_500_0_budget200_leiden_hybrid_siea_ml_gnn_ris_two_tier_tuned_swap_local_search_history.csv; Delegated to existing gnn_ris hybrid path with shared final Monte Carlo evaluation.
+
+3. gcn_fair_ris_hybrid [ok]
+   spread=203.8000 | extra=3.8000 | MF=0.3705 | DCV=0.0163 | F-score=0.1771 | runtime=46.007s
+   modules: diffusion=ic | community=leiden | embedding=gcn | clustering=none | ranking=gcn | optimizer=hybrid_si_ea | debias=none
+   notes=ML guidance mode=two_tier; full_pool=500; tier_policy=tuned; backend=gnn_ris; weights=(graphsage=1.000, ris=1.000, fair_ris=0.500, fairness=0.200, diversity=0.000); target=label_score; target_variance=0.007692; gnn_model_type=gcn; node2vec_mode=off; feature_shape=(500, 52); edge_index_shape=(2, 1938); cache=miss; label_variance=0.007692; ris_num_rr_sets=64; ris_mode=weak_group_weighted; fair_ris_enabled=True; ris_reuse_rr_sets=True; history=graph_spa_500_0_budget200_leiden_hybrid_siea_ml_gnn_ris_two_tier_tuned_swap_local_search_history.csv; Delegated to existing gnn_ris hybrid path with shared final Monte Carlo evaluation.
+
+4. node2vec_xgboost [ok]
+   spread=203.8350 | extra=3.8350 | MF=0.0020 | DCV=0.1208 | F-score=-0.0594 | runtime=16.047s
+   modules: diffusion=ic | community=leiden | embedding=node2vec | clustering=none | ranking=xgboost | optimizer=hybrid_si_ea | debias=none
+   notes=communities=18; modularity=0.801776; embedding_cache=miss; target=label_score; backend=tabular; candidate_pool=250; validation_spearman=0.2066; validation_precision_at_budget=1.0000; history=graph_spa_500_0_node2vec_xgboost_history.csv
+
+5. deepwalk_mlp [ok]
+   spread=204.0750 | extra=4.0750 | MF=0.0025 | DCV=0.2884 | F-score=-0.1429 | runtime=174.081s
+   modules: diffusion=ic | community=leiden | embedding=deepwalk | clustering=none | ranking=mlp | optimizer=greedy | debias=none
+   notes=Shallow embedding plus MLP ranking benchmark stack.; communities=18; modularity=0.801776; embedding_cache=miss; target=label_score; backend=tabular; candidate_pool=250; validation_spearman=-0.0741; validation_precision_at_budget=1.0000
+
+6. line_fast_ml [ok]
+   spread=203.8600 | extra=3.8600 | MF=0.0030 | DCV=0.3019 | F-score=-0.1495 | runtime=201.541s
+   modules: diffusion=ic | community=leiden | embedding=line | clustering=none | ranking=logistic_regression | optimizer=greedy | debias=none
+   notes=Fast shallow-embedding ML baseline.; communities=18; modularity=0.801776; embedding_cache=miss; target=label_score; backend=tabular; candidate_pool=250; validation_spearman=0.5164; validation_precision_at_budget=1.0000
+
+Recommendations
+------------------------------------------------------------------------
+best_interpretable_baseline=community_aware_fair_greedy
+best_practical_ml_default=graphsage_fair_ris_hybrid
+best_exploratory_fairness_heavy=graphsage_fair_ris_hybrid

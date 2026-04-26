@@ -142,6 +142,22 @@ class FIMPermutationRunConfig:
     embedding_dim: int = 64
     use_embedding_cache: bool = True
     use_score_cache: bool = True
+    use_community_features_for_ml: bool = True
+    community_feature_mode: str = "basic"
+    allow_protected_features_in_ml: bool = False
+    use_ml_scores_in_initialization: bool | None = None
+    use_ml_scores_in_mutation: bool | None = None
+    use_ml_scores_in_crossover: bool | None = None
+    use_ml_scores_in_repair: bool | None = None
+    use_ml_scores_in_local_search: bool | None = None
+    ml_score_weight: float | None = None
+    ris_score_weight: float | None = None
+    fair_ris_score_weight: float | None = None
+    fairness_bonus_weight: float = 0.2
+    diversity_bonus_weight: float = 0.2
+    community_balance_enabled: bool = True
+    protected_group_balance_enabled: bool = True
+    repair_mode: str = "balanced"
 
 
 @dataclass(slots=True)
@@ -327,6 +343,8 @@ def permutation_summary_columns() -> list[str]:
 
     return [
         "stack_name",
+        "fim_stack",
+        "pipeline_mode",
         "permutation_name",
         "status",
         "dataset",
@@ -339,6 +357,9 @@ def permutation_summary_columns() -> list[str]:
         "embedding_method",
         "ranking_model",
         "optimizer_mode",
+        "method_type",
+        "repair_enabled",
+        "swap_local_search_enabled",
         "debias_mode",
         "fairness_objective",
         "spread_estimator_search",
@@ -363,6 +384,26 @@ def permutation_summary_columns() -> list[str]:
         "mc_runs_search",
         "mc_runs_eval",
         "key_enabled_modules",
+        "use_community_features",
+        "community_feature_mode",
+        "allow_protected_features_in_ml",
+        "ml_score_weight",
+        "ris_score_weight",
+        "fair_ris_score_weight",
+        "fairness_bonus_weight",
+        "community_diversity_weight",
+        "community_balance_enabled",
+        "protected_group_balance_enabled",
+        "repair_mode",
+        "initial_seed_source",
+        "repaired_seed_sets",
+        "successful_swaps",
+        "final_community_coverage",
+        "final_protected_group_coverage",
+        "score_table_path",
+        "embeddings_cache_path",
+        "community_assignments_path",
+        "community_sizes_path",
         "notes",
         "skip_reason",
         "skipped_reason",
@@ -379,6 +420,82 @@ def _permutation_output_dir(output_dir: Path | None, dataset_name: str, protecte
     path = Path(output_dir) / dataset_name / safe_attribute
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _method_type(spec: FIMPermutationSpec) -> str:
+    if spec.variant_family == "baseline" or spec.embedding_method in {"", "none"}:
+        return "non_ml_baseline"
+    if spec.name in {"line_fast_ml", "deepwalk_mlp"} or "fairness_collapse_risk=true" in spec.notes:
+        return "weak_baseline"
+    if spec.optimizer_mode == "hybrid_si_ea":
+        return "ml_guided_hybrid"
+    return "ml_guided"
+
+
+def _embedding_artifact_path(embedding_artifact) -> str:
+    if embedding_artifact is None:
+        return ""
+    output_paths = dict(getattr(embedding_artifact, "output_paths", {}) or {})
+    for key in ("pickle", "csv"):
+        if key in output_paths:
+            return str(output_paths[key])
+    if output_paths:
+        return str(next(iter(output_paths.values())))
+    return ""
+
+
+def _write_community_artifacts(
+    *,
+    dataset: LoadedDataset,
+    protected_group_report: ProtectedGroupReport,
+    community_result: CommunityDetectionResult,
+    config: FIMPermutationRunConfig,
+    spec: FIMPermutationSpec,
+) -> dict[str, str]:
+    output_dir = _permutation_output_dir(config.output_dir, dataset.name, protected_group_report.protected_attribute)
+    if output_dir is None:
+        return {"community_assignments_path": "", "community_sizes_path": ""}
+    assignment_path = output_dir / f"{dataset.name}_{spec.name}_{spec.community_method}_community_assignments.csv"
+    sizes_path = output_dir / f"{dataset.name}_{spec.name}_{spec.community_method}_community_sizes.csv"
+    pd.DataFrame(
+        [
+            {
+                "node_id": node_id,
+                "community_id": community_id,
+                "community_size": int(community_result.stats.community_sizes[community_id]),
+            }
+            for node_id, community_id in sorted(
+                community_result.community_id_by_node.items(),
+                key=lambda item: _sort_key(item[0]),
+            )
+        ]
+    ).to_csv(assignment_path, index=False)
+    pd.DataFrame(
+        [
+            {"community_id": community_id, "community_size": int(size)}
+            for community_id, size in sorted(community_result.stats.community_sizes.items())
+        ]
+    ).to_csv(sizes_path, index=False)
+    return {
+        "community_assignments_path": str(assignment_path),
+        "community_sizes_path": str(sizes_path),
+    }
+
+
+def _write_combined_score_table(
+    *,
+    dataset: LoadedDataset,
+    protected_group_report: ProtectedGroupReport,
+    spec: FIMPermutationSpec,
+    config: FIMPermutationRunConfig,
+    score_frame: pd.DataFrame,
+) -> str:
+    output_dir = _permutation_output_dir(config.output_dir, dataset.name, protected_group_report.protected_attribute)
+    if output_dir is None or score_frame.empty:
+        return ""
+    path = output_dir / f"{dataset.name}_{spec.name}_combined_candidate_scores.csv"
+    score_frame.to_csv(path, index=False)
+    return str(path)
 
 
 def _score_cache_path(
@@ -599,6 +716,7 @@ def _result_row(
     skip_reason: str = "",
     clustering_input_mode: str | None = None,
     method: str,
+    extra_fields: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     resolved_clustering_input_mode = (
         "none"
@@ -607,6 +725,8 @@ def _result_row(
     )
     row = {
         "stack_name": spec.name,
+        "fim_stack": spec.name,
+        "pipeline_mode": "ml_guided_community_siea" if spec.runner_kind in {"ranked_hybrid", "no_ml_hybrid"} else "baseline",
         "permutation_name": spec.name,
         "status": status,
         "dataset": dataset.name,
@@ -619,6 +739,9 @@ def _result_row(
         "embedding_method": spec.embedding_method,
         "ranking_model": spec.ranking_model,
         "optimizer_mode": spec.optimizer_mode,
+        "method_type": _method_type(spec),
+        "repair_enabled": spec.optimizer_mode in {"hybrid_si_ea", "local_search"},
+        "swap_local_search_enabled": int(config.local_search_steps) > 0,
         "debias_mode": spec.debias_mode,
         "fairness_objective": spec.fairness_objective,
         "spread_estimator_search": spec.spread_estimator_search,
@@ -637,11 +760,33 @@ def _result_row(
         "mc_runs_search": int(config.mc_runs_search),
         "mc_runs_eval": int(config.mc_runs_eval),
         "key_enabled_modules": _key_enabled_modules(spec, resolved_clustering_input_mode),
+        "use_community_features": bool(config.use_community_features_for_ml),
+        "community_feature_mode": str(config.community_feature_mode),
+        "allow_protected_features_in_ml": bool(config.allow_protected_features_in_ml),
+        "ml_score_weight": config.ml_score_weight if config.ml_score_weight is not None else spec.ranking_weight,
+        "ris_score_weight": config.ris_score_weight if config.ris_score_weight is not None else spec.ris_weight,
+        "fair_ris_score_weight": config.fair_ris_score_weight if config.fair_ris_score_weight is not None else spec.fair_ris_weight,
+        "fairness_bonus_weight": float(config.fairness_bonus_weight),
+        "community_diversity_weight": float(config.diversity_bonus_weight),
+        "community_balance_enabled": bool(config.community_balance_enabled),
+        "protected_group_balance_enabled": bool(config.protected_group_balance_enabled),
+        "repair_mode": str(config.repair_mode),
+        "initial_seed_source": "combined_candidate_score" if spec.optimizer_mode == "hybrid_si_ea" else spec.ranking_model,
+        "repaired_seed_sets": pd.NA,
+        "successful_swaps": pd.NA,
+        "final_community_coverage": pd.NA,
+        "final_protected_group_coverage": pd.NA,
+        "score_table_path": "",
+        "embeddings_cache_path": "",
+        "community_assignments_path": "",
+        "community_sizes_path": "",
         "notes": "; ".join(part for part in [spec.notes, notes] if part),
         "skip_reason": skip_reason,
         "skipped_reason": skip_reason,
     }
     row.update(_spread_dict(evaluation, int(config.budget)))
+    if extra_fields:
+        row.update(dict(extra_fields))
     return row
 
 
@@ -669,6 +814,7 @@ def _skipped_row(
             "embedding_method": spec.embedding_method,
             "ranking_model": spec.ranking_model,
             "optimizer_mode": spec.optimizer_mode,
+            "method_type": _method_type(spec),
             "debias_mode": spec.debias_mode,
             "fairness_objective": spec.fairness_objective,
             "spread_estimator_search": spec.spread_estimator_search,
@@ -683,6 +829,9 @@ def _skipped_row(
             "mc_runs_search": int(config.mc_runs_search),
             "mc_runs_eval": int(config.mc_runs_eval),
             "key_enabled_modules": _key_enabled_modules(spec, spec.clustering_input_mode),
+            "use_community_features": bool(config.use_community_features_for_ml),
+            "community_feature_mode": str(config.community_feature_mode),
+            "allow_protected_features_in_ml": bool(config.allow_protected_features_in_ml),
             "notes": spec.notes,
             "skip_reason": skip_reason,
             "skipped_reason": skip_reason,
@@ -702,29 +851,160 @@ def _clustering_config(spec: FIMPermutationSpec, config: FIMPermutationRunConfig
     return resolved
 
 
+def _combined_guidance_score_frame(
+    spec: FIMPermutationSpec,
+    ranking_scores: Mapping[Any, float] | None,
+    ris_scores: Mapping[Any, float] | None,
+    fair_ris_scores: Mapping[Any, float] | None,
+    *,
+    ml_score_weight: float | None = None,
+    ris_score_weight: float | None = None,
+    fair_ris_score_weight: float | None = None,
+    fairness_bonus_scores: Mapping[Any, float] | None = None,
+    diversity_bonus_scores: Mapping[Any, float] | None = None,
+    fairness_bonus_weight: float = 0.0,
+    diversity_bonus_weight: float = 0.0,
+) -> pd.DataFrame:
+    normalized_ranking = _normalize_score_map(ranking_scores or {})
+    normalized_ris = _normalize_score_map(ris_scores or {})
+    normalized_fair_ris = _normalize_score_map(fair_ris_scores or {})
+    normalized_fairness_bonus = _normalize_score_map(fairness_bonus_scores or {})
+    normalized_diversity_bonus = _normalize_score_map(diversity_bonus_scores or {})
+    all_nodes = sorted(
+        set(normalized_ranking)
+        | set(normalized_ris)
+        | set(normalized_fair_ris)
+        | set(normalized_fairness_bonus)
+        | set(normalized_diversity_bonus),
+        key=_sort_key,
+    )
+    if not all_nodes:
+        return pd.DataFrame(
+            columns=[
+                "node_id",
+                "ml_score",
+                "ris_score",
+                "fair_ris_score",
+                "fairness_bonus",
+                "community_diversity_bonus",
+                "combined_score",
+            ]
+        )
+    resolved_ml_weight = spec.ranking_weight if ml_score_weight is None else float(ml_score_weight)
+    resolved_ris_weight = spec.ris_weight if ris_score_weight is None else float(ris_score_weight)
+    resolved_fair_ris_weight = spec.fair_ris_weight if fair_ris_score_weight is None else float(fair_ris_score_weight)
+    rows: list[dict[str, object]] = []
+    for node_id in all_nodes:
+        ml_score = float(normalized_ranking.get(node_id, 0.0))
+        ris_score = float(normalized_ris.get(node_id, 0.0))
+        fair_ris_score = float(normalized_fair_ris.get(node_id, 0.0))
+        fairness_bonus = float(normalized_fairness_bonus.get(node_id, 0.0))
+        community_diversity_bonus = float(normalized_diversity_bonus.get(node_id, 0.0))
+        combined_score = float(
+            resolved_ml_weight * normalized_ranking.get(node_id, 0.0)
+            + resolved_ris_weight * normalized_ris.get(node_id, 0.0)
+            + resolved_fair_ris_weight * normalized_fair_ris.get(node_id, 0.0)
+            + float(fairness_bonus_weight) * normalized_fairness_bonus.get(node_id, 0.0)
+            + float(diversity_bonus_weight) * normalized_diversity_bonus.get(node_id, 0.0)
+        )
+        rows.append(
+            {
+                "node_id": node_id,
+                "ml_score": ml_score,
+                "ris_score": ris_score,
+                "fair_ris_score": fair_ris_score,
+                "fairness_bonus": fairness_bonus,
+                "community_diversity_bonus": community_diversity_bonus,
+                "combined_score": combined_score,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def _combine_guidance_scores(
     spec: FIMPermutationSpec,
     ranking_scores: Mapping[Any, float] | None,
     ris_scores: Mapping[Any, float] | None,
     fair_ris_scores: Mapping[Any, float] | None,
+    *,
+    ml_score_weight: float | None = None,
+    ris_score_weight: float | None = None,
+    fair_ris_score_weight: float | None = None,
+    fairness_bonus_scores: Mapping[Any, float] | None = None,
+    diversity_bonus_scores: Mapping[Any, float] | None = None,
+    fairness_bonus_weight: float = 0.0,
+    diversity_bonus_weight: float = 0.0,
 ) -> dict[Any, float]:
-    normalized_ranking = _normalize_score_map(ranking_scores or {})
-    normalized_ris = _normalize_score_map(ris_scores or {})
-    normalized_fair_ris = _normalize_score_map(fair_ris_scores or {})
-    all_nodes = sorted(
-        set(normalized_ranking) | set(normalized_ris) | set(normalized_fair_ris),
-        key=_sort_key,
+    frame = _combined_guidance_score_frame(
+        spec,
+        ranking_scores,
+        ris_scores,
+        fair_ris_scores,
+        ml_score_weight=ml_score_weight,
+        ris_score_weight=ris_score_weight,
+        fair_ris_score_weight=fair_ris_score_weight,
+        fairness_bonus_scores=fairness_bonus_scores,
+        diversity_bonus_scores=diversity_bonus_scores,
+        fairness_bonus_weight=fairness_bonus_weight,
+        diversity_bonus_weight=diversity_bonus_weight,
     )
-    if not all_nodes:
+    if frame.empty:
         return {}
-    combined: dict[Any, float] = {}
-    for node_id in all_nodes:
-        combined[node_id] = float(
-            spec.ranking_weight * normalized_ranking.get(node_id, 0.0)
-            + spec.ris_weight * normalized_ris.get(node_id, 0.0)
-            + spec.fair_ris_weight * normalized_fair_ris.get(node_id, 0.0)
-        )
-    return combined
+    return {
+        row.node_id: float(row.combined_score)
+        for row in frame[["node_id", "combined_score"]].itertuples(index=False)
+    }
+
+
+def _feature_score_map(feature_frame: pd.DataFrame, column_name: str) -> dict[Any, float]:
+    if column_name not in feature_frame.columns:
+        return {}
+    return {
+        row.node_id: float(getattr(row, column_name))
+        for row in feature_frame[["node_id", column_name]].itertuples(index=False)
+    }
+
+
+def _seed_community_coverage(seed_set: Sequence[Any], community_result) -> str:
+    counts: dict[str, int] = {}
+    for node_id in seed_set:
+        community_id = community_result.community_id_by_node.get(node_id)
+        key = str(community_id)
+        counts[key] = counts.get(key, 0) + 1
+    return json.dumps(dict(sorted(counts.items(), key=lambda item: item[0])))
+
+
+def _seed_protected_group_coverage(seed_set: Sequence[Any], protected_group_report: ProtectedGroupReport) -> str:
+    group_by_node = {
+        node_id: group_name
+        for group_name, node_ids in protected_group_report.protected_groups.items()
+        for node_id in node_ids
+    }
+    counts = {str(group_name): 0 for group_name in protected_group_report.group_sizes}
+    for node_id in seed_set:
+        group_name = group_by_node.get(node_id)
+        if group_name is not None:
+            counts[str(group_name)] = counts.get(str(group_name), 0) + 1
+    return json.dumps(dict(sorted(counts.items(), key=lambda item: item[0])))
+
+
+def _optimizer_diagnostics_fields(
+    optimization_result,
+    protected_group_report: ProtectedGroupReport,
+    community_result,
+) -> dict[str, object]:
+    return {
+        "repaired_seed_sets": int(getattr(optimization_result, "repaired_seed_sets", 0)),
+        "successful_swaps": int(getattr(optimization_result, "successful_swaps", 0)),
+        "final_community_coverage": _seed_community_coverage(
+            optimization_result.best_seed_set,
+            community_result,
+        ),
+        "final_protected_group_coverage": _seed_protected_group_coverage(
+            optimization_result.best_seed_set,
+            protected_group_report,
+        ),
+    }
 
 
 def _resolved_candidate_controls(
@@ -802,6 +1082,8 @@ def _build_shared_stack_inputs(
         clustering_result=clustering_artifact.clustering_result,
         ris_scores=None if ris_artifact is None else ris_artifact.global_scores,
         fair_ris_scores=None if ris_artifact is None else ris_artifact.fair_scores,
+        use_community_features_for_ml=bool(config.use_community_features_for_ml),
+        community_feature_mode=str(config.community_feature_mode),
     )
     label_result = build_stack_label_frame(
         dataset=dataset,
@@ -839,12 +1121,40 @@ def _build_shared_stack_inputs(
             spec.name,
         ) if bool(config.use_score_cache) else None,
         debias_mode=spec.debias_mode,
+        allow_protected_features_in_ml=bool(config.allow_protected_features_in_ml),
     )
-    combined_scores = _combine_guidance_scores(
+    fairness_bonus_scores = _feature_score_map(feature_frame, "fraction_neighbors_in_undercovered_groups")
+    diversity_bonus_scores = _feature_score_map(feature_frame, "neighboring_communities")
+    score_frame = _combined_guidance_score_frame(
         spec,
         ranking_artifact.training_result.predicted_scores,
         None if ris_artifact is None else ris_artifact.global_scores,
         None if ris_artifact is None else ris_artifact.fair_scores,
+        ml_score_weight=config.ml_score_weight,
+        ris_score_weight=config.ris_score_weight,
+        fair_ris_score_weight=config.fair_ris_score_weight,
+        fairness_bonus_scores=fairness_bonus_scores,
+        diversity_bonus_scores=diversity_bonus_scores,
+        fairness_bonus_weight=float(config.fairness_bonus_weight),
+        diversity_bonus_weight=float(config.diversity_bonus_weight),
+    )
+    combined_scores = {
+        row.node_id: float(row.combined_score)
+        for row in score_frame[["node_id", "combined_score"]].itertuples(index=False)
+    }
+    score_table_path = _write_combined_score_table(
+        dataset=dataset,
+        protected_group_report=protected_group_report,
+        spec=spec,
+        config=config,
+        score_frame=score_frame,
+    )
+    community_paths = _write_community_artifacts(
+        dataset=dataset,
+        protected_group_report=protected_group_report,
+        community_result=community_result,
+        config=config,
+        spec=spec,
     )
     return {
         "community_result": community_result,
@@ -854,6 +1164,9 @@ def _build_shared_stack_inputs(
         "label_result": label_result,
         "ranking_artifact": ranking_artifact,
         "combined_guidance_scores": combined_scores,
+        "score_table_path": score_table_path,
+        "community_assignments_path": community_paths["community_assignments_path"],
+        "community_sizes_path": community_paths["community_sizes_path"],
     }
 
 
@@ -879,6 +1192,9 @@ def _stack_notes(
     if clustering_artifact.clustering_result is not None:
         notes_parts.append(f"clusters={len(clustering_artifact.clustering_result.clusters)}")
         notes_parts.append(f"clustering_input_mode={clustering_artifact.clustering_result.resolved_input_mode}")
+    fit_warnings = ranking_artifact.training_result.metadata.get("fit_warnings", [])
+    if fit_warnings:
+        notes_parts.append("training_warnings=" + " | ".join(str(value) for value in fit_warnings))
     if extra_notes:
         notes_parts.append(extra_notes)
     return "; ".join(notes_parts)
@@ -948,6 +1264,13 @@ def _run_community_aware_fair_greedy(
     search_runtime = perf_counter() - start
     final_eval = _final_evaluate(dataset, protected_group_report, refined_seed_set, spec.diffusion_model, config)
     quality = compute_community_quality_metrics(dataset.graph, community_result)
+    community_paths = _write_community_artifacts(
+        dataset=dataset,
+        protected_group_report=protected_group_report,
+        community_result=community_result,
+        config=config,
+        spec=spec,
+    )
     notes = (
         f"initial_rr={list(initial_seed_set)}; greedy={list(greedy_seed_set)}; "
         f"communities={quality.num_communities}; modularity={quality.modularity:.6f}"
@@ -964,6 +1287,12 @@ def _run_community_aware_fair_greedy(
                 clustering_input_mode="none",
                 method="community_round_robin+fairness_weighted_greedy+swap_local_search",
                 notes=notes,
+                extra_fields={
+                    "final_community_coverage": _seed_community_coverage(refined_seed_set, community_result),
+                    "final_protected_group_coverage": _seed_protected_group_coverage(refined_seed_set, protected_group_report),
+                    "community_assignments_path": community_paths["community_assignments_path"],
+                    "community_sizes_path": community_paths["community_sizes_path"],
+                },
             )
         ]
     )
@@ -988,7 +1317,7 @@ def _run_experiment_runner_gnn_ris_stack(
         lambda_weight=float(config.lambda_weight),
         population_size=int(config.population_size),
         generations=int(config.generations),
-        local_search_steps=max(1, int(config.local_search_steps)),
+        local_search_steps=max(0, int(config.local_search_steps)),
         random_seed=int(config.random_seed),
         output_dir=config.output_dir,
         use_ml=True,
@@ -1175,6 +1504,12 @@ def _run_ranked_maximin_stack(
 
 
 def _hybrid_optimizer_config(spec: FIMPermutationSpec, config: FIMPermutationRunConfig) -> HybridSIEAConfig:
+    use_ml_initialization = True if config.use_ml_scores_in_initialization is None else bool(config.use_ml_scores_in_initialization)
+    use_ml_mutation = True if config.use_ml_scores_in_mutation is None else bool(config.use_ml_scores_in_mutation)
+    use_ml_crossover = True if config.use_ml_scores_in_crossover is None else bool(config.use_ml_scores_in_crossover)
+    use_ml_repair = True if config.use_ml_scores_in_repair is None else bool(config.use_ml_scores_in_repair)
+    use_ml_local_search = True if config.use_ml_scores_in_local_search is None else bool(config.use_ml_scores_in_local_search)
+    protected_balance = bool(config.protected_group_balance_enabled)
     return HybridSIEAConfig(
         budget=int(config.budget),
         population_size=int(config.population_size),
@@ -1184,28 +1519,31 @@ def _hybrid_optimizer_config(spec: FIMPermutationSpec, config: FIMPermutationRun
         diffusion_model=spec.diffusion_model,
         lambda_weight=float(config.lambda_weight),
         random_seed=int(config.random_seed),
-        local_search_steps=max(1, int(config.local_search_steps)),
+        local_search_steps=max(0, int(config.local_search_steps)),
+        disable_local_search=int(config.local_search_steps) <= 0,
+        disable_community_aware_mutation=not bool(config.community_balance_enabled),
+        use_ml_scores_in_crossover=use_ml_crossover,
         ml_guidance_mode="two_tier",
         ml_primary_pool_ratio=0.50,
         ml_secondary_exploration_rate=0.10,
-        ml_initialization_bias=0.25,
-        ml_initialization_primary_rate=0.90,
-        ml_mutation_primary_rate=0.80,
-        ml_repair_primary_rate=0.70,
-        ml_local_search_primary_rate=0.60,
-        ml_mutation_bias_weight=0.20,
-        ml_repair_bias_weight=0.15,
-        ml_local_search_bias_weight=0.25,
-        fairness_first_init_enabled=spec.use_fair_ris,
+        ml_initialization_bias=0.25 if use_ml_initialization else 0.0,
+        ml_initialization_primary_rate=0.90 if use_ml_initialization else 0.0,
+        ml_mutation_primary_rate=0.80 if use_ml_mutation else 0.0,
+        ml_repair_primary_rate=0.70 if use_ml_repair else 0.0,
+        ml_local_search_primary_rate=0.60 if use_ml_local_search else 0.0,
+        ml_mutation_bias_weight=0.20 if use_ml_mutation else 0.0,
+        ml_repair_bias_weight=0.15 if use_ml_repair else 0.0,
+        ml_local_search_bias_weight=0.25 if use_ml_local_search else 0.0,
+        fairness_first_init_enabled=bool(spec.use_fair_ris and protected_balance),
         fairness_first_init_slots=min(2, int(config.budget)),
-        fairness_first_init_weight=0.75 if spec.use_fair_ris else 0.0,
-        weakest_group_k=3 if spec.use_fair_ris else 1,
-        weakest_group_mutation_weight=0.35 if spec.use_fair_ris else 0.0,
-        zero_group_bonus_weight=0.25 if spec.use_fair_ris else 0.0,
-        bridge_to_weak_group_weight=0.15 if spec.use_fair_ris else 0.0,
-        repair_fairness_weight=0.40 if spec.use_fair_ris else 0.0,
-        repair_bridge_weight=0.20 if spec.use_fair_ris else 0.0,
-        local_search_focus_mode="worst_group" if spec.use_fair_ris else "default",
+        fairness_first_init_weight=0.75 if spec.use_fair_ris and protected_balance else 0.0,
+        weakest_group_k=3 if spec.use_fair_ris and protected_balance else 1,
+        weakest_group_mutation_weight=0.35 if spec.use_fair_ris and protected_balance else 0.0,
+        zero_group_bonus_weight=0.25 if spec.use_fair_ris and protected_balance else 0.0,
+        bridge_to_weak_group_weight=0.15 if spec.use_fair_ris and protected_balance else 0.0,
+        repair_fairness_weight=0.40 if spec.use_fair_ris and protected_balance and config.repair_mode != "basic" else 0.0,
+        repair_bridge_weight=0.20 if spec.use_fair_ris and protected_balance and config.repair_mode != "basic" else 0.0,
+        local_search_focus_mode="worst_group" if spec.use_fair_ris and protected_balance else "default",
         local_search_bottom_k_groups=3,
         local_search_swap_trials=max(1, int(config.local_search_steps)),
         local_search_candidate_pool_size=max(4, int(config.swap_candidate_pool_size)),
@@ -1275,6 +1613,110 @@ def _run_ranked_hybrid_stack(
                 ),
                 method="embedding+ranking+hybrid_si_ea",
                 notes=notes,
+                extra_fields={
+                    **_optimizer_diagnostics_fields(
+                        optimization_result,
+                        protected_group_report,
+                        shared["community_result"],
+                    ),
+                    "score_table_path": shared.get("score_table_path", ""),
+                    "embeddings_cache_path": _embedding_artifact_path(shared.get("embedding_artifact")),
+                    "community_assignments_path": shared.get("community_assignments_path", ""),
+                    "community_sizes_path": shared.get("community_sizes_path", ""),
+                },
+            )
+        ]
+    )
+
+
+def _run_no_ml_hybrid_stack(
+    dataset: LoadedDataset,
+    protected_group_report: ProtectedGroupReport,
+    spec: FIMPermutationSpec,
+    config: FIMPermutationRunConfig,
+) -> pd.DataFrame:
+    start = perf_counter()
+    community_result = _community_result(dataset, spec, config)
+    feature_frame = build_ranking_feature_frame(
+        dataset=dataset,
+        protected_group_report=protected_group_report,
+        community_result=community_result,
+        use_community_features_for_ml=bool(config.use_community_features_for_ml),
+        community_feature_mode=str(config.community_feature_mode),
+    )
+    structural_scores = compute_structural_node_scores(feature_frame)
+    fairness_bonus_scores = _feature_score_map(feature_frame, "fraction_neighbors_in_undercovered_groups")
+    diversity_bonus_scores = _feature_score_map(feature_frame, "neighboring_communities")
+    score_frame = _combined_guidance_score_frame(
+        spec,
+        structural_scores,
+        None,
+        None,
+        ml_score_weight=config.ml_score_weight,
+        fairness_bonus_scores=fairness_bonus_scores,
+        diversity_bonus_scores=diversity_bonus_scores,
+        fairness_bonus_weight=float(config.fairness_bonus_weight),
+        diversity_bonus_weight=float(config.diversity_bonus_weight),
+    )
+    combined_scores = {
+        row.node_id: float(row.combined_score)
+        for row in score_frame[["node_id", "combined_score"]].itertuples(index=False)
+    }
+    score_table_path = _write_combined_score_table(
+        dataset=dataset,
+        protected_group_report=protected_group_report,
+        spec=spec,
+        config=config,
+        score_frame=score_frame,
+    )
+    community_paths = _write_community_artifacts(
+        dataset=dataset,
+        protected_group_report=protected_group_report,
+        community_result=community_result,
+        config=config,
+        spec=spec,
+    )
+    optimizer = HybridSIEAOptimizer(
+        dataset=dataset,
+        protected_group_report=protected_group_report,
+        community_result=community_result,
+        config=_hybrid_optimizer_config(spec, config),
+        node_scores=structural_scores,
+        ml_node_scores=combined_scores,
+    )
+    optimization_result = optimizer.optimize()
+    search_runtime = perf_counter() - start
+    final_eval = _final_evaluate(
+        dataset,
+        protected_group_report,
+        optimization_result.best_seed_set,
+        spec.diffusion_model,
+        config,
+    )
+    quality = compute_community_quality_metrics(dataset.graph, community_result)
+    notes = f"communities={quality.num_communities}; modularity={quality.modularity:.6f}; scoring=no_ml_structural_community"
+    return pd.DataFrame(
+        [
+            _result_row(
+                spec=spec,
+                dataset=dataset,
+                protected_group_report=protected_group_report,
+                config=config,
+                evaluation=final_eval,
+                search_runtime_seconds=search_runtime,
+                clustering_input_mode="none",
+                method="community_structural+hybrid_si_ea",
+                notes=notes,
+                extra_fields={
+                    **_optimizer_diagnostics_fields(
+                        optimization_result,
+                        protected_group_report,
+                        community_result,
+                    ),
+                    "score_table_path": score_table_path,
+                    "community_assignments_path": community_paths["community_assignments_path"],
+                    "community_sizes_path": community_paths["community_sizes_path"],
+                },
             )
         ]
     )
@@ -1286,6 +1728,7 @@ _RUNNERS: Mapping[str, Callable[[LoadedDataset, ProtectedGroupReport, FIMPermuta
     "ranked_greedy": _run_ranked_greedy_stack,
     "ranked_maximin": _run_ranked_maximin_stack,
     "ranked_hybrid": _run_ranked_hybrid_stack,
+    "no_ml_hybrid": _run_no_ml_hybrid_stack,
 }
 
 
@@ -1385,6 +1828,43 @@ def format_fim_permutation_report(frame: pd.DataFrame, config: FIMPermutationRun
             f"optimizer={row.get('optimizer_mode')} | "
             f"debias={row.get('debias_mode')}"
         )
+        if "pipeline_mode" in row.index and str(row.get("pipeline_mode", "")).strip():
+            lines.append(
+                "   "
+                f"pipeline: fim_stack={row.get('fim_stack', row.get('stack_name'))} | "
+                f"mode={row.get('pipeline_mode')} | "
+                f"method_type={row.get('method_type')} | "
+                f"repair={row.get('repair_enabled')} | "
+                f"swap_local_search={row.get('swap_local_search_enabled')}"
+            )
+            lines.append(
+                "   "
+                f"features: use_community_features={row.get('use_community_features')} | "
+                f"community_feature_mode={row.get('community_feature_mode')} | "
+                f"allow_protected_features_in_ml={row.get('allow_protected_features_in_ml')}"
+            )
+            lines.append(
+                "   "
+                f"guidance: ml={row.get('ml_score_weight')} | "
+                f"ris={row.get('ris_score_weight')} | "
+                f"fair_ris={row.get('fair_ris_score_weight')} | "
+                f"fairness={row.get('fairness_bonus_weight')} | "
+                f"community_diversity={row.get('community_diversity_weight')}"
+            )
+            lines.append(
+                "   "
+                f"optimizer_diagnostics: initial_seed_source={row.get('initial_seed_source')} | "
+                f"repaired_seed_sets={row.get('repaired_seed_sets')} | "
+                f"successful_swaps={row.get('successful_swaps')} | "
+                f"community_coverage={row.get('final_community_coverage')} | "
+                f"protected_group_coverage={row.get('final_protected_group_coverage')}"
+            )
+            lines.append(
+                "   "
+                f"artifacts: score_table={row.get('score_table_path')} | "
+                f"embeddings={row.get('embeddings_cache_path')} | "
+                f"community_assignments={row.get('community_assignments_path')}"
+            )
         notes = str(row.get("notes", "")).strip()
         if notes and notes != "<NA>":
             lines.append(f"   notes={notes}")
@@ -1467,6 +1947,9 @@ def run_fim_permutation_benchmark_from_config(
     """Load a dataset and run the named permutation benchmark."""
 
     dataset = load_dataset(dataset_config)
+    node_count = dataset.graph.number_of_nodes()
+    if int(config.budget) > int(node_count):
+        raise ValueError(f"Budget {config.budget} exceeds graph node count {node_count} for dataset '{dataset.name}'.")
     protected_group_report = verify_protected_groups(dataset, config.protected_attribute)
     return run_fim_permutation_benchmark(
         dataset=dataset,

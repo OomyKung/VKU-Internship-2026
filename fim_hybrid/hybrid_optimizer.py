@@ -40,6 +40,7 @@ class HybridSIEAConfig:
     disable_crossover: bool = False
     disable_local_search: bool = False
     disable_community_aware_mutation: bool = False
+    use_ml_scores_in_crossover: bool = False
     debug_logging: bool = False
     ml_guidance_mode: str = "off"
     ml_primary_pool_ratio: float = 0.25
@@ -139,6 +140,8 @@ class HybridOptimizationResult:
     runtime_seconds: float
     candidate_pool_size: int
     history: pd.DataFrame
+    repaired_seed_sets: int = 0
+    successful_swaps: int = 0
 
 
 def _sort_key(value: Any) -> tuple[str, str]:
@@ -199,6 +202,7 @@ class HybridSIEAOptimizer:
         self.last_full_mc_runs = 0
         self.last_local_search_swap_evaluations = 0
         self.last_local_search_applied_count = 0
+        self.repaired_seed_sets = 0
 
         self._validate_inputs()
         if self.config.ml_guidance_mode in {"soft_bias", "two_tier"} and ml_node_scores is None:
@@ -2134,6 +2138,7 @@ class HybridSIEAOptimizer:
         proposed_nodes: Sequence[Any],
         use_node2vec_diversity: bool = True,
     ) -> tuple[Any, ...]:
+        self.repaired_seed_sets += 1
         cleaned: list[Any] = []
         used_nodes: set[Any] = set()
 
@@ -2319,6 +2324,12 @@ class HybridSIEAOptimizer:
         parent_b: tuple[Any, ...],
     ) -> tuple[Any, ...]:
         merged_nodes: list[Any] = []
+        if self.config.use_ml_scores_in_crossover and self._ml_guidance_enabled():
+            parent_union = sorted(
+                set(parent_a) | set(parent_b),
+                key=lambda node_id: (-float(self.ml_node_scores.get(node_id, 0.0)), _sort_key(node_id)),
+            )
+            merged_nodes.extend(parent_union[: max(1, self.config.budget // 3)])
         for node in parent_a:
             if self.rng.random() < 0.5:
                 merged_nodes.append(node)
@@ -2747,4 +2758,6 @@ class HybridSIEAOptimizer:
             runtime_seconds=runtime_seconds,
             candidate_pool_size=len(self.candidate_pool),
             history=pd.DataFrame(history_records),
+            repaired_seed_sets=int(self.repaired_seed_sets),
+            successful_swaps=int(sum(record.get("local_search_applied_count", 0) for record in history_records)),
         )

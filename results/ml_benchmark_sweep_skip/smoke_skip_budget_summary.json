@@ -1,0 +1,132 @@
+{
+  "configuration": {
+    "dataset": "graph_spa_500_0",
+    "node_count": 500,
+    "protected_attributes": [
+      "region"
+    ],
+    "budgets": [
+      1000
+    ],
+    "random_seeds": [
+      7
+    ],
+    "stacks": [
+      "line_fast_ml"
+    ]
+  },
+  "warnings": [],
+  "insights": [
+    "No successful runs were available for insight generation."
+  ],
+  "recommendations": {
+    "best_overall_stack": null,
+    "best_ml_only_stack": null,
+    "best_fairness_first_stack": null,
+    "best_spread_first_stack": null,
+    "best_runtime_first_stack": null,
+    "best_quality_runtime_tradeoff": null,
+    "final_recommendation": null
+  },
+  "output_files": {
+    "raw_csv": "C:\\Users\\User\\Desktop\\VKU-Internship-2026\\results\\ml_benchmark_sweep_skip\\smoke_skip_budget_raw_runs.csv",
+    "aggregate_csv": "C:\\Users\\User\\Desktop\\VKU-Internship-2026\\results\\ml_benchmark_sweep_skip\\smoke_skip_budget_aggregate.csv",
+    "ranked_aggregate_csv": "C:\\Users\\User\\Desktop\\VKU-Internship-2026\\results\\ml_benchmark_sweep_skip\\smoke_skip_budget_ranked_aggregate.csv",
+    "report_md": "C:\\Users\\User\\Desktop\\VKU-Internship-2026\\results\\ml_benchmark_sweep_skip\\smoke_skip_budget_report.md"
+  },
+  "evaluation_summary": {
+    "warnings": [
+      "Expected metrics missing or empty: total_spread, extra_spread, mf, dcv, f_score, runtime_seconds"
+    ],
+    "ranking_spec": {
+      "name": "fim_default",
+      "primary_metric": "f_score",
+      "criteria": [
+        {
+          "column": "f_score",
+          "ascending": false
+        },
+        {
+          "column": "mf",
+          "ascending": false
+        },
+        {
+          "column": "dcv",
+          "ascending": true
+        },
+        {
+          "column": "total_spread",
+          "ascending": false
+        },
+        {
+          "column": "runtime_seconds",
+          "ascending": true
+        }
+      ]
+    },
+    "groups": [
+      {
+        "context": {
+          "dataset": "graph_spa_500_0",
+          "protected_attribute": "region",
+          "budget": 1000
+        },
+        "primary_metric": "f_score",
+        "primary_metric_direction": "desc",
+        "closeness_label": "insufficient_data",
+        "insight_lines": [
+          "No successful methods were available for evaluation."
+        ],
+        "warnings": [
+          "No successful methods were available for ranking in this group."
+        ],
+        "recommendations": {
+          "best_overall_method": null,
+          "best_fairness_first_method": null,
+          "best_spread_first_method": null,
+          "best_runtime_first_method": null,
+          "best_interpretable_baseline": null,
+          "best_exploratory_comparator": null,
+          "best_practical_choice": null
+        },
+        "top_rows": []
+      }
+    ]
+  },
+  "top_aggregate_rows": [
+    {
+      "dataset": "graph_spa_500_0",
+      "protected_attribute": "region",
+      "budget": 1000,
+      "rank": 1,
+      "stack_name": "line_fast_ml",
+      "status": "skipped",
+      "mean_f_score": null,
+      "std_f_score": null,
+      "mean_mf": null,
+      "std_mf": null,
+      "mean_dcv": null,
+      "std_dcv": null,
+      "mean_spread": null,
+      "std_spread": null,
+      "mean_extra": null,
+      "std_extra": null,
+      "mean_runtime": null,
+      "std_runtime": null,
+      "win_count_by_f_score": 0,
+      "win_count_by_runtime": 0,
+      "number_of_successful_runs": 0,
+      "number_of_failed_or_skipped_runs": 1,
+      "variant_type": "ml_guided",
+      "embedding_method": "line",
+      "ranking_model": "logistic_regression",
+      "community_method": "leiden",
+      "clustering_method": "none",
+      "optimizer_mode": "greedy",
+      "debias_mode": "none",
+      "spread_estimator_search": "monte_carlo",
+      "spread_estimator_final": "monte_carlo",
+      "key_enabled_modules": null
+    }
+  ]
+}

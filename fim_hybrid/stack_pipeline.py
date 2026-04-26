@@ -332,6 +332,8 @@ def build_ranking_feature_frame(
     ris_scores: Mapping[Any, float] | None = None,
     fair_ris_scores: Mapping[Any, float] | None = None,
     extra_score_maps: Mapping[str, Mapping[Any, float]] | None = None,
+    use_community_features_for_ml: bool = True,
+    community_feature_mode: str = "basic",
 ) -> pd.DataFrame:
     """Build the shared feature table consumed by tabular and GNN rankers."""
 
@@ -339,6 +341,8 @@ def build_ranking_feature_frame(
         dataset=dataset,
         protected_group_report=protected_group_report,
         community_result=community_result,
+        use_community_features_for_ml=use_community_features_for_ml,
+        community_feature_mode=community_feature_mode,
     ).reset_index(drop=True)
     merged = feature_frame.copy()
 
@@ -443,6 +447,7 @@ def train_ranking_model(
     focal_gamma: float = 2.0,
     group_robust_weight: float = 0.25,
     worst_group_boost_factor: float = 2.0,
+    allow_protected_features_in_ml: bool = False,
 ) -> StackRankingArtifact:
     """Train one ranking model and persist its node score table."""
 
@@ -471,6 +476,7 @@ def train_ranking_model(
         focal_gamma=focal_gamma,
         group_robust_weight=group_robust_weight,
         worst_group_boost_factor=worst_group_boost_factor,
+        allow_protected_features_in_ml=bool(allow_protected_features_in_ml),
     )
     node_scores_csv_path = _score_table_path(
         output_dir,
@@ -491,5 +497,9 @@ def train_ranking_model(
     return StackRankingArtifact(
         training_result=result,
         node_scores_csv_path=node_scores_csv_path,
-        notes=f"backend={result.backend}; target_column={result.target_column}; debias_mode={result.debias_mode}",
+        notes=(
+            f"backend={result.backend}; target_column={result.target_column}; "
+            f"debias_mode={result.debias_mode}; "
+            f"allow_protected_features_in_ml={bool(allow_protected_features_in_ml)}"
+        ),
     )

@@ -1,0 +1,51 @@
+FIM Result Evaluation
+====================================================================================================
+Report: smoke_single_benchmark
+Inputs: ml_fim_benchmark
+Rows loaded: 1
+Ranking mode: fim_default
+
+Group 1: dataset=graph_spa_500_0 | protected_attribute=region | budget=10
+------------------------------------------------------------------------
+Rows: 1 methods | ranking=fim_default | aggregated_runs=no
+
+Rank  Method                         F-score   MF      DCV     Spread   Extra   Runtime
+1     line_fast_ml                   -0.3546  0.0000  0.7092  11.000   1.000   2.213s
+
+Instant Insights
+- Overall winner: line_fast_ml
+- Best spread: line_fast_ml
+- Best fairness profile: line_fast_ml
+- Fastest method: line_fast_ml
+- Warning: line_fast_ml shows a fairness collapse signal.
+- Best practical choice: line_fast_ml
+
+Per-Method Notes
+- line_fast_ml: Best overall fairness-adjusted result; Fastest evaluated method; Fairness collapse warning: MF near zero; Fairness collapse warning: DCV extremely high; Negative F-score; not recommended as default
+
+Recommendation
+- best_overall_method=line_fast_ml
+- best_fairness_first_method=line_fast_ml
+- best_spread_first_method=line_fast_ml
+- best_runtime_first_method=line_fast_ml
+- best_interpretable_baseline=n/a
+- best_exploratory_comparator=n/a
+- best_practical_choice=line_fast_ml
+
+ML Benchmark Insights
+- Best current overall ML stack: line_fast_ml
+- Best fairness-first ML stack: line_fast_ml
+- Best spread-first ML stack: line_fast_ml
+- Best fast ML stack: line_fast_ml
+- Best interpretable baseline: n/a
+- Strongest practical default: line_fast_ml
+- Fairness collapse warning: line_fast_ml
+
+ML Benchmark Recommendation
+- best_current_overall_ml_stack=line_fast_ml
+- best_fairness_first_ml_stack=line_fast_ml
+- best_spread_first_ml_stack=line_fast_ml
+- best_fast_ml_stack=line_fast_ml
+- best_interpretable_baseline=n/a
+- strongest_practical_default=line_fast_ml
+- stacks_needing_more_work=line_fast_ml

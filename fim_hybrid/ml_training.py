@@ -6,11 +6,13 @@ from dataclasses import dataclass, field
 import math
 from time import perf_counter
 from typing import Any
+import warnings
 
 import pandas as pd
 from pandas.api.types import is_bool_dtype, is_numeric_dtype
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPRegressor
@@ -25,6 +27,22 @@ except ImportError:  # pragma: no cover - optional dependency.
 
 def _sort_key(value: Any) -> tuple[str, str]:
     return (type(value).__name__, repr(value))
+
+
+_PROTECTED_FEATURE_COLUMNS = {
+    "protected_group",
+    "protected_group_frequency",
+    "minority_group_indicator",
+    "inverse_group_size",
+}
+_PROTECTED_FEATURE_PREFIXES = ("community_group_fraction_",)
+
+
+def _is_protected_feature_column(column_name: str) -> bool:
+    return column_name in _PROTECTED_FEATURE_COLUMNS or any(
+        column_name.startswith(prefix)
+        for prefix in _PROTECTED_FEATURE_PREFIXES
+    )
 
 
 def _rank_nodes(node_scores: dict[Any, float]) -> tuple[Any, ...]:
@@ -222,8 +240,13 @@ def _split_training_frame(
     test_size = min(test_size, node_count - 2)
     stratify = None
     if stratify_labels is not None:
-        unique_values = set(pd.Series(stratify_labels).dropna().astype(int).tolist())
-        if len(unique_values) >= 2:
+        normalized_labels = pd.Series(stratify_labels).dropna().astype(int)
+        value_counts = normalized_labels.value_counts()
+        class_count = int(len(value_counts))
+        if class_count >= 2 and int(value_counts.min()) < 2:
+            return training_frame.copy(), training_frame.copy()
+        train_size = node_count - test_size
+        if class_count >= 2 and test_size >= class_count and train_size >= class_count:
             stratify = stratify_labels
     train_frame, validation_frame = train_test_split(
         training_frame,
@@ -233,6 +256,21 @@ def _split_training_frame(
         stratify=stratify,
     )
     return train_frame.copy(), validation_frame.copy()
+
+
+def _fit_pipeline_with_warnings(
+    pipeline: Pipeline,
+    features: pd.DataFrame,
+    target: pd.Series,
+) -> list[str]:
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always", category=ConvergenceWarning)
+        pipeline.fit(features, target)
+    return [
+        str(item.message)
+        for item in captured
+        if issubclass(item.category, ConvergenceWarning)
+    ]
 
 
 def _build_random_forest_pipeline(
@@ -437,6 +475,7 @@ class MLTrainingResult:
     model_type: str
     target_type: str
     target_column: str = "label_score"
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -472,6 +511,7 @@ def train_node_utility_model(
     top_n: int | None = None,
     max_nodes: int | None = None,
     random_seed: int = 42,
+    allow_protected_features_in_ml: bool = False,
 ) -> MLTrainingResult:
     """Train a tabular regressor and derive a filtered candidate pool."""
 
@@ -496,7 +536,10 @@ def train_node_utility_model(
         str(target_column),
     }
     candidate_columns = [
-        column_name for column_name in training_frame.columns if column_name not in excluded_columns
+        column_name
+        for column_name in training_frame.columns
+        if column_name not in excluded_columns
+        and (bool(allow_protected_features_in_ml) or not _is_protected_feature_column(column_name))
     ]
     categorical_columns: list[str] = []
     numeric_columns: list[str] = []
@@ -530,7 +573,8 @@ def train_node_utility_model(
     else:
         train_target = train_frame[target_column]
         full_target = training_frame[target_column]
-    validation_pipeline.fit(
+    fit_warnings = _fit_pipeline_with_warnings(
+        validation_pipeline,
         train_frame[categorical_columns + numeric_columns],
         train_target,
     )
@@ -553,9 +597,12 @@ def train_node_utility_model(
         numeric_columns=numeric_columns,
         random_seed=random_seed,
     )
-    final_model.fit(
-        training_frame[categorical_columns + numeric_columns],
-        full_target,
+    fit_warnings.extend(
+        _fit_pipeline_with_warnings(
+            final_model,
+            training_frame[categorical_columns + numeric_columns],
+            full_target,
+        )
     )
     predicted_series = _predict_scores(
         model_type,
@@ -588,6 +635,17 @@ def train_node_utility_model(
         model_type=model_type,
         target_type=target_type,
         target_column=target_column,
+        metadata={
+            "fit_warnings": list(dict.fromkeys(fit_warnings)),
+            "allow_protected_features_in_ml": bool(allow_protected_features_in_ml),
+            "feature_columns": categorical_columns + numeric_columns,
+            "excluded_protected_feature_columns": sorted(
+                column_name
+                for column_name in training_frame.columns
+                if _is_protected_feature_column(column_name)
+                and column_name not in categorical_columns + numeric_columns
+            ),
+        },
     )
 
 
@@ -617,6 +675,7 @@ def train_ranking_model(
     focal_gamma: float = 2.0,
     group_robust_weight: float = 0.25,
     worst_group_boost_factor: float = 2.0,
+    allow_protected_features_in_ml: bool = False,
 ) -> RankingTrainingResult:
     """Train one ranking/scoring model through a normalized backend dispatcher."""
 
@@ -632,6 +691,7 @@ def train_ranking_model(
             top_n=top_n,
             max_nodes=max_nodes,
             random_seed=random_seed,
+            allow_protected_features_in_ml=bool(allow_protected_features_in_ml),
         )
         return RankingTrainingResult(
             model=result.model,
@@ -647,6 +707,7 @@ def train_ranking_model(
             target_type=result.target_type,
             target_column=result.target_column,
             debias_mode="none",
+            metadata=dict(result.metadata),
         )
     if spec.backend == "gnn":
         if dataset is None:
@@ -678,6 +739,7 @@ def train_ranking_model(
             focal_gamma=focal_gamma,
             group_robust_weight=group_robust_weight,
             worst_group_boost_factor=worst_group_boost_factor,
+            allow_protected_features_in_ml=bool(allow_protected_features_in_ml),
         )
         return RankingTrainingResult(
             model=result.model,
@@ -696,6 +758,7 @@ def train_ranking_model(
             feature_matrix_shape=result.feature_matrix_shape,
             edge_index_shape=result.edge_index_shape,
             debias_mode=debias_mode,
+            metadata={"allow_protected_features_in_ml": bool(allow_protected_features_in_ml)},
         )
     raise ValueError(
         f"ranking model '{model_type}' uses backend '{spec.backend}', which is not trainable via train_ranking_model()."

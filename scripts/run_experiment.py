@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import json
 from pathlib import Path
 import shutil
@@ -18,6 +19,13 @@ from fim_hybrid.config import DatasetConfig  # noqa: E402
 from fim_hybrid.data_loader import resolve_dataset_config  # noqa: E402
 from fim_hybrid.diffusion import DEFAULT_DIFFUSION_MODEL, SUPPORTED_DIFFUSION_MODELS  # noqa: E402
 from fim_hybrid.experiment_runner import ExperimentSettings, build_results_output_dir, run_experiment  # noqa: E402
+from fim_hybrid.permutations import (  # noqa: E402
+    FIMPermutationRunConfig,
+    FIMPermutationSpec,
+    format_fim_permutation_report,
+    get_fim_permutation_spec,
+    run_fim_permutation_benchmark_from_config,
+)
 from fim_hybrid.ml_training import available_ranking_models  # noqa: E402
 
 
@@ -522,6 +530,206 @@ def build_dataset_config(args: argparse.Namespace) -> DatasetConfig:
     )
 
 
+_FIM_STACK_PRESETS = {
+    "community_aware_fair_greedy",
+    "baseline_community_greedy",
+    "graphsage_community_siea",
+    "gcn_community_siea",
+    "node2vec_xgboost_community_siea",
+    "no_ml_community_siea",
+}
+
+
+def _canonical_ranking_model(value: str | None, embedding_method: str) -> str:
+    requested = "" if value is None else str(value).strip().lower()
+    if requested in {"", "auto"}:
+        if embedding_method == "graphsage":
+            return "graphsage"
+        if embedding_method == "gcn":
+            return "gcn"
+        if embedding_method == "node2vec":
+            return "xgboost"
+        return "none"
+    aliases = {
+        "graphsage_plus_fair_ris": "graphsage",
+        "gcn_plus_fair_ris": "gcn",
+        "degree/fairness/community score": "structural_community_score",
+        "degree_fairness_community_score": "structural_community_score",
+    }
+    return aliases.get(requested, requested)
+
+
+def _resolve_single_community_method(args: argparse.Namespace) -> str:
+    if getattr(args, "community_method", None):
+        return str(args.community_method).strip().lower()
+    return str(args.community_methods[0]).strip().lower()
+
+
+def _preset_spec(args: argparse.Namespace) -> FIMPermutationSpec:
+    stack_name = str(args.fim_stack).strip().lower()
+    community_method = _resolve_single_community_method(args)
+    if stack_name not in {"baseline_community_greedy", "community_aware_fair_greedy"} and args.optimizer_mode != "hybrid_si_ea":
+        raise ValueError(
+            f"--fim-stack {stack_name} is wired to Hybrid SI+EA in this runner; "
+            "use --optimizer-mode hybrid_si_ea or the existing standard experiment path."
+        )
+    use_fair_ris = bool(args.use_fair_ris) if args.use_fair_ris is not None else stack_name in {
+        "graphsage_community_siea",
+        "gcn_community_siea",
+        "node2vec_xgboost_community_siea",
+    }
+    if stack_name in {"baseline_community_greedy", "community_aware_fair_greedy"}:
+        return replace(
+            get_fim_permutation_spec("community_aware_fair_greedy"),
+            name=stack_name,
+            community_method=community_method,
+            notes=f"preset={stack_name}",
+        )
+    if stack_name == "graphsage_community_siea":
+        return FIMPermutationSpec(
+            name=stack_name,
+            description="Leiden/Louvain/Multilevel/Infomap communities with GraphSAGE, Fair RIS, and Hybrid SI+EA.",
+            runner_kind="ranked_hybrid",
+            diffusion_model=args.diffusion_model,
+            community_method=community_method,
+            spread_estimator_search="fairness_aware_ris" if use_fair_ris else "ris_guidance",
+            spread_estimator_final="monte_carlo",
+            embedding_method="graphsage",
+            ranking_model=_canonical_ranking_model(args.ranking_model, "graphsage"),
+            optimizer_mode="hybrid_si_ea",
+            variant_family="ml",
+            use_ris_guidance=True,
+            use_fair_ris=use_fair_ris,
+            notes="preset=graphsage_community_siea",
+        )
+    if stack_name == "gcn_community_siea":
+        return FIMPermutationSpec(
+            name=stack_name,
+            description="Communities with GCN, Fair RIS, and Hybrid SI+EA.",
+            runner_kind="ranked_hybrid",
+            diffusion_model=args.diffusion_model,
+            community_method=community_method,
+            spread_estimator_search="fairness_aware_ris" if use_fair_ris else "ris_guidance",
+            spread_estimator_final="monte_carlo",
+            embedding_method="gcn",
+            ranking_model=_canonical_ranking_model(args.ranking_model, "gcn"),
+            optimizer_mode="hybrid_si_ea",
+            variant_family="ml",
+            use_ris_guidance=True,
+            use_fair_ris=use_fair_ris,
+            notes="preset=gcn_community_siea",
+        )
+    if stack_name == "node2vec_xgboost_community_siea":
+        return FIMPermutationSpec(
+            name=stack_name,
+            description="Communities with Node2Vec, XGBoost, RIS/Fair RIS, and Hybrid SI+EA.",
+            runner_kind="ranked_hybrid",
+            diffusion_model=args.diffusion_model,
+            community_method=community_method,
+            spread_estimator_search="fairness_aware_ris" if use_fair_ris else "ris_guidance",
+            spread_estimator_final="monte_carlo",
+            embedding_method="node2vec",
+            ranking_model=_canonical_ranking_model(args.ranking_model, "node2vec"),
+            optimizer_mode="hybrid_si_ea",
+            variant_family="ml",
+            use_ris_guidance=True,
+            use_fair_ris=use_fair_ris,
+            notes="preset=node2vec_xgboost_community_siea",
+        )
+    if stack_name == "no_ml_community_siea":
+        return FIMPermutationSpec(
+            name=stack_name,
+            description="Communities with structural/fairness/community scoring and Hybrid SI+EA.",
+            runner_kind="no_ml_hybrid",
+            diffusion_model=args.diffusion_model,
+            community_method=community_method,
+            spread_estimator_search="monte_carlo",
+            spread_estimator_final="monte_carlo",
+            embedding_method="none",
+            ranking_model="structural_community_score",
+            optimizer_mode="hybrid_si_ea",
+            variant_family="fairness",
+            use_ris_guidance=False,
+            use_fair_ris=False,
+            notes="preset=no_ml_community_siea",
+        )
+    supported = ", ".join(sorted(_FIM_STACK_PRESETS))
+    raise ValueError(f"Unsupported --fim-stack '{args.fim_stack}'. Supported values: {supported}.")
+
+
+def _run_direct_fim_stack(args: argparse.Namespace, dataset_config: DatasetConfig) -> pd.DataFrame:
+    spec = _preset_spec(args)
+    run_config = FIMPermutationRunConfig(
+        protected_attribute=args.protected_attribute,
+        budget=int(args.budget),
+        propagation_probability=float(args.propagation_prob),
+        mc_runs_search=int(args.mc_runs_search if args.mc_runs_search is not None else (args.mc_runs or 20)),
+        mc_runs_eval=int(args.mc_runs_eval if args.mc_runs_eval is not None else (args.mc_runs or 20)),
+        lambda_weight=float(args.lambda_weight),
+        random_seed=int(args.random_seed),
+        output_dir=_resolve_repo_path(args.output_dir),
+        continue_on_error=False,
+        swap_candidate_pool_size=int(args.swap_candidate_pool_size or args.local_search_candidate_pool_size or 16),
+        local_search_steps=int(args.local_search_steps),
+        population_size=int(args.population_size),
+        generations=int(args.generations),
+        gnn_epochs=int(args.gnn_epochs),
+        gnn_hidden_dim=int(args.gnn_hidden_dim),
+        gnn_num_layers=int(args.gnn_num_layers),
+        gnn_dropout=float(args.gnn_dropout),
+        gnn_learning_rate=float(args.gnn_learning_rate),
+        gnn_weight_decay=float(args.gnn_weight_decay),
+        ris_num_rr_sets=int(args.ris_num_rr_sets),
+        embedding_dim=int(args.embedding_dim),
+        use_community_features_for_ml=bool(args.use_community_features),
+        community_feature_mode="basic" if bool(args.use_community_features) else "none",
+        allow_protected_features_in_ml=bool(args.allow_protected_features_in_ml),
+        use_ml_scores_in_initialization=bool(args.use_ml_scores_in_initialization),
+        use_ml_scores_in_mutation=bool(args.use_ml_scores_in_mutation),
+        use_ml_scores_in_crossover=bool(args.use_ml_scores_in_crossover),
+        use_ml_scores_in_repair=bool(args.use_ml_scores_in_repair),
+        use_ml_scores_in_local_search=bool(args.use_ml_scores_in_local_search),
+        ml_score_weight=float(args.ml_score_weight),
+        ris_score_weight=float(args.ris_score_weight),
+        fair_ris_score_weight=float(args.fair_ris_score_weight),
+        fairness_bonus_weight=float(args.fairness_bonus_weight),
+        diversity_bonus_weight=float(args.community_diversity_weight),
+        community_balance_enabled=bool(args.community_balance_enabled),
+        protected_group_balance_enabled=bool(args.protected_group_balance_enabled),
+        repair_mode=str(args.repair_mode),
+    )
+    result = run_fim_permutation_benchmark_from_config(
+        dataset_config=dataset_config,
+        config=run_config,
+        permutations=[spec],
+    )
+    frame = result.summary_frame.copy()
+    report_text = format_fim_permutation_report(frame, run_config)
+    print(report_text)
+    if result.comparison_csv_path is not None:
+        print(f"\nSaved comparison CSV: {result.comparison_csv_path}")
+    if result.report_path is not None:
+        print(f"Saved report: {result.report_path}")
+    return frame
+
+
+def _resolve_pipeline_mode_stack(args: argparse.Namespace) -> None:
+    if args.fim_stack is not None or args.pipeline_mode != "ml_guided_community_siea":
+        return
+    embedding_method = str(args.embedding_method or "graphsage").strip().lower()
+    stack_by_embedding = {
+        "graphsage": "graphsage_community_siea",
+        "gcn": "gcn_community_siea",
+        "node2vec": "node2vec_xgboost_community_siea",
+        "none": "no_ml_community_siea",
+    }
+    try:
+        args.fim_stack = stack_by_embedding[embedding_method]
+    except KeyError as exc:
+        supported = ", ".join(sorted(stack_by_embedding))
+        raise ValueError(f"Unsupported --embedding-method '{embedding_method}' for ml_guided_community_siea. Supported values: {supported}.") from exc
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run comparable Fair Influence Maximization experiments.")
     parser.add_argument(
@@ -548,6 +756,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target-col", default=None, help="Target column name for CSV edge lists.")
     parser.add_argument("--node-id-col", default=None, help="Node ID column name for separate attribute files.")
     parser.add_argument("--protected-attribute", required=True, help="Protected attribute for fairness metrics.")
+    parser.add_argument(
+        "--pipeline-mode",
+        choices=["standard", "ml_guided_community_siea"],
+        default="standard",
+        help="Use ml_guided_community_siea with --fim-stack to run the direct community+ML+FairRIS+SI+EA pipeline.",
+    )
+    parser.add_argument(
+        "--fim-stack",
+        choices=sorted(_FIM_STACK_PRESETS),
+        default=None,
+        help="Run one direct FIM stack preset instead of the broad comparison experiment.",
+    )
+    parser.add_argument(
+        "--community-method",
+        choices=["leiden", "louvain", "multilevel", "infomap"],
+        default=None,
+        help="Single community method used by --fim-stack presets. Overrides the first --community-methods value.",
+    )
     parser.add_argument("--community-methods", nargs="+", default=["leiden"], help="Community detection methods to compare.")
     parser.add_argument(
         "--community-input-mode",
@@ -679,6 +905,30 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--no-ablations", action="store_true", help="Skip optimizer ablation variants.")
     parser.add_argument("--ml", action="store_true", help="Enable ML-guided candidate selection.")
+    parser.add_argument("--embedding-method", choices=["none", "graphsage", "gcn", "node2vec"], default=None, help="Embedding/scoring method used when --pipeline-mode ml_guided_community_siea is selected.")
+    parser.add_argument("--embedding-dim", type=int, default=32, help="Embedding dimension used by direct ML-guided FIM stack presets.")
+    parser.add_argument("--optimizer-mode", choices=["hybrid_si_ea", "local_search"], default="hybrid_si_ea", help="Optimizer mode metadata for --fim-stack presets.")
+    parser.add_argument("--use-fair-ris", action=argparse.BooleanOptionalAction, default=None, help="Enable Fair RIS guidance in --fim-stack presets.")
+    parser.add_argument("--use-community-features", action=argparse.BooleanOptionalAction, default=True, help="Include community features in ML scoring inputs for --fim-stack presets.")
+    parser.add_argument(
+        "--allow-protected-features-in-ml",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Allow raw protected-attribute features in ML ranker inputs. Disabled by default.",
+    )
+    parser.add_argument("--use-ml-scores-in-initialization", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--use-ml-scores-in-mutation", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--use-ml-scores-in-crossover", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--use-ml-scores-in-repair", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--use-ml-scores-in-local-search", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--ml-score-weight", type=float, default=1.0)
+    parser.add_argument("--ris-score-weight", type=float, default=1.0)
+    parser.add_argument("--fair-ris-score-weight", type=float, default=0.5)
+    parser.add_argument("--fairness-bonus-weight", type=float, default=0.2)
+    parser.add_argument("--community-diversity-weight", type=float, default=0.2)
+    parser.add_argument("--community-balance-enabled", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--protected-group-balance-enabled", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--repair-mode", choices=["basic", "balanced", "fairness"], default="balanced")
     parser.add_argument(
         "--ml-guidance-mode",
         default="two_tier",
@@ -760,7 +1010,17 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--ranking-model",
-        choices=list(available_ranking_models()),
+        choices=sorted(
+            set(available_ranking_models())
+            | {
+                "auto",
+                "none",
+                "graphsage_plus_fair_ris",
+                "gcn_plus_fair_ris",
+                "structural_community_score",
+                "degree_fairness_community_score",
+            }
+        ),
         default=None,
         help="Optional alias selecting the ranking/scoring model family without removing the backend-specific flags.",
     )
@@ -825,6 +1085,10 @@ def main() -> None:
     community_method_config = json.loads(args.community_method_config_json)
     if not isinstance(community_method_config, dict):
         raise ValueError("--community-method-config-json must parse to a JSON object.")
+    _resolve_pipeline_mode_stack(args)
+    if args.fim_stack is not None:
+        _run_direct_fim_stack(args, dataset_config)
+        return
     resolved_ml_backend = args.ml_backend
     resolved_ml_model_type = args.ml_model_type
     resolved_gnn_model_type = args.gnn_model_type

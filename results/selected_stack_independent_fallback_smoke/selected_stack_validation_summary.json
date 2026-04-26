@@ -1,0 +1,63 @@
+{
+  "candidate_stack": "graphsage_fair_ris_hybrid",
+  "fallback_stack": "community_aware_fair_greedy",
+  "validation_seeds": [
+    7
+  ],
+  "accepted": true,
+  "final_selected_stack": "graphsage_fair_ris_hybrid",
+  "final_reason": "accepted_after_validation: candidate met F-score, DCV, and MF validation gates",
+  "validation_close_fscore_threshold": 0.003,
+  "max_validation_dcv_delta": 0.01,
+  "min_mf_ratio_vs_fallback": 0.95,
+  "f_score_gap": 0.012463429602103351,
+  "dcv_delta": -0.023937502764613303,
+  "mf_ratio": 1.0149110149110148,
+  "runtime_speedup": 3.3820583265988984,
+  "candidate": {
+    "successful_runs": 1,
+    "failed_runs": 0,
+    "mean_f_score": 0.019407366958709767,
+    "std_f_score": null,
+    "mean_mf": 0.06734006734006734,
+    "std_mf": null,
+    "mean_dcv": 0.028525333422647806,
+    "std_dcv": null,
+    "mean_total_spread": 42.0,
+    "std_total_spread": null,
+    "mean_extra_spread": 2.0,
+    "std_extra_spread": null,
+    "mean_runtime_seconds": 5.131699700003082,
+    "std_runtime_seconds": null
+  },
+  "fallback": {
+    "successful_runs": 1,
+    "failed_runs": 0,
+    "mean_f_score": 0.006943937356606415,
+    "std_f_score": null,
+    "mean_mf": 0.06635071090047394,
+    "std_mf": null,
+    "mean_dcv": 0.05246283618726111,
+    "std_dcv": null,
+    "mean_total_spread": 41.0,
+    "std_total_spread": null,
+    "mean_extra_spread": 1.0,
+    "std_extra_spread": null,
+    "mean_runtime_seconds": 17.355707700000494,
+    "std_runtime_seconds": null
+  },
+  "final_validation_warning": true,
+  "final_validation_warning_reasons": [
+    "final F-score dropped below benchmark ratio threshold",
+    "final DCV increased beyond benchmark delta threshold"
+  ],
+  "final_benchmark_stack": "graphsage_fair_ris_hybrid",
+  "final_benchmark_f_score": 0.0160236816325902,
+  "final_benchmark_dcv": 0.0350020407273515,
+  "final_f_score": -0.002524448811968564,
+  "final_mf": 0.05723905723905724,
+  "final_dcv": 0.06228795486299437,
+  "final_runtime": 5.1598494999998366,
+  "min_final_vs_benchmark_ratio": 0.85,
+  "max_final_dcv_delta": 0.015
+}

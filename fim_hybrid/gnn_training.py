@@ -17,6 +17,7 @@ import pandas as pd
 from .data_loader import LoadedDataset
 from .ml_training import (
     _build_feature_matrix,
+    _is_protected_feature_column,
     _precision_at_k,
     _rank_nodes,
     _safe_spearman,
@@ -175,16 +176,26 @@ def _validate_training_parameters(
         raise ValueError("epochs must be at least 1.")
 
 
-def _one_hot_feature_frame(training_frame: pd.DataFrame) -> pd.DataFrame:
+def _one_hot_feature_frame(
+    training_frame: pd.DataFrame,
+    *,
+    allow_protected_features_in_ml: bool = False,
+) -> pd.DataFrame:
+    categorical_columns = (
+        list(_CATEGORICAL_COLUMNS)
+        if bool(allow_protected_features_in_ml)
+        else [column_name for column_name in _CATEGORICAL_COLUMNS if column_name != "protected_group"]
+    )
     numeric_columns = [
         column_name
         for column_name in training_frame.columns
         if column_name not in _LABEL_EXCLUDED_COLUMNS and column_name not in _CATEGORICAL_COLUMNS
+        and (bool(allow_protected_features_in_ml) or not _is_protected_feature_column(column_name))
     ]
     numeric_frame = training_frame.loc[:, numeric_columns].astype(float)
     categorical_frame = pd.get_dummies(
-        training_frame.loc[:, list(_CATEGORICAL_COLUMNS)].astype(str),
-        columns=list(_CATEGORICAL_COLUMNS),
+        training_frame.loc[:, categorical_columns].astype(str),
+        columns=categorical_columns,
         dtype=float,
     )
     feature_frame = pd.concat([numeric_frame, categorical_frame], axis=1)
@@ -417,6 +428,7 @@ def train_gnn_node_utility_model(
     group_robust_weight: float = 0.25,
     worst_group_boost_factor: float = 2.0,
     adversary_loss_weight: float = 0.1,
+    allow_protected_features_in_ml: bool = False,
 ) -> GNNTrainingResult:
     """Train a GNN regressor and derive a filtered candidate pool."""
 
@@ -450,7 +462,10 @@ def train_gnn_node_utility_model(
         key=lambda values: values.map(_sort_key),
     ).reset_index(drop=True)
     node_ids = ordered_frame["node_id"].tolist()
-    encoded_features = _one_hot_feature_frame(ordered_frame)
+    encoded_features = _one_hot_feature_frame(
+        ordered_frame,
+        allow_protected_features_in_ml=bool(allow_protected_features_in_ml),
+    )
     feature_matrix = encoded_features.to_numpy(dtype=np.float32, copy=True)
     label_scores = ordered_frame[target_column].to_numpy(dtype=np.float32, copy=True)
     node_to_index = {node_id: index for index, node_id in enumerate(node_ids)}
@@ -476,6 +491,7 @@ def train_gnn_node_utility_model(
         "feature_columns": encoded_features.columns.tolist(),
         "debias_mode": resolved_debias_mode,
         "protected_attribute_column": protected_attribute_column,
+        "allow_protected_features_in_ml": bool(allow_protected_features_in_ml),
         "focal_gamma": float(focal_gamma),
         "group_robust_weight": float(group_robust_weight),
         "worst_group_boost_factor": float(worst_group_boost_factor),

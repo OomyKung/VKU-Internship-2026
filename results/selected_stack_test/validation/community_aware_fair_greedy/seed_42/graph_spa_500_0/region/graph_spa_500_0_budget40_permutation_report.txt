@@ -1,0 +1,16 @@
+FIM Algorithm-Stack Permutation Comparison
+------------------------------------------------------------------------
+Protected attribute: region
+Budget: 40
+Final estimator: monte_carlo | mc_runs_eval=200
+
+1. community_aware_fair_greedy [ok]
+   spread=41.3450 | extra=1.3450 | MF=0.0647 | DCV=0.0307 | F-score=0.0170 | runtime=49.923s
+   modules: diffusion=ic | community=leiden | embedding=none | clustering=none | ranking=fairness_weighted_greedy | optimizer=local_search | debias=none
+   notes=initial_rr=[12, 13, 14, 15, 17, 18, 21, 223, 229, 238, 24, 241, 264, 265, 267, 268, 269, 271, 278, 281, 284, 287, 30, 303, 312, 326, 33, 331, 38, 39, 40, 44, 464, 465, 481, 485, 5, 53, 59, 6]; greedy=[106, 116, 164, 178, 2, 21, 212, 227, 229, 23, 243, 250, 260, 261, 289, 311, 315, 34, 354, 364, 380, 391, 41, 419, 420, 423, 426, 428, 431, 44, 461, 468, 475, 480, 488, 495, 53, 73, 75, 9]; communities=19; modularity=0.802180
+
+Recommendations
+------------------------------------------------------------------------
+best_interpretable_baseline=community_aware_fair_greedy
+best_practical_ml_default=n/a
+best_exploratory_fairness_heavy=n/a

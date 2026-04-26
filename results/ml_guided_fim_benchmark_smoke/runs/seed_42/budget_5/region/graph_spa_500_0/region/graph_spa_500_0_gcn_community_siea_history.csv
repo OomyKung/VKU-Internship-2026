@@ -1,0 +1,2 @@
+generation,best_score,best_f_score,best_spread,best_mf,best_dcv,average_population_score,population_diversity,best_seed_set,local_search_applied_count,local_search_swap_evaluations,screening_evaluation_calls,full_evaluation_calls,zero_covered_groups_count,bottom_3_avg_group_spread,fraction_groups_covered,weakest_groups_note
+0,-0.33381406281018516,-0.33381406281018516,5.5,0.0,0.6676281256203703,-0.35031715535808605,0.8194444444444443,"[12, 14, 256, 263, 499]",4,4,0,16,8,0.0,0.38461538461538464,"acton,desert_view_highlands,lake_los_angeles"

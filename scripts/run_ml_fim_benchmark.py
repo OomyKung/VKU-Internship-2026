@@ -34,16 +34,23 @@ from scripts.run_experiment import build_dataset_config  # noqa: E402
 
 DEFAULT_BENCHMARK_NAME = "ml_fim_benchmark"
 DEFAULT_STRONG_STACKS = (
+    "graphsage_community_siea",
+    "node2vec_xgboost_community_siea",
+    "gcn_community_siea",
+)
+WEAK_ML_BASELINES = (
+    "deepwalk_mlp",
+    "line_fast_ml",
+)
+DEFAULT_ALL_STACKS = DEFAULT_STRONG_STACKS + (
     "graphsage_fair_ris_hybrid",
     "gcn_fair_ris_hybrid",
     "graphcl_maximin",
     "dgi_fair_ris",
     "vgae_fair_ris",
     "node2vec_xgboost",
-    "deepwalk_mlp",
-    "line_fast_ml",
-)
-DEFAULT_ALL_STACKS = DEFAULT_STRONG_STACKS + ("node2vec_kmeans_logreg_hybrid",)
+    "node2vec_kmeans_logreg_hybrid",
+) + WEAK_ML_BASELINES
 _VALID_SPREAD_SEARCH = {"monte_carlo", "ris_guidance", "fairness_aware_ris"}
 _VALID_FINAL_ESTIMATORS = {"monte_carlo"}
 _VALID_OPTIMIZER_MODES = {"greedy", "local_search", "hybrid_si_ea"}
@@ -81,6 +88,60 @@ def _clone_named_spec(name: str, *, public_name: str | None = None, **updates: o
 def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
     registry = {
         "community_aware_fair_greedy": get_fim_permutation_spec("community_aware_fair_greedy"),
+        "graphsage_community_siea": FIMPermutationSpec(
+            name="graphsage_community_siea",
+            description="Leiden communities with GraphSAGE guidance, Fair RIS, and Hybrid SI+EA.",
+            runner_kind="ranked_hybrid",
+            diffusion_model="ic",
+            community_method="leiden",
+            spread_estimator_search="fairness_aware_ris",
+            spread_estimator_final="monte_carlo",
+            embedding_method="graphsage",
+            ranking_model="graphsage",
+            optimizer_mode="hybrid_si_ea",
+            fairness_objective="f_score",
+            variant_family="ml",
+            candidate_top_fraction=0.5,
+            use_ris_guidance=True,
+            use_fair_ris=True,
+            notes="main_method=true; ml_guided_only=true",
+        ),
+        "node2vec_xgboost_community_siea": FIMPermutationSpec(
+            name="node2vec_xgboost_community_siea",
+            description="Leiden communities with Node2Vec+XGBoost guidance and Hybrid SI+EA.",
+            runner_kind="ranked_hybrid",
+            diffusion_model="ic",
+            community_method="leiden",
+            spread_estimator_search="fairness_aware_ris",
+            spread_estimator_final="monte_carlo",
+            embedding_method="node2vec",
+            ranking_model="xgboost",
+            optimizer_mode="hybrid_si_ea",
+            fairness_objective="f_score",
+            variant_family="ml",
+            candidate_top_fraction=0.5,
+            use_ris_guidance=True,
+            use_fair_ris=True,
+            notes="main_method=true; lightweight_quality_runtime=true; ml_guided_only=true",
+        ),
+        "gcn_community_siea": FIMPermutationSpec(
+            name="gcn_community_siea",
+            description="Leiden communities with GCN guidance, Fair RIS, and Hybrid SI+EA.",
+            runner_kind="ranked_hybrid",
+            diffusion_model="ic",
+            community_method="leiden",
+            spread_estimator_search="fairness_aware_ris",
+            spread_estimator_final="monte_carlo",
+            embedding_method="gcn",
+            ranking_model="gcn",
+            optimizer_mode="hybrid_si_ea",
+            fairness_objective="f_score",
+            variant_family="ml",
+            candidate_top_fraction=0.5,
+            use_ris_guidance=True,
+            use_fair_ris=True,
+            notes="optional_gnn_comparison=true; ml_guided_only=true",
+        ),
         "graphsage_fair_ris_hybrid": _clone_named_spec(
             "leiden_graphsage_fair_ris_hybrid",
             public_name="graphsage_fair_ris_hybrid",
@@ -100,7 +161,7 @@ def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
         "line_fast_ml": _clone_named_spec(
             "leiden_line_logreg_greedy",
             public_name="line_fast_ml",
-            notes="Fast shallow-embedding ML baseline.",
+            notes="weak_baseline=true; not_default=true; fairness_collapse_risk=true; Fast shallow-embedding ML baseline.",
         ),
         "node2vec_kmeans_logreg_hybrid": _clone_named_spec(
             "leiden_node2vec_kmeans_logreg_hybrid",
@@ -167,7 +228,7 @@ def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
             fairness_objective="f_score",
             variant_family="ml",
             candidate_top_fraction=0.5,
-            notes="Shallow embedding plus MLP ranking benchmark stack.",
+            notes="weak_baseline=true; not_default=true; fairness_collapse_risk=true; Shallow embedding plus MLP ranking benchmark stack.",
         ),
     }
     return registry
@@ -347,6 +408,7 @@ def resolve_ml_benchmark_specs(
     spread_estimator_search: str | None,
     spread_estimator_final: str,
     optimizer_mode: str | None,
+    include_weak_ml_baselines: bool = False,
 ) -> list[FIMPermutationSpec]:
     registry = _named_ml_stack_registry()
     requested_tokens = [str(value).strip().lower() for value in (ml_stacks or ["strong_ml"]) if str(value).strip()]
@@ -356,6 +418,8 @@ def resolve_ml_benchmark_specs(
         selected_names = list(DEFAULT_ALL_STACKS)
     elif "strong_ml" in requested_tokens:
         selected_names = list(DEFAULT_STRONG_STACKS)
+        if include_weak_ml_baselines:
+            selected_names.extend(WEAK_ML_BASELINES)
     else:
         selected_names = requested_tokens
 
@@ -747,6 +811,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ris-num-rr-sets", type=int, default=128)
     parser.add_argument("--swap-candidate-pool-size", type=int, default=24)
     parser.add_argument("--local-search-steps", type=int, default=1)
+    parser.add_argument("--ml-score-weight", type=float, default=None)
+    parser.add_argument("--ris-score-weight", type=float, default=None)
+    parser.add_argument("--fair-ris-score-weight", type=float, default=None)
+    parser.add_argument("--fairness-bonus-weight", type=float, default=0.2)
+    parser.add_argument("--community-diversity-weight", type=float, default=0.2)
+    parser.add_argument(
+        "--allow-protected-features-in-ml",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Allow raw protected-attribute features in ML ranker inputs. Disabled by default.",
+    )
     parser.add_argument("--random-seed", type=int, default=42)
     parser.add_argument("--repeat-seeds", nargs="+", type=int, default=None)
     parser.add_argument("--repeat-budgets", nargs="+", type=int, default=None)
@@ -767,6 +842,12 @@ def parse_args() -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Include the non-ML community-aware baseline in the benchmark.",
+    )
+    parser.add_argument(
+        "--include-weak-ml-baselines",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Include deprioritized weak ML baselines such as LINE and DeepWalk in the default strong_ml set.",
     )
     parser.add_argument(
         "--use-embedding-cache",
@@ -797,6 +878,7 @@ def main() -> None:
         spread_estimator_search=args.spread_estimator_search,
         spread_estimator_final=args.spread_estimator_final,
         optimizer_mode=args.optimizer_mode,
+        include_weak_ml_baselines=bool(args.include_weak_ml_baselines),
     )
     output_dir = _resolve_repo_path(args.output_dir)
     if output_dir is None:
@@ -829,6 +911,12 @@ def main() -> None:
         embedding_dim=int(args.embedding_dim),
         use_embedding_cache=bool(args.use_embedding_cache),
         use_score_cache=bool(args.use_score_cache),
+        allow_protected_features_in_ml=bool(args.allow_protected_features_in_ml),
+        ml_score_weight=args.ml_score_weight,
+        ris_score_weight=args.ris_score_weight,
+        fair_ris_score_weight=args.fair_ris_score_weight,
+        fairness_bonus_weight=float(args.fairness_bonus_weight),
+        diversity_bonus_weight=float(args.community_diversity_weight),
     )
     insight_thresholds = InsightThresholds(
         close_threshold=float(args.close_threshold),

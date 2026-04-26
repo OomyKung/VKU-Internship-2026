@@ -1,0 +1,27 @@
+FIM Algorithm-Stack Permutation Comparison
+------------------------------------------------------------------------
+Protected attribute: region
+Budget: 5
+Final estimator: monte_carlo | mc_runs_eval=3
+
+1. community_aware_fair_greedy [ok]
+   spread=5.3333 | extra=0.3333 | MF=0.0000 | DCV=0.6865 | F-score=-0.3432 | runtime=1.304s
+   modules: diffusion=ic | community=leiden | embedding=none | clustering=none | ranking=fairness_weighted_greedy | optimizer=local_search | debias=none
+   pipeline: fim_stack=community_aware_fair_greedy | mode=baseline | repair=True | swap_local_search=True
+   guidance: ml=1.0 | ris=1.0 | fair_ris=0.5 | fairness=0.0 | community_diversity=0.0
+   optimizer_diagnostics: initial_seed_source=fairness_weighted_greedy | repaired_seed_sets=None | successful_swaps=None | community_coverage=None | protected_group_coverage=None
+   notes=initial_rr=[12, 14, 18, 21, 38]; greedy=[2, 236, 238, 28, 297]; communities=19; modularity=0.802180
+
+2. line_fast_ml [ok]
+   spread=5.0000 | extra=0.0000 | MF=0.0000 | DCV=0.8073 | F-score=-0.4037 | runtime=1.349s
+   modules: diffusion=ic | community=leiden | embedding=line | clustering=none | ranking=logistic_regression | optimizer=greedy | debias=none
+   pipeline: fim_stack=line_fast_ml | mode=baseline | repair=False | swap_local_search=True
+   guidance: ml=1.0 | ris=1.0 | fair_ris=0.5 | fairness=0.0 | community_diversity=0.0
+   optimizer_diagnostics: initial_seed_source=logistic_regression | repaired_seed_sets=None | successful_swaps=None | community_coverage=None | protected_group_coverage=None
+   notes=Fast shallow-embedding ML baseline.; communities=19; modularity=0.802180; embedding_cache=miss; target=label_score; backend=tabular; candidate_pool=250; validation_spearman=0.0494; validation_precision_at_budget=0.0000
+
+Recommendations
+------------------------------------------------------------------------
+best_interpretable_baseline=community_aware_fair_greedy
+best_practical_ml_default=line_fast_ml
+best_exploratory_fairness_heavy=n/a

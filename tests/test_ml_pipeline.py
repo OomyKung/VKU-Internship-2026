@@ -5,10 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 import shutil
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
 import networkx as nx
 import pandas as pd
+from sklearn.neural_network import MLPRegressor as SklearnMLPRegressor
 
 from fim_hybrid.community_detection import detect_communities
 from fim_hybrid.data_loader import LoadedDataset, verify_protected_groups
@@ -197,6 +199,38 @@ class MLTrainingTestCase(unittest.TestCase):
         self.assertEqual(training_result.model_type, "random_forest")
         self.assertEqual(training_result.target_type, "regression")
 
+    def test_protected_group_features_are_excluded_from_ml_by_default(self) -> None:
+        dataset, protected_group_report, community_result = _toy_ml_fixture()
+        feature_frame = compute_node_features(dataset, protected_group_report, community_result, community_feature_mode="full")
+        label_result = generate_singleton_node_utility_labels(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            propagation_probability=1.0,
+            mc_runs=3,
+            lambda_weight=0.5,
+            random_seed=7,
+        )
+
+        default_result = train_node_utility_model(
+            feature_frame=feature_frame,
+            label_frame=label_result.label_frame,
+            budget=3,
+            top_fraction=0.5,
+            random_seed=7,
+        )
+        allowed_result = train_node_utility_model(
+            feature_frame=feature_frame,
+            label_frame=label_result.label_frame,
+            budget=3,
+            top_fraction=0.5,
+            random_seed=7,
+            allow_protected_features_in_ml=True,
+        )
+
+        self.assertNotIn("protected_group", default_result.metadata["feature_columns"])
+        self.assertIn("protected_group", default_result.metadata["excluded_protected_feature_columns"])
+        self.assertIn("protected_group", allowed_result.metadata["feature_columns"])
+
     def test_ranking_model_registry_lists_available_models(self) -> None:
         self.assertEqual(
             available_ranking_models(),
@@ -330,6 +364,34 @@ class MLTrainingTestCase(unittest.TestCase):
         self.assertEqual(training_result.target_type, "binary_top_budget_classification")
         self.assertEqual(set(training_result.predicted_scores), set(dataset.graph.nodes()))
 
+    def test_logistic_regression_ranking_falls_back_when_stratified_split_is_too_sparse(self) -> None:
+        feature_frame = pd.DataFrame(
+            {
+                "node_id": [1, 2, 3, 4, 5, 6],
+                "degree": [6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
+                "protected_group": ["A", "A", "B", "B", "C", "C"],
+            }
+        )
+        label_frame = pd.DataFrame(
+            {
+                "node_id": [1, 2, 3, 4, 5, 6],
+                "label_score": [1.0, 0.8, 0.4, 0.3, 0.2, 0.1],
+            }
+        )
+
+        training_result = train_node_utility_model(
+            feature_frame=feature_frame,
+            label_frame=label_frame,
+            budget=1,
+            model_type="logistic_regression",
+            top_fraction=0.5,
+            random_seed=7,
+        )
+
+        self.assertEqual(training_result.model_type, "logistic_regression")
+        self.assertEqual(set(training_result.predicted_scores), set(feature_frame["node_id"]))
+        self.assertEqual(len(training_result.candidate_nodes), 3)
+
     def test_train_ranking_model_dispatches_tabular_backend(self) -> None:
         dataset, protected_group_report, community_result = _toy_ml_fixture()
         feature_frame = compute_node_features(dataset, protected_group_report, community_result)
@@ -358,6 +420,38 @@ class MLTrainingTestCase(unittest.TestCase):
         self.assertEqual(training_result.target_column, "label_score")
         self.assertEqual(training_result.debias_mode, "none")
         self.assertEqual(set(training_result.predicted_scores), set(dataset.graph.nodes()))
+
+    def test_mlp_convergence_warnings_are_captured_in_metadata(self) -> None:
+        dataset, protected_group_report, community_result = _toy_ml_fixture()
+        feature_frame = compute_node_features(dataset, protected_group_report, community_result)
+        label_result = generate_singleton_node_utility_labels(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            propagation_probability=1.0,
+            mc_runs=3,
+            lambda_weight=0.5,
+            random_seed=7,
+        )
+
+        def quick_mlp(*args, **kwargs):
+            kwargs["max_iter"] = 1
+            return SklearnMLPRegressor(*args, **kwargs)
+
+        with patch("fim_hybrid.ml_training.MLPRegressor", side_effect=quick_mlp):
+            training_result = train_dispatch_ranking_model(
+                dataset=dataset,
+                feature_frame=feature_frame,
+                label_frame=label_result.label_frame,
+                budget=3,
+                model_type="mlp",
+                target_column="label_score",
+                top_fraction=0.5,
+                random_seed=7,
+            )
+
+        self.assertEqual(training_result.model_type, "mlp")
+        self.assertTrue(training_result.metadata["fit_warnings"])
+        self.assertTrue(any("Maximum iterations" in warning for warning in training_result.metadata["fit_warnings"]))
 
     def test_select_ml_candidate_nodes_obeys_precedence_and_budget_floor(self) -> None:
         ranked_nodes = tuple(range(1, 11))

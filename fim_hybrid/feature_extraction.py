@@ -54,15 +54,28 @@ def _normalized_entropy(values: list[str], num_groups: int) -> float:
     return float(entropy / normalizer)
 
 
+def _safe_feature_token(value: object) -> str:
+    token = "".join(
+        character.lower() if character.isalnum() else "_"
+        for character in str(value).strip()
+    )
+    return "_".join(part for part in token.split("_") if part) or "group"
+
+
 def compute_node_features(
     dataset: LoadedDataset,
     protected_group_report: ProtectedGroupReport,
     community_result: CommunityDetectionResult,
     node2vec_config: Node2VecConfig | None = None,
     node2vec_cache_path: Path | None = None,
+    use_community_features_for_ml: bool = True,
+    community_feature_mode: str = "basic",
 ) -> pd.DataFrame:
     """Compute deterministic structural and fairness-aware node features."""
 
+    resolved_mode = "none" if not bool(use_community_features_for_ml) else str(community_feature_mode).strip().lower()
+    if resolved_mode not in {"none", "basic", "full"}:
+        raise ValueError("community_feature_mode must be one of ['none', 'basic', 'full'].")
     if dataset.name != protected_group_report.dataset_name:
         raise ValueError("protected_group_report.dataset_name must match dataset.name.")
     if set(dataset.graph.nodes()) != set(community_result.community_id_by_node):
@@ -88,13 +101,37 @@ def compute_node_features(
         community_group_counts[community_id][group_by_node[node_id]] += 1
 
     undercovered_groups_by_community: dict[int, set[str]] = {}
+    community_group_fractions: dict[int, dict[str, float]] = {}
+    community_group_entropies: dict[int, float] = {}
     for community_id, group_counts in community_group_counts.items():
         community_size = float(community_result.stats.community_sizes[community_id])
+        community_group_fractions[community_id] = {
+            group_name: float(group_counts.get(group_name, 0)) / community_size
+            for group_name in protected_group_report.group_sizes
+        }
+        community_group_entropies[community_id] = _normalized_entropy(
+            [
+                group_name
+                for group_name, count in group_counts.items()
+                for _ in range(int(count))
+            ],
+            num_groups,
+        )
         undercovered_groups_by_community[community_id] = {
             group_name
             for group_name, global_frequency in global_group_frequency.items()
             if (float(group_counts.get(group_name, 0)) / community_size) < global_frequency
         }
+    community_size_rank = {
+        community_id: rank
+        for rank, (community_id, _) in enumerate(
+            sorted(
+                community_result.stats.community_sizes.items(),
+                key=lambda item: (-int(item[1]), int(item[0])),
+            ),
+            start=1,
+        )
+    }
 
     pagerank_scores = nx.pagerank(graph)
     betweenness_scores = _compute_betweenness_centrality(work_graph)
@@ -127,8 +164,7 @@ def compute_node_features(
             if group_by_node[neighbor_id] in undercovered_groups
         )
 
-        records.append(
-            {
+        row = {
                 "node_id": node_id,
                 "community_id": community_id,
                 "community_size": float(community_size),
@@ -154,7 +190,15 @@ def compute_node_features(
                 "inverse_community_size": 1.0 / float(community_size),
                 "inverse_group_size": 1.0 / float(group_size),
             }
-        )
+        if resolved_mode == "full":
+            row["community_size_rank"] = float(community_size_rank[community_id])
+            row["community_protected_group_entropy"] = float(community_group_entropies[community_id])
+            for group_label in protected_group_report.group_sizes:
+                token = _safe_feature_token(group_label)
+                row[f"community_group_fraction_{token}"] = float(
+                    community_group_fractions[community_id].get(group_label, 0.0)
+                )
+        records.append(row)
 
     frame = pd.DataFrame(records).set_index("node_id", drop=False)
     if node2vec_config is not None:
@@ -192,6 +236,16 @@ def compute_node_features(
         + 0.05 * normalized["inverse_community_size"]
         + 0.05 * normalized["inverse_group_size"]
     )
+    if resolved_mode == "none":
+        explicit_community_columns = [
+            "community_id",
+            "community_size",
+            "within_community_degree",
+            "cross_community_degree",
+            "neighboring_communities",
+            "inverse_community_size",
+        ]
+        frame = frame.drop(columns=[column for column in explicit_community_columns if column in frame.columns])
     return frame
 
 

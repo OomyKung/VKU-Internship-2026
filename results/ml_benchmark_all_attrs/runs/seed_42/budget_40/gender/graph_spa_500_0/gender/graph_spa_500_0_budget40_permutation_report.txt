@@ -1,0 +1,41 @@
+FIM Algorithm-Stack Permutation Comparison
+------------------------------------------------------------------------
+Protected attribute: gender
+Budget: 40
+Final estimator: monte_carlo | mc_runs_eval=200
+
+1. node2vec_xgboost [ok]
+   spread=42.6900 | extra=2.6900 | MF=0.0843 | DCV=0.0062 | F-score=0.0390 | runtime=4.851s
+   modules: diffusion=ic | community=leiden | embedding=node2vec | clustering=none | ranking=xgboost | optimizer=hybrid_si_ea | debias=none
+   notes=communities=19; modularity=0.802180; embedding_cache=miss; target=label_score; backend=tabular; candidate_pool=250; validation_spearman=0.9732; validation_precision_at_budget=0.8750; history=graph_spa_500_0_node2vec_xgboost_history.csv
+
+2. gcn_fair_ris_hybrid [ok]
+   spread=42.1550 | extra=2.1550 | MF=0.0833 | DCV=0.0059 | F-score=0.0387 | runtime=4.459s
+   modules: diffusion=ic | community=leiden | embedding=gcn | clustering=none | ranking=gcn | optimizer=hybrid_si_ea | debias=none
+   notes=ML guidance mode=two_tier; full_pool=500; tier_policy=tuned; backend=gnn_ris; weights=(graphsage=1.000, ris=1.000, fair_ris=0.500, fairness=0.200, diversity=0.000); target=label_score; target_variance=0.025930; gnn_model_type=gcn; node2vec_mode=off; feature_shape=(500, 42); edge_index_shape=(2, 1938); cache=miss; label_variance=0.025930; ris_num_rr_sets=128; ris_mode=weak_group_weighted; fair_ris_enabled=True; ris_reuse_rr_sets=True; history=graph_spa_500_0_budget40_leiden_hybrid_siea_ml_gnn_ris_two_tier_tuned_swap_local_search_history.csv; Delegated to existing gnn_ris hybrid path with shared final Monte Carlo evaluation.
+
+3. graphsage_fair_ris_hybrid [ok]
+   spread=42.2050 | extra=2.2050 | MF=0.0833 | DCV=0.0067 | F-score=0.0383 | runtime=4.527s
+   modules: diffusion=ic | community=leiden | embedding=graphsage | clustering=none | ranking=graphsage | optimizer=hybrid_si_ea | debias=worst_group_boost
+   notes=ML guidance mode=two_tier; full_pool=500; tier_policy=tuned; backend=gnn_ris; weights=(graphsage=1.000, ris=1.000, fair_ris=0.500, fairness=0.200, diversity=0.000); target=label_score; target_variance=0.025930; gnn_model_type=graphsage; node2vec_mode=off; feature_shape=(500, 42); edge_index_shape=(2, 1938); cache=miss; label_variance=0.025930; ris_num_rr_sets=128; ris_mode=weak_group_weighted; fair_ris_enabled=True; ris_reuse_rr_sets=True; history=graph_spa_500_0_budget40_leiden_hybrid_siea_ml_gnn_ris_two_tier_tuned_swap_local_search_history.csv; Delegated to existing gnn_ris hybrid path with shared final Monte Carlo evaluation.
+
+4. community_aware_fair_greedy [ok]
+   spread=42.5450 | extra=2.5450 | MF=0.0826 | DCV=0.0148 | F-score=0.0339 | runtime=37.412s
+   modules: diffusion=ic | community=leiden | embedding=none | clustering=none | ranking=fairness_weighted_greedy | optimizer=local_search | debias=none
+   notes=initial_rr=[12, 13, 14, 15, 17, 18, 21, 223, 229, 238, 24, 241, 264, 265, 267, 268, 269, 271, 278, 281, 284, 287, 30, 303, 312, 326, 33, 331, 38, 39, 40, 44, 464, 465, 481, 485, 5, 53, 59, 6]; greedy=[120, 125, 126, 131, 139, 14, 141, 142, 17, 171, 172, 184, 190, 213, 219, 228, 246, 267, 274, 304, 318, 32, 321, 340, 341, 361, 375, 376, 382, 395, 402, 406, 440, 481, 483, 493, 495, 53, 72, 86]; communities=19; modularity=0.802180
+
+5. line_fast_ml [ok]
+   spread=41.9550 | extra=1.9550 | MF=0.0811 | DCV=0.0170 | F-score=0.0320 | runtime=23.305s
+   modules: diffusion=ic | community=leiden | embedding=line | clustering=none | ranking=logistic_regression | optimizer=greedy | debias=none
+   notes=Fast shallow-embedding ML baseline.; communities=19; modularity=0.802180; embedding_cache=miss; target=label_score; backend=tabular; candidate_pool=250; validation_spearman=0.1814; validation_precision_at_budget=0.4250
+
+6. deepwalk_mlp [ok]
+   spread=41.9150 | extra=1.9150 | MF=0.0769 | DCV=0.0411 | F-score=0.0179 | runtime=26.834s
+   modules: diffusion=ic | community=leiden | embedding=deepwalk | clustering=none | ranking=mlp | optimizer=greedy | debias=none
+   notes=Shallow embedding plus MLP ranking benchmark stack.; communities=19; modularity=0.802180; embedding_cache=miss; target=label_score; backend=tabular; candidate_pool=250; validation_spearman=0.1258; validation_precision_at_budget=0.4750
+
+Recommendations
+------------------------------------------------------------------------
+best_interpretable_baseline=community_aware_fair_greedy
+best_practical_ml_default=node2vec_xgboost
+best_exploratory_fairness_heavy=gcn_fair_ris_hybrid
