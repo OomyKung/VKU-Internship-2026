@@ -19,6 +19,8 @@ from sklearn.neural_network import MLPRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
+from .safe_math import safe_divide
+
 try:
     from xgboost import XGBRegressor
 except ImportError:  # pragma: no cover - optional dependency.
@@ -86,7 +88,12 @@ def _precision_at_k(
         ascending=[False, True],
     )["node_id"].head(k)
     overlap = set(predicted_top.tolist()) & set(true_top.tolist())
-    return float(len(overlap) / float(k))
+    return safe_divide(
+        float(len(overlap)),
+        float(k),
+        default=0.0,
+        context="ranking precision@k",
+    )
 
 
 @dataclass(frozen=True, slots=True)

@@ -5,59 +5,57 @@ Inputs: ml_fim_benchmark
 Rows loaded: 4
 Ranking mode: fim_default
 
-Group 1: dataset=graph_spa_500_0 | protected_attribute=region | budget=40
+Group 1: dataset=twitter | protected_attribute=color | budget=40
 ------------------------------------------------------------------------
 Rows: 4 methods | ranking=fim_default | aggregated_runs=no
 
 Rank  Method                         F-score   MF      DCV     Spread   Extra   Runtime
-1     community_aware_fair_greedy    0.0166   0.0690  0.0357  41.640   1.640   58.108s
-2     node2vec_xgboost_community_... 0.0165   0.0702  0.0372  42.600   2.600   15.464s
-3     gcn_community_siea             0.0156   0.0652  0.0340  42.495   2.495   11.907s
-4     graphsage_community_siea       -0.0568  0.0040  0.1175  42.620   2.620   15.067s
+1     community_aware_fair_greedy    0.0034   0.0120  0.0053  45.705   5.705   766.426s
+2     graphsage_community_siea       0.0028   0.0121  0.0066  46.455   6.455   41.319s
+3     node2vec_xgboost_community_... 0.0004   0.0133  0.0125  51.515   11.515  56.998s
+4     gcn_community_siea             -0.0339  0.0092  0.0770  44.700   4.700   33.451s
 
 Instant Insights
 - Overall winner: community_aware_fair_greedy
-- Best spread: graphsage_community_siea
+- Best spread: node2vec_xgboost_community_siea
 - Best fairness profile: node2vec_xgboost_community_siea
 - Fastest method: gcn_community_siea
-- Result closeness: close overall result; top f_score gap is 0.0002
-- Trade-off: graphsage_community_siea delivers the best spread, but community_aware_fair_greedy keeps the stronger fairness-adjusted score.
-- Trade-off: gcn_community_siea is the best practical efficiency-oriented alternative.
-- Warning: graphsage_community_siea shows a fairness collapse signal.
-- Best practical choice: gcn_community_siea
+- Result closeness: close overall result; top f_score gap is 0.0006
+- Trade-off: node2vec_xgboost_community_siea delivers the best spread, but community_aware_fair_greedy keeps the stronger fairness-adjusted score.
+- Warning: gcn_community_siea shows a fairness collapse signal.
+- Best practical choice: community_aware_fair_greedy
 - Best interpretable baseline: community_aware_fair_greedy
 
 Per-Method Notes
 - community_aware_fair_greedy: Best overall fairness-adjusted result; Best interpretable baseline
-- node2vec_xgboost_community_siea: Best fairness-first method
-- gcn_community_siea: Fastest evaluated method; Best practical high-speed option
-- graphsage_community_siea: Best spread-oriented method, but not best fairness-adjusted method; Negative F-score; not recommended as default
+- graphsage_community_siea: Competitive comparison method
+- node2vec_xgboost_community_siea: Best spread-oriented method, but not best fairness-adjusted method; Best fairness-first method
+- gcn_community_siea: Fastest evaluated method; Negative F-score; not recommended as default
 
 Recommendation
 - best_overall_method=community_aware_fair_greedy
 - best_fairness_first_method=node2vec_xgboost_community_siea
-- best_spread_first_method=graphsage_community_siea
+- best_spread_first_method=node2vec_xgboost_community_siea
 - best_runtime_first_method=gcn_community_siea
 - best_interpretable_baseline=community_aware_fair_greedy
 - best_exploratory_comparator=n/a
-- best_practical_choice=gcn_community_siea
+- best_practical_choice=community_aware_fair_greedy
 
 ML Benchmark Insights
-- Best current overall ML stack: node2vec_xgboost_community_siea
+- Best current overall ML stack: graphsage_community_siea
 - Best fairness-first ML stack: node2vec_xgboost_community_siea
-- Best spread-first ML stack: graphsage_community_siea
+- Best spread-first ML stack: node2vec_xgboost_community_siea
 - Best fast ML stack: gcn_community_siea
 - Best interpretable baseline: community_aware_fair_greedy
-- Strongest practical default: gcn_community_siea
-- Close result; top two ML F-scores differ by 0.0009.
-- graphsage_community_siea is the best spread-oriented ML stack, but not the best fairness-adjusted ML stack.
-- Fairness collapse warning: graphsage_community_siea
+- Strongest practical default: graphsage_community_siea
+- node2vec_xgboost_community_siea is the best spread-oriented ML stack, but not the best fairness-adjusted ML stack.
+- Fairness collapse warning: gcn_community_siea
 
 ML Benchmark Recommendation
-- best_current_overall_ml_stack=node2vec_xgboost_community_siea
+- best_current_overall_ml_stack=graphsage_community_siea
 - best_fairness_first_ml_stack=node2vec_xgboost_community_siea
-- best_spread_first_ml_stack=graphsage_community_siea
+- best_spread_first_ml_stack=node2vec_xgboost_community_siea
 - best_fast_ml_stack=gcn_community_siea
 - best_interpretable_baseline=community_aware_fair_greedy
-- strongest_practical_default=gcn_community_siea
-- stacks_needing_more_work=graphsage_community_siea
+- strongest_practical_default=graphsage_community_siea
+- stacks_needing_more_work=gcn_community_siea

@@ -10,6 +10,7 @@ import networkx as nx
 import numpy as np
 
 from .data_loader import LoadedDataset, ProtectedGroupReport
+from .safe_math import safe_divide, safe_minmax_normalize
 
 
 def _sort_key(value: Any) -> tuple[str, str]:
@@ -21,14 +22,14 @@ def _normalize_score_map(scores: dict[Any, float], nodes: Iterable[Any]) -> dict
     if not ordered_nodes:
         return {}
 
-    values = np.asarray([float(scores.get(node_id, 0.0)) for node_id in ordered_nodes], dtype=float)
-    minimum = float(values.min())
-    maximum = float(values.max())
-    if maximum <= minimum:
-        return {node_id: 0.0 for node_id in ordered_nodes}
+    normalized = safe_minmax_normalize(
+        [float(scores.get(node_id, 0.0)) for node_id in ordered_nodes],
+        default=0.0,
+        context="RIS score normalization",
+    )
     return {
-        node_id: float((float(scores.get(node_id, 0.0)) - minimum) / (maximum - minimum))
-        for node_id in ordered_nodes
+        node_id: float(score)
+        for node_id, score in zip(ordered_nodes, normalized, strict=True)
     }
 
 
@@ -81,7 +82,12 @@ class RISGuidanceResult:
                     for group_name in self.rr_set_counts_by_group
                 )
             )
-            raw_scores[node_id] = weighted_numerator / weighted_denominator
+            raw_scores[node_id] = safe_divide(
+                weighted_numerator,
+                weighted_denominator,
+                default=0.0,
+                context="weighted RIS score",
+            )
         return _normalize_score_map(raw_scores, self.node_rr_counts)
 
 
@@ -171,7 +177,12 @@ def generate_ris_guidance(
             node_group_rr_counts[node_id][root_group] += 1
 
     global_scores = {
-        node_id: float(node_rr_counts[node_id]) / float(config.num_rr_sets)
+        node_id: safe_divide(
+            float(node_rr_counts[node_id]),
+            float(config.num_rr_sets),
+            default=0.0,
+            context="global RIS score",
+        )
         for node_id in ordered_nodes
     }
     return RISGuidanceResult(

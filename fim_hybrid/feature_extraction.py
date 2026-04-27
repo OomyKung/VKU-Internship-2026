@@ -8,12 +8,12 @@ from pathlib import Path
 from typing import Any
 
 import networkx as nx
-import numpy as np
 import pandas as pd
 
 from .community_detection import CommunityDetectionResult
 from .data_loader import LoadedDataset, ProtectedGroupReport
 from .node2vec_embeddings import Node2VecConfig, generate_node2vec_embeddings
+from .safe_math import safe_divide, safe_minmax_normalize
 
 
 def _sort_key(value: Any) -> tuple[str, str]:
@@ -21,11 +21,12 @@ def _sort_key(value: Any) -> tuple[str, str]:
 
 
 def _normalize_series(values: pd.Series) -> pd.Series:
-    minimum = float(values.min())
-    maximum = float(values.max())
-    if maximum <= minimum:
-        return pd.Series(np.zeros(len(values), dtype=float), index=values.index)
-    return (values.astype(float) - minimum) / (maximum - minimum)
+    normalized = safe_minmax_normalize(
+        values.astype(float).tolist(),
+        default=0.0,
+        context=f"feature normalization '{values.name or 'series'}'",
+    )
+    return pd.Series(normalized, index=values.index, dtype=float)
 
 
 def _compute_betweenness_centrality(graph: nx.Graph) -> dict[Any, float]:
@@ -45,7 +46,12 @@ def _normalized_entropy(values: list[str], num_groups: int) -> float:
     total = float(sum(counts.values()))
     entropy = 0.0
     for count in counts.values():
-        probability = float(count) / total
+        probability = safe_divide(
+            float(count),
+            total,
+            default=0.0,
+            context="normalized entropy probability",
+        )
         entropy -= probability * math.log(probability)
 
     normalizer = math.log(float(num_groups))
@@ -92,10 +98,20 @@ def compute_node_features(
     }
     num_groups = len(protected_group_report.group_sizes)
     global_group_frequency = {
-        group_name: float(group_size) / float(node_count)
+        group_name: safe_divide(
+            float(group_size),
+            float(node_count),
+            default=0.0,
+            context=f"global protected-group frequency for {group_name}",
+        )
         for group_name, group_size in protected_group_report.group_sizes.items()
     }
-    minority_frequency_threshold = 1.0 / float(max(num_groups, 1))
+    minority_frequency_threshold = safe_divide(
+        1.0,
+        float(num_groups),
+        default=0.0,
+        context="minority frequency threshold",
+    )
     community_group_counts: dict[int, Counter[str]] = defaultdict(Counter)
     for node_id, community_id in community_result.community_id_by_node.items():
         community_group_counts[community_id][group_by_node[node_id]] += 1
@@ -106,7 +122,12 @@ def compute_node_features(
     for community_id, group_counts in community_group_counts.items():
         community_size = float(community_result.stats.community_sizes[community_id])
         community_group_fractions[community_id] = {
-            group_name: float(group_counts.get(group_name, 0)) / community_size
+            group_name: safe_divide(
+                float(group_counts.get(group_name, 0)),
+                community_size,
+                default=0.0,
+                context=f"community {community_id} protected-group fraction",
+            )
             for group_name in protected_group_report.group_sizes
         }
         community_group_entropies[community_id] = _normalized_entropy(
@@ -120,7 +141,12 @@ def compute_node_features(
         undercovered_groups_by_community[community_id] = {
             group_name
             for group_name, global_frequency in global_group_frequency.items()
-            if (float(group_counts.get(group_name, 0)) / community_size) < global_frequency
+            if safe_divide(
+                float(group_counts.get(group_name, 0)),
+                community_size,
+                default=0.0,
+                context=f"community {community_id} undercovered-group fraction",
+            ) < global_frequency
         }
     community_size_rank = {
         community_id: rank
@@ -170,25 +196,50 @@ def compute_node_features(
                 "community_size": float(community_size),
                 "protected_group": group_name,
                 "degree": degree,
-                "normalized_degree": degree / max_degree_denominator,
+                "normalized_degree": safe_divide(
+                    degree,
+                    max_degree_denominator,
+                    default=0.0,
+                    context="normalized node degree",
+                ),
                 "pagerank": float(pagerank_scores[node_id]),
                 "betweenness": float(betweenness_scores[node_id]),
                 "clustering_coefficient": float(clustering_coefficients[node_id]),
                 "within_community_degree": float(within_community_degree),
                 "cross_community_degree": float(cross_community_degree),
                 "neighboring_communities": float(len(neighboring_communities)),
-                "protected_group_frequency": float(group_size) / float(node_count),
+                "protected_group_frequency": safe_divide(
+                    float(group_size),
+                    float(node_count),
+                    default=0.0,
+                    context="node protected-group frequency",
+                ),
                 "minority_group_indicator": float(
                     global_group_frequency[group_name] < minority_frequency_threshold
                 ),
                 "neighborhood_group_entropy": _normalized_entropy(neighbor_group_values, num_groups),
                 "fraction_neighbors_in_undercovered_groups": (
-                    float(undercovered_neighbor_count) / float(len(neighbors))
+                    safe_divide(
+                        float(undercovered_neighbor_count),
+                        float(len(neighbors)),
+                        default=0.0,
+                        context="undercovered-neighbor fraction",
+                    )
                     if neighbors
                     else 0.0
                 ),
-                "inverse_community_size": 1.0 / float(community_size),
-                "inverse_group_size": 1.0 / float(group_size),
+                "inverse_community_size": safe_divide(
+                    1.0,
+                    float(community_size),
+                    default=0.0,
+                    context="inverse community size",
+                ),
+                "inverse_group_size": safe_divide(
+                    1.0,
+                    float(group_size),
+                    default=0.0,
+                    context="inverse protected-group size",
+                ),
             }
         if resolved_mode == "full":
             row["community_size_rank"] = float(community_size_rank[community_id])

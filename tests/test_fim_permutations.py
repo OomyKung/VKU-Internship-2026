@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import redirect_stderr
+import io
 from pathlib import Path
 import shutil
 import unittest
@@ -15,6 +17,7 @@ from fim_hybrid.data_loader import LoadedDataset, verify_protected_groups
 from fim_hybrid.permutations import (
     FIMPermutationRunConfig,
     _combine_guidance_scores,
+    _combined_guidance_score_frame,
     _hybrid_optimizer_config,
     available_fim_permutations,
     format_fim_permutation_report,
@@ -255,6 +258,37 @@ class FIMPermutationTestCase(unittest.TestCase):
         self.assertEqual(row["status"], "skipped")
         self.assertIn("missing optional package", str(row["skip_reason"]))
 
+    def test_debug_errors_print_full_traceback_context(self) -> None:
+        dataset, report = _toy_dataset()
+        config = FIMPermutationRunConfig(
+            protected_attribute="group",
+            budget=2,
+            mc_runs_search=2,
+            mc_runs_eval=3,
+            random_seed=7,
+            continue_on_error=True,
+            debug_errors=True,
+        )
+        stderr = io.StringIO()
+        with patch("fim_hybrid.permutations.detect_communities", side_effect=ZeroDivisionError("boom")):
+            with redirect_stderr(stderr):
+                result = run_fim_permutation_benchmark(
+                    dataset,
+                    report,
+                    config,
+                    permutations=["infomap_graphcl_logreg_maximin"],
+                )
+
+        row = result.summary_frame.iloc[0]
+        self.assertEqual(row["status"], "skipped")
+        traceback_text = stderr.getvalue()
+        self.assertIn("Stack failure traceback", traceback_text)
+        self.assertIn("stack_name=infomap_graphcl_logreg_maximin", traceback_text)
+        self.assertIn("dataset=toy_permutation", traceback_text)
+        self.assertIn("protected_attribute=group", traceback_text)
+        self.assertIn("budget=2", traceback_text)
+        self.assertIn("ZeroDivisionError: boom", traceback_text)
+
     def test_selected_pipeline_config_controls_hybrid_ml_score_stages(self) -> None:
         spec = get_fim_permutation_spec("leiden_node2vec_xgboost_hybrid")
         default_config = FIMPermutationRunConfig(protected_attribute="group", budget=2)
@@ -291,6 +325,23 @@ class FIMPermutationTestCase(unittest.TestCase):
         )
 
         self.assertGreater(scores[1], scores[2])
+
+    def test_combined_guidance_scores_handle_constant_components(self) -> None:
+        spec = get_fim_permutation_spec("leiden_node2vec_xgboost_hybrid")
+
+        frame = _combined_guidance_score_frame(
+            spec,
+            ranking_scores={1: 5.0, 2: 5.0},
+            ris_scores={1: 3.0, 2: 3.0},
+            fair_ris_scores={1: 1.0, 2: 1.0},
+            fairness_bonus_scores={1: 0.25, 2: 0.25},
+            diversity_bonus_scores={1: 0.0, 2: 0.0},
+            fairness_bonus_weight=1.0,
+            diversity_bonus_weight=1.0,
+        )
+
+        self.assertTrue((frame["combined_score"] == 0.0).all())
+        self.assertTrue((frame[["ml_score", "ris_score", "fair_ris_score"]] == 0.0).all().all())
 
     def test_report_includes_side_by_side_metrics(self) -> None:
         dataset, report = _toy_dataset()

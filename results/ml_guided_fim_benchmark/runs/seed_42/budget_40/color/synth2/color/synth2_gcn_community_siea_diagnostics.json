@@ -1,0 +1,25 @@
+{
+  "all_candidate_score_components_constant": false,
+  "budget": 40,
+  "constant_components": {
+    "combined_score": false,
+    "community_diversity_bonus": false,
+    "fair_ris_score": false,
+    "fairness_bonus": false,
+    "ml_score": false,
+    "ris_score": false
+  },
+  "dataset": "synth2",
+  "largest_community_size": 130,
+  "num_communities": 11,
+  "num_edges": 3668,
+  "num_nodes": 500,
+  "protected_attribute": "color",
+  "protected_group_counts": {
+    "0": 150,
+    "1": 350
+  },
+  "score_table_path": "C:\\Users\\User\\Desktop\\VKU-Internship-2026\\results\\ml_guided_fim_benchmark\\runs\\seed_42\\budget_40\\color\\synth2\\color\\synth2_gcn_community_siea_combined_candidate_scores.csv",
+  "smallest_community_size": 1,
+  "stack_name": "gcn_community_siea"
+}

@@ -18,6 +18,7 @@ except ImportError:
 
 from fim_hybrid.clustering import (
     ClusteringInputError,
+    _mean_conductance,
     available_clustering_methods,
     cluster_nodes,
     run_clustering_benchmark,
@@ -132,6 +133,14 @@ class ClusteringFrameworkTestCase(unittest.TestCase):
 
         self.assertEqual(set(result.cluster_id_by_node), set(graph.nodes()))
         self.assertGreaterEqual(result.num_clusters, 1)
+
+    def test_mean_conductance_skips_zero_volume_partitions(self) -> None:
+        graph = nx.Graph()
+        graph.add_edges_from([(1, 2), (2, 3), (1, 3)])
+        graph.add_nodes_from([4, 5])
+        clusters = {0: (1, 2, 3), 1: (4,), 2: (5,)}
+
+        self.assertIsNone(_mean_conductance(graph, clusters))
 
     def test_embedding_space_kmeans_uses_embedding_frame(self) -> None:
         graph = _toy_graph()

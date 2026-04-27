@@ -1,0 +1,51 @@
+FIM Algorithm-Stack Permutation Comparison
+------------------------------------------------------------------------
+Protected attribute: age
+Budget: 40
+Final estimator: monte_carlo | mc_runs_eval=200
+
+1. community_aware_fair_greedy [ok]
+   spread=41.4050 | extra=1.4050 | MF=0.0761 | DCV=0.0175 | F-score=0.0293 | runtime=39.922s
+   modules: diffusion=ic | community=leiden | embedding=none | clustering=none | ranking=fairness_weighted_greedy | optimizer=local_search | debias=none
+   pipeline: fim_stack=community_aware_fair_greedy | mode=baseline | method_type=non_ml_baseline | repair=True | swap_local_search=True
+   features: use_community_features=True | community_feature_mode=basic | allow_protected_features_in_ml=False
+   guidance: ml=1.0 | ris=1.0 | fair_ris=0.5 | fairness=0.2 | community_diversity=0.2
+   optimizer_diagnostics: initial_seed_source=fairness_weighted_greedy | repaired_seed_sets=nan | successful_swaps=nan | community_coverage={"0": 3, "1": 4, "10": 1, "11": 4, "12": 2, "13": 3, "14": 3, "16": 1, "18": 1, "2": 5, "3": 3, "4": 3, "5": 2, "6": 2, "7": 1, "8": 1, "9": 1} | protected_group_coverage={"18-24": 6, "25-29": 3, "30-39": 8, "40-49": 11, "50-59": 5, "60-64": 2, "65+": 5}
+   artifacts: score_table= | embeddings= | community_assignments=C:\Users\User\Desktop\VKU-Internship-2026\results\ml_guided_fim_benchmark\runs\seed_42\budget_40\age\graph_spa_500_0\age\graph_spa_500_0_community_aware_fair_greedy_leiden_community_assignments.csv
+   notes=initial_rr=[12, 13, 14, 15, 17, 18, 21, 223, 229, 238, 24, 241, 264, 265, 267, 268, 269, 271, 278, 281, 284, 287, 30, 303, 312, 326, 33, 331, 38, 39, 40, 44, 464, 465, 481, 485, 5, 53, 59, 6]; greedy=[102, 107, 109, 118, 124, 128, 131, 144, 158, 181, 183, 190, 199, 2, 22, 242, 247, 25, 278, 282, 287, 31, 328, 338, 354, 355, 357, 388, 4, 416, 457, 462, 470, 48, 482, 494, 56, 61, 85, 86]; communities=19; modularity=0.802180
+
+2. node2vec_xgboost_community_siea [ok]
+   spread=42.5700 | extra=2.5700 | MF=0.0756 | DCV=0.0207 | F-score=0.0274 | runtime=10.184s
+   modules: diffusion=ic | community=leiden | embedding=node2vec | clustering=none | ranking=xgboost | optimizer=hybrid_si_ea | debias=none
+   pipeline: fim_stack=node2vec_xgboost_community_siea | mode=ml_guided_community_siea | method_type=ml_guided_hybrid | repair=True | swap_local_search=True
+   features: use_community_features=True | community_feature_mode=basic | allow_protected_features_in_ml=False
+   guidance: ml=1.0 | ris=1.0 | fair_ris=0.5 | fairness=0.2 | community_diversity=0.2
+   optimizer_diagnostics: initial_seed_source=combined_candidate_score | repaired_seed_sets=754.0 | successful_swaps=96.0 | community_coverage={"0": 2, "1": 5, "10": 1, "11": 5, "12": 4, "13": 2, "14": 3, "15": 1, "16": 3, "2": 3, "3": 1, "4": 3, "5": 2, "6": 3, "7": 2} | protected_group_coverage={"18-24": 6, "25-29": 3, "30-39": 8, "40-49": 11, "50-59": 5, "60-64": 2, "65+": 5}
+   artifacts: score_table=C:\Users\User\Desktop\VKU-Internship-2026\results\ml_guided_fim_benchmark\runs\seed_42\budget_40\age\graph_spa_500_0\age\graph_spa_500_0_node2vec_xgboost_community_siea_combined_candidate_scores.csv | embeddings=C:\Users\User\Desktop\VKU-Internship-2026\results\ml_guided_fim_benchmark\runs\seed_42\budget_40\age\graph_spa_500_0\embeddings\graph_spa_500_0_node2vec_embeddings.pkl | community_assignments=C:\Users\User\Desktop\VKU-Internship-2026\results\ml_guided_fim_benchmark\runs\seed_42\budget_40\age\graph_spa_500_0\age\graph_spa_500_0_node2vec_xgboost_community_siea_leiden_community_assignments.csv
+   notes=main_method=true; lightweight_quality_runtime=true; ml_guided_only=true; communities=19; modularity=0.802180; embedding_cache=miss; target=label_score; backend=tabular; candidate_pool=250; validation_spearman=0.3974; validation_precision_at_budget=0.6000; history=graph_spa_500_0_node2vec_xgboost_community_siea_history.csv
+
+3. gcn_community_siea [ok]
+   spread=42.5300 | extra=2.5300 | MF=0.0770 | DCV=0.0271 | F-score=0.0250 | runtime=7.596s
+   modules: diffusion=ic | community=leiden | embedding=gcn | clustering=none | ranking=gcn | optimizer=hybrid_si_ea | debias=none
+   pipeline: fim_stack=gcn_community_siea | mode=ml_guided_community_siea | method_type=ml_guided_hybrid | repair=True | swap_local_search=True
+   features: use_community_features=True | community_feature_mode=basic | allow_protected_features_in_ml=False
+   guidance: ml=1.0 | ris=1.0 | fair_ris=0.5 | fairness=0.2 | community_diversity=0.2
+   optimizer_diagnostics: initial_seed_source=combined_candidate_score | repaired_seed_sets=816.0 | successful_swaps=96.0 | community_coverage={"0": 1, "1": 4, "10": 1, "11": 2, "12": 2, "13": 4, "14": 1, "15": 2, "16": 1, "17": 1, "2": 7, "3": 1, "4": 1, "5": 5, "6": 1, "7": 2, "8": 1, "9": 3} | protected_group_coverage={"18-24": 7, "25-29": 4, "30-39": 7, "40-49": 10, "50-59": 5, "60-64": 2, "65+": 5}
+   artifacts: score_table=C:\Users\User\Desktop\VKU-Internship-2026\results\ml_guided_fim_benchmark\runs\seed_42\budget_40\age\graph_spa_500_0\age\graph_spa_500_0_gcn_community_siea_combined_candidate_scores.csv | embeddings=C:\Users\User\Desktop\VKU-Internship-2026\results\ml_guided_fim_benchmark\runs\seed_42\budget_40\age\graph_spa_500_0\embeddings\graph_spa_500_0_gcn_embeddings.pkl | community_assignments=C:\Users\User\Desktop\VKU-Internship-2026\results\ml_guided_fim_benchmark\runs\seed_42\budget_40\age\graph_spa_500_0\age\graph_spa_500_0_gcn_community_siea_leiden_community_assignments.csv
+   notes=optional_gnn_comparison=true; ml_guided_only=true; communities=19; modularity=0.802180; embedding_cache=miss; target=label_score; backend=gnn; candidate_pool=250; validation_spearman=0.2565; validation_precision_at_budget=0.5000; history=graph_spa_500_0_gcn_community_siea_history.csv
+
+4. graphsage_community_siea [ok]
+   spread=42.2450 | extra=2.2450 | MF=0.0690 | DCV=0.0294 | F-score=0.0198 | runtime=10.592s
+   modules: diffusion=ic | community=leiden | embedding=graphsage | clustering=none | ranking=graphsage | optimizer=hybrid_si_ea | debias=none
+   pipeline: fim_stack=graphsage_community_siea | mode=ml_guided_community_siea | method_type=ml_guided_hybrid | repair=True | swap_local_search=True
+   features: use_community_features=True | community_feature_mode=basic | allow_protected_features_in_ml=False
+   guidance: ml=1.0 | ris=1.0 | fair_ris=0.5 | fairness=0.2 | community_diversity=0.2
+   optimizer_diagnostics: initial_seed_source=combined_candidate_score | repaired_seed_sets=794.0 | successful_swaps=96.0 | community_coverage={"0": 1, "1": 4, "10": 1, "11": 5, "12": 3, "13": 7, "14": 4, "15": 1, "16": 2, "17": 1, "18": 1, "2": 2, "3": 1, "4": 1, "5": 1, "6": 1, "7": 2, "8": 1, "9": 1} | protected_group_coverage={"18-24": 7, "25-29": 4, "30-39": 8, "40-49": 9, "50-59": 5, "60-64": 2, "65+": 5}
+   artifacts: score_table=C:\Users\User\Desktop\VKU-Internship-2026\results\ml_guided_fim_benchmark\runs\seed_42\budget_40\age\graph_spa_500_0\age\graph_spa_500_0_graphsage_community_siea_combined_candidate_scores.csv | embeddings=C:\Users\User\Desktop\VKU-Internship-2026\results\ml_guided_fim_benchmark\runs\seed_42\budget_40\age\graph_spa_500_0\embeddings\graph_spa_500_0_graphsage_embeddings.pkl | community_assignments=C:\Users\User\Desktop\VKU-Internship-2026\results\ml_guided_fim_benchmark\runs\seed_42\budget_40\age\graph_spa_500_0\age\graph_spa_500_0_graphsage_community_siea_leiden_community_assignments.csv
+   notes=main_method=true; ml_guided_only=true; communities=19; modularity=0.802180; embedding_cache=miss; target=label_score; backend=gnn; candidate_pool=250; validation_spearman=0.2677; validation_precision_at_budget=0.4500; history=graph_spa_500_0_graphsage_community_siea_history.csv
+
+Recommendations
+------------------------------------------------------------------------
+best_interpretable_baseline=community_aware_fair_greedy
+best_practical_ml_default=node2vec_xgboost_community_siea
+best_exploratory_fairness_heavy=node2vec_xgboost_community_siea

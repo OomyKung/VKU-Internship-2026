@@ -17,6 +17,7 @@ from .diffusion import DEFAULT_DIFFUSION_MODEL, validate_diffusion_model
 from .evaluation import evaluate_seed_set
 from .feature_extraction import compute_node_features, compute_structural_node_scores
 from .fairness import FairnessMetrics
+from .safe_math import safe_divide, safe_minmax_normalize
 
 
 @dataclass(slots=True)
@@ -159,14 +160,14 @@ def _normalize_score_map(
     if not nodes:
         return {}
 
-    values = np.asarray([float(scores[node_id]) for node_id in nodes], dtype=float)
-    minimum = float(values.min())
-    maximum = float(values.max())
-    if maximum <= minimum:
-        return {node_id: 0.0 for node_id in nodes}
+    normalized = safe_minmax_normalize(
+        [float(scores[node_id]) for node_id in nodes],
+        default=0.0,
+        context="hybrid optimizer score normalization",
+    )
     return {
-        node_id: float((float(scores[node_id]) - minimum) / (maximum - minimum))
-        for node_id in nodes
+        node_id: float(score)
+        for node_id, score in zip(nodes, normalized, strict=True)
     }
 
 
@@ -582,7 +583,12 @@ class HybridSIEAOptimizer:
                 group_counts[self.node_group_by_node[node_id]] += 1
             community_size = max(1, len(community_nodes))
             fractions[community_id] = {
-                group_name: float(group_counts[group_name]) / float(community_size)
+                group_name: safe_divide(
+                    float(group_counts[group_name]),
+                    float(community_size),
+                    default=0.0,
+                    context=f"optimizer community {community_id} group fraction",
+                )
                 for group_name in self.group_names
             }
         return fractions
@@ -609,7 +615,12 @@ class HybridSIEAOptimizer:
             for neighbor_id in neighbors:
                 neighbor_counts[self.node_group_by_node[neighbor_id]] += 1
             fractions[node_id] = {
-                group_name: float(neighbor_counts[group_name]) / float(len(neighbors))
+                group_name: safe_divide(
+                    float(neighbor_counts[group_name]),
+                    float(len(neighbors)),
+                    default=0.0,
+                    context=f"optimizer neighbor group fraction for node {node_id}",
+                )
                 for group_name in self.group_names
             }
         return fractions
@@ -634,7 +645,12 @@ class HybridSIEAOptimizer:
                     if neighbor_community in self.group_community_ids[group_name]:
                         bridge_scores[group_name] += 1
             bridge_fractions[node_id] = {
-                group_name: float(bridge_scores[group_name]) / float(len(cross_neighbors))
+                group_name: safe_divide(
+                    float(bridge_scores[group_name]),
+                    float(len(cross_neighbors)),
+                    default=0.0,
+                    context=f"optimizer bridge group fraction for node {node_id}",
+                )
                 for group_name in self.group_names
             }
         return bridge_fractions
@@ -1084,7 +1100,12 @@ class HybridSIEAOptimizer:
         return {
             group_name: float(
                 np.clip(
-                    float(group_counts.get(group_name, 0)) / float(self.protected_group_report.group_sizes[group_name]),
+                    safe_divide(
+                        float(group_counts.get(group_name, 0)),
+                        float(self.protected_group_report.group_sizes[group_name]),
+                        default=0.0,
+                        context=f"optimizer protected-group coverage for {group_name}",
+                    ),
                     0.0,
                     1.0,
                 )
@@ -1374,7 +1395,12 @@ class HybridSIEAOptimizer:
         if not self._overlap_penalty_active():
             return 0.0
         community_id = self.community_result.community_id_by_node[node_id]
-        return float(community_counts.get(community_id, 0)) / float(max(1, self.config.budget))
+        return safe_divide(
+            float(community_counts.get(community_id, 0)),
+            float(self.config.budget),
+            default=0.0,
+            context="same-community overlap penalty",
+        )
 
     def _neighborhood_overlap_penalty(
         self,
@@ -1568,7 +1594,12 @@ class HybridSIEAOptimizer:
         return {
             "zero_covered_groups_count": len(fairness.group_spread) - len(covered_groups),
             "bottom_3_avg_group_spread": self._bottom_k_average_group_spread(fairness, k=3, normalized=False),
-            "fraction_groups_covered": float(len(covered_groups)) / float(len(fairness.group_spread)),
+            "fraction_groups_covered": safe_divide(
+                float(len(covered_groups)),
+                float(len(fairness.group_spread)),
+                default=0.0,
+                context="optimizer fraction of protected groups covered",
+            ),
             "weakest_groups_note": ",".join(weakest_groups),
         }
 

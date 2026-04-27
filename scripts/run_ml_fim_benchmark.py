@@ -838,6 +838,18 @@ def parse_args() -> argparse.Namespace:
         help="Convert stack failures into skipped rows instead of aborting the full benchmark.",
     )
     parser.add_argument(
+        "--debug-errors",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Print full traceback details when a benchmark stack fails.",
+    )
+    parser.add_argument(
+        "--raise-errors",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Re-raise the first benchmark stack exception after optional debug traceback output.",
+    )
+    parser.add_argument(
         "--include-baseline",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -897,6 +909,8 @@ def main() -> None:
         random_seed=int(args.random_seed),
         output_dir=output_dir,
         continue_on_error=bool(args.continue_on_error),
+        debug_errors=bool(args.debug_errors),
+        raise_errors=bool(args.raise_errors),
         swap_candidate_pool_size=int(args.swap_candidate_pool_size),
         local_search_steps=int(args.local_search_steps),
         population_size=int(args.population_size),

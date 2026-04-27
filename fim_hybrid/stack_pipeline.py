@@ -17,6 +17,7 @@ from .feature_extraction import compute_node_features
 from .label_generation import NodeUtilityLabelResult, generate_singleton_node_utility_labels
 from .ml_training import RankingTrainingResult, train_ranking_model as train_backend_ranking_model
 from .ris_guidance import RISConfig, RISGuidanceResult, generate_ris_guidance
+from .safe_math import safe_minmax_normalize
 
 
 def _sort_key(value: Any) -> tuple[str, str]:
@@ -27,14 +28,14 @@ def _normalize_score_map(scores: Mapping[Any, float]) -> dict[Any, float]:
     if not scores:
         return {}
     ordered_nodes = sorted(scores, key=_sort_key)
-    values = pd.Series([float(scores[node_id]) for node_id in ordered_nodes], dtype=float)
-    minimum = float(values.min())
-    maximum = float(values.max())
-    if maximum <= minimum:
-        return {node_id: 0.0 for node_id in ordered_nodes}
+    normalized = safe_minmax_normalize(
+        [float(scores[node_id]) for node_id in ordered_nodes],
+        default=0.0,
+        context="stack score normalization",
+    )
     return {
-        node_id: float((float(scores[node_id]) - minimum) / (maximum - minimum))
-        for node_id in ordered_nodes
+        node_id: float(score)
+        for node_id, score in zip(ordered_nodes, normalized, strict=True)
     }
 
 

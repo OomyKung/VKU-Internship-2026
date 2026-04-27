@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .safe_math import safe_divide
+
 
 @dataclass(slots=True)
 class FairnessMetrics:
@@ -47,7 +49,12 @@ def compute_normalized_group_spread(
 
     normalized_group_spread: dict[str, float] = {}
     for group_name, spread in _normalize_group_spread_input(group_spread, group_sizes).items():
-        normalized_group_spread[group_name] = spread / float(group_sizes[group_name])
+        normalized_group_spread[group_name] = safe_divide(
+            spread,
+            float(group_sizes[group_name]),
+            default=0.0,
+            context=f"normalized spread for protected group {group_name}",
+        )
     return normalized_group_spread
 
 
@@ -80,7 +87,13 @@ def compute_dcv(
     completed_group_spread = _normalize_group_spread_input(group_spread, group_sizes)
     total_population = float(sum(group_sizes.values()))
     group_targets = {
-        group_name: float(total_spread) * (float(group_size) / total_population)
+        group_name: float(total_spread)
+        * safe_divide(
+            float(group_size),
+            total_population,
+            default=0.0,
+            context=f"target quota for protected group {group_name}",
+        )
         for group_name, group_size in group_sizes.items()
     }
 
@@ -88,7 +101,14 @@ def compute_dcv(
     for group_name, target in group_targets.items():
         achieved = completed_group_spread[group_name]
         safe_target = max(target, 1e-9)
-        violations.append(max(target - achieved, 0.0) / safe_target)
+        violations.append(
+            safe_divide(
+                max(target - achieved, 0.0),
+                safe_target,
+                default=0.0,
+                context=f"DCV violation ratio for protected group {group_name}",
+            )
+        )
 
     return float(np.mean(violations)), group_targets
 

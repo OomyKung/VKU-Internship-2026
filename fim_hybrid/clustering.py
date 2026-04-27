@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+import logging
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -22,6 +23,8 @@ from sklearn.metrics import (
     normalized_mutual_info_score,
     silhouette_score,
 )
+
+from .safe_math import safe_divide
 
 try:
     import igraph as ig
@@ -42,6 +45,8 @@ GRAPH_NATIVE_CLUSTERING_METHODS = (
     "label_propagation",
     "walktrap",
 )
+
+LOGGER = logging.getLogger(__name__)
 EMBEDDING_SPACE_CLUSTERING_METHODS = (
     "kmeans",
     "spectral",
@@ -576,14 +581,35 @@ def _mean_conductance(
     if work_graph.number_of_edges() == 0 or len(clusters) < 2:
         return None
     scores: list[float] = []
+    skipped_zero_volume = 0
     for nodes in clusters.values():
         node_set = set(nodes)
         if not node_set or len(node_set) == work_graph.number_of_nodes():
             continue
         try:
-            scores.append(float(nx.conductance(work_graph, node_set)))
+            complement = set(work_graph.nodes()) - node_set
+            denominator = min(
+                float(nx.volume(work_graph, node_set)),
+                float(nx.volume(work_graph, complement)),
+            )
+            if denominator <= 0.0:
+                skipped_zero_volume += 1
+                continue
+            scores.append(
+                safe_divide(
+                    float(nx.cut_size(work_graph, node_set, complement)),
+                    denominator,
+                    default=0.0,
+                    context="cluster conductance",
+                )
+            )
         except nx.NetworkXError:
             continue
+    if skipped_zero_volume:
+        LOGGER.warning(
+            "cluster conductance skipped %d zero-volume partition(s).",
+            skipped_zero_volume,
+        )
     if not scores:
         return None
     return float(np.mean(scores))

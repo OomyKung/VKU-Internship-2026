@@ -12,6 +12,7 @@ import pandas as pd
 from .data_loader import LoadedDataset, ProtectedGroupReport
 from .diffusion import DEFAULT_DIFFUSION_MODEL
 from .evaluation import evaluate_seed_set
+from .safe_math import safe_divide, safe_minmax_normalize
 
 
 def _sort_key(value: Any) -> tuple[str, str]:
@@ -19,11 +20,12 @@ def _sort_key(value: Any) -> tuple[str, str]:
 
 
 def _min_max_normalize(values: pd.Series) -> pd.Series:
-    minimum = float(values.min())
-    maximum = float(values.max())
-    if maximum <= minimum:
-        return pd.Series(np.zeros(len(values), dtype=float), index=values.index)
-    return (values.astype(float) - minimum) / (maximum - minimum)
+    normalized = safe_minmax_normalize(
+        values.astype(float).tolist(),
+        default=0.0,
+        context=f"label normalization '{values.name or 'series'}'",
+    )
+    return pd.Series(normalized, index=values.index, dtype=float)
 
 
 def _weak_group_gain(
@@ -44,7 +46,12 @@ def _target_attainment_summary(
     attainment_scores: list[float] = []
     for group_name, target_value in group_targets.items():
         safe_target = max(float(target_value), 1e-9)
-        attained = float(group_spread.get(group_name, 0.0)) / safe_target
+        attained = safe_divide(
+            float(group_spread.get(group_name, 0.0)),
+            safe_target,
+            default=0.0,
+            context=f"target attainment for protected group {group_name}",
+        )
         attainment_scores.append(float(np.clip(attained, 0.0, 1.0)))
     if not attainment_scores:
         return 0.0, 0.0

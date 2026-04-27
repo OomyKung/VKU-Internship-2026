@@ -24,6 +24,7 @@ from .label_generation import NodeUtilityLabelResult, generate_singleton_node_ut
 from .ml_training import RankingTrainingResult
 from .node2vec_embeddings import Node2VecConfig, build_node2vec_cache_path
 from .ris_guidance import RISConfig, RISGuidanceResult
+from .safe_math import safe_minmax_normalize
 from .stack_pipeline import prepare_ris_guidance as prepare_stack_ris_guidance
 from .stack_pipeline import train_ranking_model as train_stack_ranking_model
 
@@ -913,14 +914,15 @@ def _build_gnn_label_frame(
 def _normalize_score_map(scores: dict[object, float]) -> dict[object, float]:
     if not scores:
         return {}
-    values = pd.Series(scores, dtype=float)
-    minimum = float(values.min())
-    maximum = float(values.max())
-    if maximum <= minimum:
-        return {node_id: 0.0 for node_id in scores}
+    ordered_nodes = list(scores)
+    normalized = safe_minmax_normalize(
+        [float(scores[node_id]) for node_id in ordered_nodes],
+        default=0.0,
+        context="experiment runner score normalization",
+    )
     return {
-        node_id: float((float(score) - minimum) / (maximum - minimum))
-        for node_id, score in scores.items()
+        node_id: float(score)
+        for node_id, score in zip(ordered_nodes, normalized, strict=True)
     }
 
 

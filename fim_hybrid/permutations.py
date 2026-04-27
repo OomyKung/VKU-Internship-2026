@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 from pathlib import Path
+import sys
 from time import perf_counter
+import traceback
 from typing import Any, Callable, Iterable, Mapping
 
 import pandas as pd
@@ -24,6 +26,7 @@ from .experiment_runner import ExperimentSettings, run_loaded_experiment
 from .feature_extraction import compute_structural_node_scores
 from .hybrid_optimizer import HybridSIEAConfig, HybridSIEAOptimizer
 from .ris_guidance import RISConfig
+from .safe_math import safe_minmax_normalize
 from .stack_pipeline import (
     build_ranking_feature_frame,
     build_stack_label_frame,
@@ -60,14 +63,15 @@ def _normalize_score_map(scores: Mapping[Any, float]) -> dict[Any, float]:
     if not scores:
         return {}
     ordered_nodes = sorted(scores, key=_sort_key)
-    values = pd.Series([float(scores[node_id]) for node_id in ordered_nodes], dtype=float)
-    minimum = float(values.min())
-    maximum = float(values.max())
-    if maximum <= minimum:
-        return {node_id: 0.0 for node_id in ordered_nodes}
+    values = [float(scores[node_id]) for node_id in ordered_nodes]
+    normalized = safe_minmax_normalize(
+        values,
+        default=0.0,
+        context="permutation score normalization",
+    )
     return {
-        node_id: float((float(scores[node_id]) - minimum) / (maximum - minimum))
-        for node_id in ordered_nodes
+        node_id: float(score)
+        for node_id, score in zip(ordered_nodes, normalized, strict=True)
     }
 
 
@@ -121,6 +125,8 @@ class FIMPermutationRunConfig:
     random_seed: int = 42
     output_dir: Path | None = None
     continue_on_error: bool = True
+    debug_errors: bool = False
+    raise_errors: bool = False
     swap_candidate_pool_size: int = 24
     local_search_steps: int = 1
     population_size: int = 8
@@ -404,6 +410,8 @@ def permutation_summary_columns() -> list[str]:
         "embeddings_cache_path",
         "community_assignments_path",
         "community_sizes_path",
+        "diagnostics_path",
+        "candidate_score_components_constant",
         "notes",
         "skip_reason",
         "skipped_reason",
@@ -496,6 +504,140 @@ def _write_combined_score_table(
     path = output_dir / f"{dataset.name}_{spec.name}_combined_candidate_scores.csv"
     score_frame.to_csv(path, index=False)
     return str(path)
+
+
+_SCORE_COMPONENT_COLUMNS = (
+    "ml_score",
+    "ris_score",
+    "fair_ris_score",
+    "fairness_bonus",
+    "community_diversity_bonus",
+    "combined_score",
+)
+
+
+def _is_constant_score_component(score_frame: pd.DataFrame, column_name: str) -> bool | None:
+    if score_frame is None or score_frame.empty or column_name not in score_frame.columns:
+        return None
+    numeric_values = pd.to_numeric(score_frame[column_name], errors="coerce").dropna()
+    if numeric_values.empty:
+        return True
+    return float(numeric_values.max()) <= float(numeric_values.min())
+
+
+def _score_component_diagnostics(score_frame: pd.DataFrame | None) -> dict[str, object]:
+    component_flags = {
+        column_name: constant
+        for column_name in _SCORE_COMPONENT_COLUMNS
+        if (constant := _is_constant_score_component(score_frame, column_name)) is not None
+    }
+    all_constant = None if not component_flags else bool(all(component_flags.values()))
+    return {
+        "all_candidate_score_components_constant": all_constant,
+        "constant_components": component_flags,
+    }
+
+
+def _diagnostics_payload(
+    *,
+    dataset: LoadedDataset,
+    protected_group_report: ProtectedGroupReport,
+    spec: FIMPermutationSpec,
+    config: FIMPermutationRunConfig,
+    community_result: CommunityDetectionResult | None = None,
+    score_frame: pd.DataFrame | None = None,
+    score_table_path: str = "",
+) -> dict[str, object]:
+    community_sizes = (
+        list(community_result.stats.community_sizes.values())
+        if community_result is not None
+        else []
+    )
+    payload: dict[str, object] = {
+        "stack_name": spec.name,
+        "dataset": dataset.name,
+        "protected_attribute": protected_group_report.protected_attribute,
+        "budget": int(config.budget),
+        "num_nodes": int(dataset.graph.number_of_nodes()),
+        "num_edges": int(dataset.graph.number_of_edges()),
+        "protected_group_counts": dict(protected_group_report.group_sizes),
+        "num_communities": int(community_result.stats.num_communities) if community_result is not None else None,
+        "smallest_community_size": int(min(community_sizes)) if community_sizes else None,
+        "largest_community_size": int(max(community_sizes)) if community_sizes else None,
+        "score_table_path": score_table_path,
+    }
+    payload.update(_score_component_diagnostics(score_frame))
+    return payload
+
+
+def _diagnostics_path(
+    *,
+    dataset: LoadedDataset,
+    protected_group_report: ProtectedGroupReport,
+    spec: FIMPermutationSpec,
+    config: FIMPermutationRunConfig,
+) -> Path | None:
+    output_dir = _permutation_output_dir(config.output_dir, dataset.name, protected_group_report.protected_attribute)
+    if output_dir is None:
+        return None
+    return output_dir / f"{dataset.name}_{spec.name}_diagnostics.json"
+
+
+def _print_diagnostics(payload: Mapping[str, object]) -> None:
+    constant_components = payload.get("constant_components", {})
+    if isinstance(constant_components, Mapping) and constant_components:
+        score_constant_text = json.dumps(dict(constant_components), sort_keys=True)
+    else:
+        score_constant_text = "n/a"
+    print(
+        "Benchmark diagnostics | "
+        f"stack={payload.get('stack_name')} | "
+        f"dataset={payload.get('dataset')} | "
+        f"protected_attribute={payload.get('protected_attribute')} | "
+        f"budget={payload.get('budget')} | "
+        f"nodes={payload.get('num_nodes')} | "
+        f"edges={payload.get('num_edges')} | "
+        f"protected_group_counts={json.dumps(payload.get('protected_group_counts', {}), sort_keys=True)} | "
+        f"communities={payload.get('num_communities')} | "
+        f"smallest_community_size={payload.get('smallest_community_size')} | "
+        f"largest_community_size={payload.get('largest_community_size')} | "
+        f"all_candidate_score_components_constant={payload.get('all_candidate_score_components_constant')} | "
+        f"constant_components={score_constant_text}"
+    )
+
+
+def _emit_stack_diagnostics(
+    *,
+    dataset: LoadedDataset,
+    protected_group_report: ProtectedGroupReport,
+    spec: FIMPermutationSpec,
+    config: FIMPermutationRunConfig,
+    community_result: CommunityDetectionResult | None = None,
+    score_frame: pd.DataFrame | None = None,
+    score_table_path: str = "",
+) -> dict[str, object]:
+    payload = _diagnostics_payload(
+        dataset=dataset,
+        protected_group_report=protected_group_report,
+        spec=spec,
+        config=config,
+        community_result=community_result,
+        score_frame=score_frame,
+        score_table_path=score_table_path,
+    )
+    path = _diagnostics_path(
+        dataset=dataset,
+        protected_group_report=protected_group_report,
+        spec=spec,
+        config=config,
+    )
+    if path is not None:
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    _print_diagnostics(payload)
+    return {
+        "diagnostics_path": "" if path is None else str(path),
+        "candidate_score_components_constant": payload["all_candidate_score_components_constant"],
+    }
 
 
 def _score_cache_path(
@@ -780,6 +922,8 @@ def _result_row(
         "embeddings_cache_path": "",
         "community_assignments_path": "",
         "community_sizes_path": "",
+        "diagnostics_path": "",
+        "candidate_score_components_constant": pd.NA,
         "notes": "; ".join(part for part in [spec.notes, notes] if part),
         "skip_reason": skip_reason,
         "skipped_reason": skip_reason,
@@ -1156,6 +1300,15 @@ def _build_shared_stack_inputs(
         config=config,
         spec=spec,
     )
+    diagnostics_fields = _emit_stack_diagnostics(
+        dataset=dataset,
+        protected_group_report=protected_group_report,
+        spec=spec,
+        config=config,
+        community_result=community_result,
+        score_frame=score_frame,
+        score_table_path=score_table_path,
+    )
     return {
         "community_result": community_result,
         "embedding_artifact": embedding_artifact,
@@ -1167,6 +1320,7 @@ def _build_shared_stack_inputs(
         "score_table_path": score_table_path,
         "community_assignments_path": community_paths["community_assignments_path"],
         "community_sizes_path": community_paths["community_sizes_path"],
+        "diagnostics_fields": diagnostics_fields,
     }
 
 
@@ -1208,6 +1362,13 @@ def _run_community_aware_fair_greedy(
 ) -> pd.DataFrame:
     start = perf_counter()
     community_result = _community_result(dataset, spec, config)
+    diagnostics_fields = _emit_stack_diagnostics(
+        dataset=dataset,
+        protected_group_report=protected_group_report,
+        spec=spec,
+        config=config,
+        community_result=community_result,
+    )
     initial_seed_set = select_baseline_seed_set(
         dataset=dataset,
         method="community_round_robin",
@@ -1288,6 +1449,7 @@ def _run_community_aware_fair_greedy(
                 method="community_round_robin+fairness_weighted_greedy+swap_local_search",
                 notes=notes,
                 extra_fields={
+                    **diagnostics_fields,
                     "final_community_coverage": _seed_community_coverage(refined_seed_set, community_result),
                     "final_protected_group_coverage": _seed_protected_group_coverage(refined_seed_set, protected_group_report),
                     "community_assignments_path": community_paths["community_assignments_path"],
@@ -1443,6 +1605,13 @@ def _run_ranked_greedy_stack(
                 ),
                 method="embedding+ranking+greedy",
                 notes=notes,
+                extra_fields={
+                    **shared.get("diagnostics_fields", {}),
+                    "score_table_path": shared.get("score_table_path", ""),
+                    "embeddings_cache_path": _embedding_artifact_path(shared.get("embedding_artifact")),
+                    "community_assignments_path": shared.get("community_assignments_path", ""),
+                    "community_sizes_path": shared.get("community_sizes_path", ""),
+                },
             )
         ]
     )
@@ -1498,6 +1667,13 @@ def _run_ranked_maximin_stack(
                 ),
                 method="embedding+ranking+maximin_greedy+swap_local_search",
                 notes=notes,
+                extra_fields={
+                    **shared.get("diagnostics_fields", {}),
+                    "score_table_path": shared.get("score_table_path", ""),
+                    "embeddings_cache_path": _embedding_artifact_path(shared.get("embedding_artifact")),
+                    "community_assignments_path": shared.get("community_assignments_path", ""),
+                    "community_sizes_path": shared.get("community_sizes_path", ""),
+                },
             )
         ]
     )
@@ -1614,6 +1790,7 @@ def _run_ranked_hybrid_stack(
                 method="embedding+ranking+hybrid_si_ea",
                 notes=notes,
                 extra_fields={
+                    **shared.get("diagnostics_fields", {}),
                     **_optimizer_diagnostics_fields(
                         optimization_result,
                         protected_group_report,
@@ -1676,6 +1853,15 @@ def _run_no_ml_hybrid_stack(
         config=config,
         spec=spec,
     )
+    diagnostics_fields = _emit_stack_diagnostics(
+        dataset=dataset,
+        protected_group_report=protected_group_report,
+        spec=spec,
+        config=config,
+        community_result=community_result,
+        score_frame=score_frame,
+        score_table_path=score_table_path,
+    )
     optimizer = HybridSIEAOptimizer(
         dataset=dataset,
         protected_group_report=protected_group_report,
@@ -1708,6 +1894,7 @@ def _run_no_ml_hybrid_stack(
                 method="community_structural+hybrid_si_ea",
                 notes=notes,
                 extra_fields={
+                    **diagnostics_fields,
                     **_optimizer_diagnostics_fields(
                         optimization_result,
                         protected_group_report,
@@ -1738,6 +1925,25 @@ def _normalize_summary_frame(rows: list[dict[str, object]]) -> pd.DataFrame:
         if column not in frame.columns:
             frame[column] = pd.NA
     return frame.loc[:, permutation_summary_columns()].copy()
+
+
+def _print_stack_exception(
+    *,
+    exc: Exception,
+    spec: FIMPermutationSpec,
+    dataset: LoadedDataset,
+    protected_group_report: ProtectedGroupReport,
+    config: FIMPermutationRunConfig,
+) -> None:
+    print(
+        "Stack failure traceback | "
+        f"stack_name={spec.name} | "
+        f"dataset={dataset.name} | "
+        f"protected_attribute={protected_group_report.protected_attribute} | "
+        f"budget={int(config.budget)}",
+        file=sys.stderr,
+    )
+    traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
 
 
 def _recommend_stack_name(frame: pd.DataFrame, mask: pd.Series) -> str | None:
@@ -1905,7 +2111,15 @@ def run_fim_permutation_benchmark(
         try:
             frame = runner(dataset, protected_group_report, spec, config)
         except Exception as exc:  # noqa: BLE001 - benchmark rows should skip cleanly.
-            if not config.continue_on_error:
+            if config.debug_errors:
+                _print_stack_exception(
+                    exc=exc,
+                    spec=spec,
+                    dataset=dataset,
+                    protected_group_report=protected_group_report,
+                    config=config,
+                )
+            if config.raise_errors or not config.continue_on_error:
                 raise
             frame = pd.DataFrame(
                 [
