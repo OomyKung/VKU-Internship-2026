@@ -36,6 +36,15 @@ class HybridSIEAConfig:
     diffusion_model: str = DEFAULT_DIFFUSION_MODEL
     lambda_weight: float = 0.5
     random_seed: int = 42
+    fitness_policy: str = "f_score"
+    fscore_weight: float = 3.0
+    mf_weight: float = 2.0
+    dcv_weight: float = 2.0
+    spread_weight: float = 0.5
+    runtime_penalty_weight: float = 0.05
+    fairness_tolerance_dcv: float = 0.005
+    fairness_tolerance_fscore_drop: float = 0.001
+    use_fairness_first_swap_acceptance: bool = False
     local_search_steps: int = 2
     disable_swarm_guidance: bool = False
     disable_crossover: bool = False
@@ -119,6 +128,8 @@ class CandidateEvaluation:
     total_spread_mean: float
     total_spread_std: float
     fairness: FairnessMetrics
+    f_score: float
+    runtime_seconds: float
     score: float
 
 
@@ -143,6 +154,9 @@ class HybridOptimizationResult:
     history: pd.DataFrame
     repaired_seed_sets: int = 0
     successful_swaps: int = 0
+    fitness_cache_hits: int = 0
+    marginal_cache_hits: int = 0
+    swap_cache_hits: int = 0
 
 
 def _sort_key(value: Any) -> tuple[str, str]:
@@ -256,6 +270,7 @@ class HybridSIEAOptimizer:
         valid_ml_modes = {"off", "hard_filter", "soft_bias", "two_tier"}
         valid_local_search_modes = {"default", "worst_group"}
         valid_optimization_modes = {"full", "balanced", "fast"}
+        valid_fitness_policies = {"f_score", "fairness_first"}
         validate_diffusion_model(self.config.diffusion_model)
         if self.dataset.graph.number_of_nodes() == 0:
             raise ValueError("dataset.graph must contain at least one node.")
@@ -291,6 +306,19 @@ class HybridSIEAOptimizer:
             raise ValueError("propagation_probability must be between 0.0 and 1.0.")
         if not 0.0 <= self.config.lambda_weight <= 1.0:
             raise ValueError("lambda_weight must be between 0.0 and 1.0.")
+        if self.config.fitness_policy not in valid_fitness_policies:
+            raise ValueError(f"fitness_policy must be one of {sorted(valid_fitness_policies)}.")
+        for field_name in (
+            "fscore_weight",
+            "mf_weight",
+            "dcv_weight",
+            "spread_weight",
+            "runtime_penalty_weight",
+            "fairness_tolerance_dcv",
+            "fairness_tolerance_fscore_drop",
+        ):
+            if float(getattr(self.config, field_name)) < 0.0:
+                raise ValueError(f"{field_name} must be non-negative.")
         if self.config.ml_guidance_mode not in valid_ml_modes:
             raise ValueError(f"ml_guidance_mode must be one of {sorted(valid_ml_modes)}.")
         if not 0.0 < self.config.ml_primary_pool_ratio <= 1.0:
@@ -702,6 +730,26 @@ class HybridSIEAOptimizer:
             evaluation.score,
             evaluation.total_spread_mean,
             self._seed_sort_key(evaluation.seed_set),
+        )
+
+    def _fitness_score(self, evaluation_result: Any) -> float:
+        if self.config.fitness_policy != "fairness_first":
+            return float(evaluation_result.f_score)
+
+        node_count = max(1, int(self.dataset.graph.number_of_nodes()))
+        normalized_spread = safe_divide(
+            float(evaluation_result.total_spread_mean),
+            float(node_count),
+            default=0.0,
+            context="fairness-first normalized spread fitness",
+        )
+        normalized_runtime = min(1.0, max(0.0, float(evaluation_result.runtime_seconds)))
+        return float(
+            self.config.fscore_weight * float(evaluation_result.f_score)
+            + self.config.mf_weight * float(evaluation_result.fairness.mf)
+            - self.config.dcv_weight * float(evaluation_result.fairness.dcv)
+            + self.config.spread_weight * normalized_spread
+            - self.config.runtime_penalty_weight * normalized_runtime
         )
 
     def _mode_scale(self) -> float:
@@ -1359,7 +1407,9 @@ class HybridSIEAOptimizer:
             total_spread_mean=evaluation_result.total_spread_mean,
             total_spread_std=evaluation_result.total_spread_std,
             fairness=evaluation_result.fairness,
-            score=evaluation_result.f_score,
+            f_score=evaluation_result.f_score,
+            runtime_seconds=evaluation_result.runtime_seconds,
+            score=self._fitness_score(evaluation_result),
         )
         if self.config.enable_fitness_cache:
             self._cache_store(target_cache, cache_key, evaluation)
@@ -1607,6 +1657,14 @@ class HybridSIEAOptimizer:
         self,
         evaluation: CandidateEvaluation,
     ) -> tuple[float, ...] | tuple[float, float, tuple[tuple[str, str], ...]]:
+        if self.config.fitness_policy == "fairness_first":
+            return (
+                evaluation.f_score,
+                evaluation.fairness.mf,
+                -evaluation.fairness.dcv,
+                evaluation.total_spread_mean,
+                evaluation.score,
+            )
         if not self._worst_group_local_search_active():
             return self._candidate_rank_key(evaluation)
         return (
@@ -1620,6 +1678,36 @@ class HybridSIEAOptimizer:
                 normalized=True,
             ),
         )
+
+    def _fairness_first_swap_is_acceptable(
+        self,
+        incumbent: CandidateEvaluation,
+        candidate: CandidateEvaluation,
+    ) -> bool:
+        eps = 1e-12
+        if candidate.f_score > incumbent.f_score + eps:
+            return True
+        if (
+            candidate.fairness.mf > incumbent.fairness.mf + eps
+            and candidate.fairness.dcv <= incumbent.fairness.dcv + self.config.fairness_tolerance_dcv
+        ):
+            return True
+        if (
+            candidate.total_spread_mean > incumbent.total_spread_mean + eps
+            and candidate.f_score >= incumbent.f_score - self.config.fairness_tolerance_fscore_drop
+            and candidate.fairness.dcv <= incumbent.fairness.dcv + self.config.fairness_tolerance_dcv
+        ):
+            return True
+        return False
+
+    def _is_local_search_improvement(
+        self,
+        candidate: CandidateEvaluation,
+        incumbent: CandidateEvaluation,
+    ) -> bool:
+        if self.config.use_fairness_first_swap_acceptance:
+            return self._fairness_first_swap_is_acceptable(incumbent, candidate)
+        return self._local_search_rank_key(candidate) > self._local_search_rank_key(incumbent)
 
     def _confirm_local_search_improvement(
         self,
@@ -1643,7 +1731,7 @@ class HybridSIEAOptimizer:
         )
         for candidate_seed_set, _ in ranked_candidates:
             full_evaluation = self._evaluate_seed_set(candidate_seed_set, screening=False)
-            if self._local_search_rank_key(full_evaluation) > self._local_search_rank_key(current_full_evaluation):
+            if self._is_local_search_improvement(full_evaluation, current_full_evaluation):
                 return candidate_seed_set, full_evaluation
             if self.config.local_search_first_improvement:
                 break
@@ -2493,7 +2581,7 @@ class HybridSIEAOptimizer:
                         if not was_cached:
                             self.last_local_search_swap_evaluations += 1
                         evaluated_trials += 1
-                        if self._local_search_rank_key(evaluation) > self._local_search_rank_key(best_evaluation):
+                        if self._is_local_search_improvement(evaluation, best_evaluation):
                             best_candidate = candidate
                             best_evaluation = evaluation
                             screening_improvements.append((candidate, evaluation))
@@ -2619,7 +2707,7 @@ class HybridSIEAOptimizer:
                     if not was_cached:
                         self.last_local_search_swap_evaluations += 1
                     evaluated_trials += 1
-                    if self._local_search_rank_key(evaluation) > self._local_search_rank_key(best_evaluation):
+                    if self._is_local_search_improvement(evaluation, best_evaluation):
                         best_candidate = evaluation.seed_set
                         best_evaluation = evaluation
                         screening_improvements.append((evaluation.seed_set, evaluation))
@@ -2750,7 +2838,8 @@ class HybridSIEAOptimizer:
                 {
                     "generation": generation,
                     "best_score": best_evaluation.score,
-                    "best_f_score": best_evaluation.score,
+                    "best_f_score": best_evaluation.f_score,
+                    "best_objective_score": best_evaluation.score,
                     "best_spread": best_evaluation.total_spread_mean,
                     "best_mf": best_evaluation.fairness.mf,
                     "best_dcv": best_evaluation.fairness.dcv,
@@ -2791,4 +2880,7 @@ class HybridSIEAOptimizer:
             history=pd.DataFrame(history_records),
             repaired_seed_sets=int(self.repaired_seed_sets),
             successful_swaps=int(sum(record.get("local_search_applied_count", 0) for record in history_records)),
+            fitness_cache_hits=int(self.fitness_cache_hits),
+            marginal_cache_hits=int(self.marginal_cache_hits),
+            swap_cache_hits=int(self.swap_cache_hits),
         )

@@ -1,0 +1,19 @@
+{
+  "all_candidate_score_components_constant": null,
+  "budget": 40,
+  "constant_components": {},
+  "dataset": "twitter",
+  "largest_community_size": 442,
+  "num_communities": 118,
+  "num_edges": 13986,
+  "num_nodes": 3753,
+  "protected_attribute": "color",
+  "protected_group_counts": {
+    "0": 812,
+    "1": 2755,
+    "2": 186
+  },
+  "score_table_path": "",
+  "smallest_community_size": 2,
+  "stack_name": "community_fair_greedy_baseline"
+}

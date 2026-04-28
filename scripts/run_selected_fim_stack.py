@@ -161,11 +161,16 @@ def _json_ready(value: object) -> object:
 
 
 def _selection_config_from_args(args: argparse.Namespace) -> TradeoffSelectionConfig:
+    close_threshold = args.fairness_close_threshold
+    if close_threshold is None:
+        close_threshold = args.selection_close_fscore_threshold
     return TradeoffSelectionConfig(
-        close_fscore_threshold=float(args.selection_close_fscore_threshold),
+        close_fscore_threshold=float(close_threshold),
         min_f_score=float(args.min_f_score),
         min_mf=float(args.min_mf),
         max_dcv=float(args.max_dcv),
+        min_fraction_groups_covered=float(args.min_fraction_groups_covered),
+        runtime_tiebreak_only=bool(args.runtime_tiebreak_only),
         runtime_priority_when_close=bool(args.selection_runtime_priority_when_close),
         max_dcv_delta_vs_best=float(args.selection_max_dcv_delta_vs_best),
         min_mf_ratio_vs_best=float(args.selection_min_mf_ratio_vs_best),
@@ -432,7 +437,16 @@ def _build_run_config(
         ris_score_weight=float(selected.pipeline.ris_score_weight),
         fair_ris_score_weight=float(selected.pipeline.fair_ris_score_weight),
         fairness_bonus_weight=float(selected.pipeline.fairness_bonus_weight),
+        weak_group_bonus_weight=float(selected.pipeline.weak_group_bonus_weight),
         diversity_bonus_weight=float(selected.pipeline.diversity_bonus_weight),
+        protected_group_coverage_weight=float(selected.pipeline.protected_group_coverage_weight),
+        ranking_policy=str(selected.selection_policy),
+        min_f_score=float(args.min_f_score),
+        min_mf=float(args.min_mf),
+        max_dcv=float(args.max_dcv),
+        min_fraction_groups_covered=float(args.min_fraction_groups_covered),
+        fairness_close_threshold=float(args.fairness_close_threshold or args.selection_close_fscore_threshold),
+        runtime_tiebreak_only=bool(args.runtime_tiebreak_only),
     )
 
 
@@ -960,14 +974,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--protected-attribute", required=True)
     parser.add_argument("--budget", type=int, required=True)
     parser.add_argument("--auto-select-stack-from", default=None)
-    parser.add_argument("--selection-policy", choices=["fairness_runtime_tradeoff", "quality_runtime"], default="fairness_runtime_tradeoff")
+    parser.add_argument("--selection-policy", choices=["fairness_runtime_tradeoff", "quality_runtime", "fairness_first_priority"], default="fairness_runtime_tradeoff")
     parser.add_argument("--selection-close-fscore-threshold", "--close-fscore-threshold", dest="selection_close_fscore_threshold", type=float, default=0.003)
     parser.add_argument("--selection-max-dcv-delta-vs-best", type=float, default=0.01)
     parser.add_argument("--selection-min-mf-ratio-vs-best", type=float, default=0.95)
     parser.add_argument("--fallback-stack", default=None)
     parser.add_argument("--min-f-score", type=float, default=0.0)
-    parser.add_argument("--min-mf", type=float, default=0.0)
+    parser.add_argument("--min-mf", type=float, default=0.0001)
     parser.add_argument("--max-dcv", type=float, default=0.25)
+    parser.add_argument("--min-fraction-groups-covered", type=float, default=0.80)
+    parser.add_argument("--fairness-close-threshold", type=float, default=None)
+    parser.add_argument("--runtime-tiebreak-only", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--selection-runtime-priority-when-close", "--runtime-priority-when-close", dest="selection_runtime_priority_when_close", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--quality-runtime-lambda", type=float, default=0.0)
     parser.add_argument(

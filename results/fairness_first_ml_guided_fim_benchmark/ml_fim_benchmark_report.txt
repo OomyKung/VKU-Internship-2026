@@ -1,0 +1,80 @@
+FIM Result Evaluation
+==================================================================================================
+Report: ml_fim_benchmark
+Inputs: ml_fim_benchmark
+Rows loaded: 5
+Ranking mode: fairness_first_priority
+
+Global Warnings
+------------------------------------------------------------------------
+- 1 method(s) were placed after fairness-collapse filters.
+
+Group 1: dataset=rice_subset | protected_attribute=color | budget=40
+------------------------------------------------------------------------
+Rows: 5 methods | ranking=fairness_first_priority | aggregated_runs=no
+
+Rank  Method                         F-score   MF      DCV     Spread   Extra   Runtime
+1     graphsage_community_siea       0.0854   0.1782  0.0073  80.450   40.450  66.281s
+2     community_fair_greedy_baseline 0.0849   0.1701  0.0003  75.740   35.740  861.926s
+3     node2vec_xgboost_fair_siea     0.0804   0.1801  0.0193  83.360   43.360  86.317s
+4     fairness_first_scalable_ml_... 0.0685   0.1706  0.0337  81.400   41.400  70.690s
+5     gcn_fair_siea                  -0.1075  0.0752  0.2903  79.855   39.855  88.726s
+
+Instant Insights
+- Overall winner: graphsage_community_siea
+- Best spread: node2vec_xgboost_fair_siea
+- Best fairness profile: graphsage_community_siea
+- Fastest method: graphsage_community_siea
+- Result closeness: close overall result; top f_score gap is 0.0005
+- Trade-off: node2vec_xgboost_fair_siea delivers the best spread, but graphsage_community_siea keeps the stronger fairness-adjusted score.
+- Warning: gcn_fair_siea shows a fairness collapse signal.
+- Best practical choice: graphsage_community_siea
+- Best interpretable baseline: community_fair_greedy_baseline
+- Professor-priority recommendation: graphsage_community_siea
+
+Per-Method Notes
+- graphsage_community_siea: Best overall fairness-adjusted result; Fastest evaluated method
+- community_fair_greedy_baseline: Best interpretable baseline
+- node2vec_xgboost_fair_siea: Best spread-oriented method, but not best fairness-adjusted method
+- fairness_first_scalable_ml_siea: Competitive comparison method
+- gcn_fair_siea: Fairness collapse warning: DCV extremely high; F-score below fairness threshold; not recommended as default
+
+Warnings
+- 1 method(s) were placed after fairness-collapse filters.
+
+Recommendation
+- best_overall_method=graphsage_community_siea
+- best_fairness_first_method=graphsage_community_siea
+- best_spread_first_method=node2vec_xgboost_fair_siea
+- best_runtime_first_method=graphsage_community_siea
+- best_interpretable_baseline=community_fair_greedy_baseline
+- best_exploratory_comparator=n/a
+- best_practical_choice=graphsage_community_siea
+- best_fairness_quality_method=graphsage_community_siea
+- best_scalable_method=graphsage_community_siea
+- best_spread_method=node2vec_xgboost_fair_siea
+- best_runtime_method=graphsage_community_siea
+- final_professor_priority_recommendation=graphsage_community_siea
+
+ML Benchmark Insights
+- Best current overall ML stack: graphsage_community_siea
+- Best fairness-first ML stack: graphsage_community_siea
+- Best spread-first ML stack: node2vec_xgboost_fair_siea
+- Best fast ML stack: graphsage_community_siea
+- Best interpretable baseline: community_fair_greedy_baseline
+- Strongest practical default: graphsage_community_siea
+- node2vec_xgboost_fair_siea is the best spread-oriented ML stack, but not the best fairness-adjusted ML stack.
+
+ML Benchmark Recommendation
+- best_current_overall_ml_stack=graphsage_community_siea
+- best_fairness_first_ml_stack=graphsage_community_siea
+- best_spread_first_ml_stack=node2vec_xgboost_fair_siea
+- best_fast_ml_stack=graphsage_community_siea
+- best_interpretable_baseline=community_fair_greedy_baseline
+- strongest_practical_default=graphsage_community_siea
+- best_fairness_quality_method=graphsage_community_siea
+- best_scalable_method=graphsage_community_siea
+- best_spread_method=node2vec_xgboost_fair_siea
+- best_runtime_method=graphsage_community_siea
+- final_professor_priority_recommendation=graphsage_community_siea
+- stacks_needing_more_work=n/a

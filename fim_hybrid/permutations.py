@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
+import math
 from pathlib import Path
 import sys
 from time import perf_counter
@@ -45,10 +46,41 @@ _FIM_VARIANT_TYPES = {
     "clustering": "clustering_enhanced",
 }
 _BASELINE_RANKING_MODELS = {"none", "greedy", "fairness_weighted_greedy", "maximin_greedy"}
+PROFESSOR_PRIORITY = "professor_priority"
+FAIRNESS_FIRST_PRIORITY = "fairness_first_priority"
+_PRIORITY_POLICIES = {PROFESSOR_PRIORITY, FAIRNESS_FIRST_PRIORITY}
+_RANKING_MODEL_TRAINING_ALIASES = {
+    "graphsage_plus_fair_ris": "graphsage",
+    "gcn_plus_fair_ris": "gcn",
+}
+_FAIRNESS_FIRST_STACKS = {
+    "fairness_first_scalable_ml_siea",
+    "node2vec_xgboost_fair_siea",
+    "gcn_fair_siea",
+    "community_fair_greedy_baseline",
+    "community_aware_fair_greedy",
+    "graphsage_community_siea",
+    "gcn_community_siea",
+    "node2vec_xgboost_community_siea",
+    "graphsage_fair_ris_hybrid",
+    "gcn_fair_ris_hybrid",
+    "node2vec_xgboost",
+}
 
 
 def _sort_key(value: Any) -> tuple[str, str]:
     return (type(value).__name__, repr(value))
+
+
+def _training_ranking_model(model_name: str) -> str:
+    return _RANKING_MODEL_TRAINING_ALIASES.get(str(model_name).strip().lower(), str(model_name).strip().lower())
+
+
+def _normalize_ranking_policy(policy: object) -> str:
+    value = str(policy).strip().lower()
+    if value == FAIRNESS_FIRST_PRIORITY:
+        return PROFESSOR_PRIORITY
+    return value or "fim_default"
 
 
 def _normalized_seed_set(seed_set: Iterable[Any]) -> tuple[Any, ...]:
@@ -100,6 +132,7 @@ class FIMPermutationSpec:
     optimizer_mode: str = "greedy"
     debias_mode: str = "none"
     fairness_objective: str = "f_score"
+    ranking_policy: str = "fim_default"
     variant_family: str = "baseline"
     candidate_top_fraction: float | None = 0.5
     candidate_top_n: int | None = None
@@ -160,7 +193,41 @@ class FIMPermutationRunConfig:
     ris_score_weight: float | None = None
     fair_ris_score_weight: float | None = None
     fairness_bonus_weight: float = 0.2
+    weak_group_bonus_weight: float | None = None
     diversity_bonus_weight: float = 0.2
+    protected_group_coverage_weight: float = 0.0
+    ranking_policy: str = "fim_default"
+    min_f_score: float = 0.0
+    min_mf: float = 0.0001
+    max_dcv: float = 0.25
+    min_fraction_groups_covered: float = 0.80
+    fairness_close_threshold: float = 0.003
+    scalability_required: bool = True
+    runtime_tiebreak_only: bool = True
+    warn_only_fairness_gates: bool = False
+    fscore_weight: float = 3.0
+    mf_weight: float = 2.0
+    dcv_weight: float = 2.0
+    group_coverage_weight: float = 1.0
+    scalability_weight: float = 0.5
+    spread_weight: float = 0.5
+    runtime_penalty_weight: float = 0.05
+    runtime_weight: float = 0.05
+    fairness_tolerance_dcv: float = 0.005
+    fairness_tolerance_fscore_drop: float = 0.001
+    use_fairness_first_swap_acceptance: bool = False
+    use_professor_priority_fitness: bool = False
+    fair_greedy_objective: str = "default"
+    dcv_penalty_weight: float = 2.5
+    community_coverage_weight: float = 0.5
+    use_ris_greedy_approximation: bool = False
+    scalability_mode: str = "auto"
+    max_candidate_pool_size: int = 500
+    candidate_pool_fraction: float = 0.30
+    adaptive_ris_rr_sets: bool = True
+    community_cache: bool = True
+    ris_cache: bool = True
+    spread_proxy_weight: float = 0.0
     community_balance_enabled: bool = True
     protected_group_balance_enabled: bool = True
     repair_mode: str = "balanced"
@@ -191,6 +258,93 @@ def _stack_registry() -> dict[str, FIMPermutationSpec]:
             optimizer_mode="local_search",
             fairness_objective="f_score",
             variant_family="baseline",
+        ),
+        "community_fair_greedy_baseline": FIMPermutationSpec(
+            name="community_fair_greedy_baseline",
+            description=(
+                "Leiden communities with fairness-weighted greedy search, swap local search, "
+                "and fairness-first priority ranking."
+            ),
+            runner_kind="community_aware_fair_greedy",
+            diffusion_model="ic",
+            community_method="leiden",
+            ranking_model="fairness_weighted_greedy",
+            optimizer_mode="local_search",
+            fairness_objective="f_score",
+            ranking_policy=FAIRNESS_FIRST_PRIORITY,
+            variant_family="baseline",
+        ),
+        "fairness_first_scalable_ml_siea": FIMPermutationSpec(
+            name="fairness_first_scalable_ml_siea",
+            description=(
+                "Leiden communities with GraphSAGE guidance, Fair RIS search guidance, "
+                "hybrid SI+EA, fairness-first repair, swap search, and final Monte Carlo evaluation."
+            ),
+            runner_kind="ranked_hybrid",
+            diffusion_model="ic",
+            community_method="leiden",
+            spread_estimator_search="fairness_aware_ris",
+            embedding_method="graphsage",
+            ranking_model="graphsage_plus_fair_ris",
+            optimizer_mode="hybrid_si_ea",
+            debias_mode="worst_group_boost",
+            fairness_objective="f_score",
+            ranking_policy=FAIRNESS_FIRST_PRIORITY,
+            variant_family="ml",
+            candidate_top_fraction=None,
+            use_ris_guidance=True,
+            use_fair_ris=True,
+            ranking_weight=0.8,
+            ris_weight=0.8,
+            fair_ris_weight=1.2,
+        ),
+        "node2vec_xgboost_fair_siea": FIMPermutationSpec(
+            name="node2vec_xgboost_fair_siea",
+            description=(
+                "Leiden communities with Node2Vec embeddings, XGBoost ranking, Fair RIS guidance, "
+                "hybrid SI+EA, and fairness-first priority ranking."
+            ),
+            runner_kind="ranked_hybrid",
+            diffusion_model="ic",
+            community_method="leiden",
+            spread_estimator_search="fairness_aware_ris",
+            embedding_method="node2vec",
+            ranking_model="xgboost",
+            optimizer_mode="hybrid_si_ea",
+            debias_mode="worst_group_boost",
+            fairness_objective="f_score",
+            ranking_policy=FAIRNESS_FIRST_PRIORITY,
+            variant_family="ml",
+            candidate_top_fraction=None,
+            use_ris_guidance=True,
+            use_fair_ris=True,
+            ranking_weight=0.8,
+            ris_weight=0.8,
+            fair_ris_weight=1.2,
+        ),
+        "gcn_fair_siea": FIMPermutationSpec(
+            name="gcn_fair_siea",
+            description=(
+                "Leiden communities with GCN guidance, Fair RIS search guidance, hybrid SI+EA, "
+                "and fairness-first priority ranking."
+            ),
+            runner_kind="ranked_hybrid",
+            diffusion_model="ic",
+            community_method="leiden",
+            spread_estimator_search="fairness_aware_ris",
+            embedding_method="gcn",
+            ranking_model="gcn_plus_fair_ris",
+            optimizer_mode="hybrid_si_ea",
+            debias_mode="worst_group_boost",
+            fairness_objective="f_score",
+            ranking_policy=FAIRNESS_FIRST_PRIORITY,
+            variant_family="ml",
+            candidate_top_fraction=None,
+            use_ris_guidance=True,
+            use_fair_ris=True,
+            ranking_weight=0.8,
+            ris_weight=0.8,
+            fair_ris_weight=1.2,
         ),
         "leiden_graphsage_fair_ris_hybrid": FIMPermutationSpec(
             name="leiden_graphsage_fair_ris_hybrid",
@@ -355,7 +509,9 @@ def permutation_summary_columns() -> list[str]:
         "status",
         "dataset",
         "protected_attribute",
+        "budget",
         "diffusion_model",
+        "ranking_policy",
         "community_method",
         "community_input_mode",
         "clustering_method",
@@ -387,6 +543,14 @@ def permutation_summary_columns() -> list[str]:
         "runtime_seconds",
         "search_runtime_seconds",
         "final_eval_runtime_seconds",
+        "scalability_mode",
+        "scalability_pass",
+        "candidate_pool_size",
+        "ris_num_rr_sets",
+        "effective_ris_num_rr_sets",
+        "zero_covered_groups_count",
+        "fraction_groups_covered",
+        "protected_group_coverage_summary",
         "mc_runs_search",
         "mc_runs_eval",
         "key_enabled_modules",
@@ -397,7 +561,10 @@ def permutation_summary_columns() -> list[str]:
         "ris_score_weight",
         "fair_ris_score_weight",
         "fairness_bonus_weight",
+        "weak_group_bonus_weight",
         "community_diversity_weight",
+        "protected_group_coverage_weight",
+        "spread_proxy_weight",
         "community_balance_enabled",
         "protected_group_balance_enabled",
         "repair_mode",
@@ -405,9 +572,20 @@ def permutation_summary_columns() -> list[str]:
         "repaired_seed_sets",
         "successful_swaps",
         "final_community_coverage",
+        "final_seed_count_per_community",
+        "community_coverage_ratio",
         "final_protected_group_coverage",
+        "num_communities",
+        "community_modularity",
         "score_table_path",
         "embeddings_cache_path",
+        "embedding_cache_status",
+        "community_cache_status",
+        "ris_cache_status",
+        "score_cache_status",
+        "fitness_cache_hits",
+        "marginal_cache_hits",
+        "swap_cache_hits",
         "community_assignments_path",
         "community_sizes_path",
         "diagnostics_path",
@@ -438,6 +616,86 @@ def _method_type(spec: FIMPermutationSpec) -> str:
     if spec.optimizer_mode == "hybrid_si_ea":
         return "ml_guided_hybrid"
     return "ml_guided"
+
+
+def _effective_ranking_policy(spec: FIMPermutationSpec, config: FIMPermutationRunConfig) -> str:
+    config_policy = _normalize_ranking_policy(config.ranking_policy)
+    if config_policy != "fim_default":
+        return config_policy
+    return _normalize_ranking_policy(spec.ranking_policy)
+
+
+def _fairness_first_enabled(spec: FIMPermutationSpec, config: FIMPermutationRunConfig) -> bool:
+    return (
+        _effective_ranking_policy(spec, config) in _PRIORITY_POLICIES
+        or spec.name in _FAIRNESS_FIRST_STACKS
+    )
+
+
+def _weak_group_bonus_weight(config: FIMPermutationRunConfig) -> float:
+    if config.weak_group_bonus_weight is not None:
+        return float(config.weak_group_bonus_weight)
+    return float(config.fairness_bonus_weight)
+
+
+def _professor_priority_weight_defaults(config: FIMPermutationRunConfig, spec: FIMPermutationSpec) -> dict[str, float]:
+    if _fairness_first_enabled(spec, config):
+        return {
+            "ml_score_weight": 0.7,
+            "ris_score_weight": 0.7,
+            "fair_ris_score_weight": 1.2,
+            "weak_group_bonus_weight": 1.0,
+            "protected_group_coverage_weight": 1.0,
+            "community_diversity_weight": 0.5,
+            "spread_proxy_weight": 0.4,
+        }
+    return {
+        "ml_score_weight": spec.ranking_weight,
+        "ris_score_weight": spec.ris_weight,
+        "fair_ris_score_weight": spec.fair_ris_weight,
+        "weak_group_bonus_weight": _weak_group_bonus_weight(config),
+        "protected_group_coverage_weight": float(config.protected_group_coverage_weight),
+        "community_diversity_weight": float(config.diversity_bonus_weight),
+        "spread_proxy_weight": float(config.spread_proxy_weight),
+    }
+
+
+def _resolved_candidate_score_weights(spec: FIMPermutationSpec, config: FIMPermutationRunConfig) -> dict[str, float]:
+    defaults = _professor_priority_weight_defaults(config, spec)
+    return {
+        "ml_score_weight": defaults["ml_score_weight"] if config.ml_score_weight is None else float(config.ml_score_weight),
+        "ris_score_weight": defaults["ris_score_weight"] if config.ris_score_weight is None else float(config.ris_score_weight),
+        "fair_ris_score_weight": defaults["fair_ris_score_weight"] if config.fair_ris_score_weight is None else float(config.fair_ris_score_weight),
+        "weak_group_bonus_weight": defaults["weak_group_bonus_weight"] if config.weak_group_bonus_weight is None else float(config.weak_group_bonus_weight),
+        "protected_group_coverage_weight": defaults["protected_group_coverage_weight"] if config.protected_group_coverage_weight == 0.0 and _fairness_first_enabled(spec, config) else float(config.protected_group_coverage_weight),
+        "community_diversity_weight": defaults["community_diversity_weight"] if config.diversity_bonus_weight == 0.2 and _fairness_first_enabled(spec, config) else float(config.diversity_bonus_weight),
+        "spread_proxy_weight": defaults["spread_proxy_weight"] if config.spread_proxy_weight == 0.0 and _fairness_first_enabled(spec, config) else float(config.spread_proxy_weight),
+    }
+
+
+def _scalability_pass(dataset: LoadedDataset, config: FIMPermutationRunConfig, candidate_pool_size: int | None) -> bool:
+    if str(config.scalability_mode) == "off":
+        return True
+    if candidate_pool_size is None:
+        return True
+    node_count = max(1, int(dataset.graph.number_of_nodes()))
+    return int(candidate_pool_size) <= min(int(config.max_candidate_pool_size), node_count)
+
+
+def _effective_candidate_pool_size(dataset: LoadedDataset, config: FIMPermutationRunConfig) -> int:
+    node_count = int(dataset.graph.number_of_nodes())
+    if str(config.scalability_mode) == "off":
+        return node_count
+    adaptive_size = int(math.ceil(max(0.0, float(config.candidate_pool_fraction)) * float(node_count)))
+    return min(node_count, max(int(config.budget), min(int(config.max_candidate_pool_size), node_count, adaptive_size)))
+
+
+def _effective_ris_rr_sets(dataset: LoadedDataset, config: FIMPermutationRunConfig) -> int:
+    base_rr_sets = max(1, int(config.ris_num_rr_sets))
+    if not bool(config.adaptive_ris_rr_sets) or int(dataset.graph.number_of_nodes()) < 1000:
+        return base_rr_sets
+    moderate_multiplier = 1.5 if str(config.scalability_mode) == "large_graph" else 1.25
+    return int(min(max(base_rr_sets, math.ceil(base_rr_sets * moderate_multiplier)), max(base_rr_sets, 512)))
 
 
 def _embedding_artifact_path(embedding_artifact) -> str:
@@ -511,7 +769,10 @@ _SCORE_COMPONENT_COLUMNS = (
     "ris_score",
     "fair_ris_score",
     "fairness_bonus",
+    "weak_group_bonus",
     "community_diversity_bonus",
+    "protected_group_coverage_bonus",
+    "spread_proxy_score",
     "combined_score",
 )
 
@@ -652,6 +913,32 @@ def _score_cache_path(
     return attribute_dir / f"{dataset_name}_{stack_name}_node_scores.pkl"
 
 
+def _community_cache_path(
+    output_dir: Path | None,
+    dataset_name: str,
+    protected_attribute: str,
+    stack_name: str,
+    community_method: str,
+) -> Path | None:
+    attribute_dir = _permutation_output_dir(output_dir, dataset_name, protected_attribute)
+    if attribute_dir is None:
+        return None
+    return attribute_dir / f"{dataset_name}_{stack_name}_{community_method}_community_cache.pkl"
+
+
+def _ris_cache_path(
+    output_dir: Path | None,
+    dataset_name: str,
+    protected_attribute: str,
+    stack_name: str,
+    rr_sets: int,
+) -> Path | None:
+    attribute_dir = _permutation_output_dir(output_dir, dataset_name, protected_attribute)
+    if attribute_dir is None:
+        return None
+    return attribute_dir / f"{dataset_name}_{stack_name}_ris_rr{int(rr_sets)}_cache.pkl"
+
+
 def _optimizer_history_path(
     output_dir: Path | None,
     dataset_name: str,
@@ -669,12 +956,34 @@ def _community_result(
     spec: FIMPermutationSpec,
     config: FIMPermutationRunConfig,
 ):
-    return detect_communities(
+    cache_path = _community_cache_path(
+        config.output_dir,
+        dataset.name,
+        config.protected_attribute,
+        spec.name,
+        spec.community_method,
+    )
+    if bool(config.community_cache) and cache_path is not None and cache_path.exists():
+        try:
+            cached = pd.read_pickle(cache_path)
+            if set(cached.community_id_by_node) == set(dataset.graph.nodes()):
+                cached.metadata["community_cache_status"] = "hit"
+                return cached
+        except Exception:
+            pass
+    result = detect_communities(
         dataset.graph,
         method=spec.community_method,
         seed=int(config.random_seed),
         input_mode=spec.community_input_mode,
     )
+    result.metadata["community_cache_status"] = "miss" if bool(config.community_cache) else "disabled"
+    if bool(config.community_cache) and cache_path is not None:
+        try:
+            pd.to_pickle(result, cache_path)
+        except Exception:
+            result.metadata["community_cache_status"] = "miss_unwritten"
+    return result
 
 
 def _final_evaluate(
@@ -873,7 +1182,9 @@ def _result_row(
         "status": status,
         "dataset": dataset.name,
         "protected_attribute": protected_group_report.protected_attribute,
+        "budget": int(config.budget),
         "diffusion_model": spec.diffusion_model,
+        "ranking_policy": _effective_ranking_policy(spec, config),
         "community_method": spec.community_method,
         "community_input_mode": spec.community_input_mode,
         "clustering_method": spec.clustering_method,
@@ -899,17 +1210,25 @@ def _result_row(
         "variant_type": _FIM_VARIANT_TYPES[spec.variant_family],
         "runtime_seconds": float(search_runtime_seconds + evaluation.runtime_seconds),
         "search_runtime_seconds": float(search_runtime_seconds),
+        "scalability_mode": str(config.scalability_mode),
+        "scalability_pass": pd.NA,
+        "candidate_pool_size": pd.NA,
+        "ris_num_rr_sets": int(config.ris_num_rr_sets),
+        "effective_ris_num_rr_sets": int(config.ris_num_rr_sets),
         "mc_runs_search": int(config.mc_runs_search),
         "mc_runs_eval": int(config.mc_runs_eval),
         "key_enabled_modules": _key_enabled_modules(spec, resolved_clustering_input_mode),
         "use_community_features": bool(config.use_community_features_for_ml),
         "community_feature_mode": str(config.community_feature_mode),
         "allow_protected_features_in_ml": bool(config.allow_protected_features_in_ml),
-        "ml_score_weight": config.ml_score_weight if config.ml_score_weight is not None else spec.ranking_weight,
-        "ris_score_weight": config.ris_score_weight if config.ris_score_weight is not None else spec.ris_weight,
-        "fair_ris_score_weight": config.fair_ris_score_weight if config.fair_ris_score_weight is not None else spec.fair_ris_weight,
+        "ml_score_weight": _resolved_candidate_score_weights(spec, config)["ml_score_weight"],
+        "ris_score_weight": _resolved_candidate_score_weights(spec, config)["ris_score_weight"],
+        "fair_ris_score_weight": _resolved_candidate_score_weights(spec, config)["fair_ris_score_weight"],
         "fairness_bonus_weight": float(config.fairness_bonus_weight),
-        "community_diversity_weight": float(config.diversity_bonus_weight),
+        "weak_group_bonus_weight": _resolved_candidate_score_weights(spec, config)["weak_group_bonus_weight"],
+        "community_diversity_weight": _resolved_candidate_score_weights(spec, config)["community_diversity_weight"],
+        "protected_group_coverage_weight": _resolved_candidate_score_weights(spec, config)["protected_group_coverage_weight"],
+        "spread_proxy_weight": _resolved_candidate_score_weights(spec, config)["spread_proxy_weight"],
         "community_balance_enabled": bool(config.community_balance_enabled),
         "protected_group_balance_enabled": bool(config.protected_group_balance_enabled),
         "repair_mode": str(config.repair_mode),
@@ -917,9 +1236,21 @@ def _result_row(
         "repaired_seed_sets": pd.NA,
         "successful_swaps": pd.NA,
         "final_community_coverage": pd.NA,
+        "final_seed_count_per_community": pd.NA,
+        "community_coverage_ratio": pd.NA,
         "final_protected_group_coverage": pd.NA,
+        "protected_group_coverage_summary": pd.NA,
+        "num_communities": pd.NA,
+        "community_modularity": pd.NA,
         "score_table_path": "",
         "embeddings_cache_path": "",
+        "embedding_cache_status": "",
+        "community_cache_status": "",
+        "ris_cache_status": "",
+        "score_cache_status": "",
+        "fitness_cache_hits": pd.NA,
+        "marginal_cache_hits": pd.NA,
+        "swap_cache_hits": pd.NA,
         "community_assignments_path": "",
         "community_sizes_path": "",
         "diagnostics_path": "",
@@ -929,8 +1260,15 @@ def _result_row(
         "skipped_reason": skip_reason,
     }
     row.update(_spread_dict(evaluation, int(config.budget)))
+    row.update(_fairness_coverage_fields(evaluation))
     if extra_fields:
         row.update(dict(extra_fields))
+    candidate_pool_raw = pd.to_numeric(pd.Series([row.get("candidate_pool_size", pd.NA)]), errors="coerce").iloc[0]
+    row["scalability_pass"] = _scalability_pass(
+        dataset,
+        config,
+        None if pd.isna(candidate_pool_raw) else int(candidate_pool_raw),
+    )
     return row
 
 
@@ -950,7 +1288,9 @@ def _skipped_row(
             "status": "skipped",
             "dataset": dataset.name,
             "protected_attribute": protected_group_report.protected_attribute,
+            "budget": int(config.budget),
             "diffusion_model": spec.diffusion_model,
+            "ranking_policy": _effective_ranking_policy(spec, config),
             "community_method": spec.community_method,
             "community_input_mode": spec.community_input_mode,
             "clustering_method": spec.clustering_method,
@@ -972,6 +1312,9 @@ def _skipped_row(
             "final_spread_estimator": spec.spread_estimator_final,
             "mc_runs_search": int(config.mc_runs_search),
             "mc_runs_eval": int(config.mc_runs_eval),
+            "scalability_mode": str(config.scalability_mode),
+            "ris_num_rr_sets": int(config.ris_num_rr_sets),
+            "effective_ris_num_rr_sets": _effective_ris_rr_sets(dataset, config),
             "key_enabled_modules": _key_enabled_modules(spec, spec.clustering_input_mode),
             "use_community_features": bool(config.use_community_features_for_ml),
             "community_feature_mode": str(config.community_feature_mode),
@@ -1005,21 +1348,31 @@ def _combined_guidance_score_frame(
     ris_score_weight: float | None = None,
     fair_ris_score_weight: float | None = None,
     fairness_bonus_scores: Mapping[Any, float] | None = None,
+    weak_group_bonus_scores: Mapping[Any, float] | None = None,
     diversity_bonus_scores: Mapping[Any, float] | None = None,
+    protected_group_coverage_scores: Mapping[Any, float] | None = None,
+    spread_proxy_scores: Mapping[Any, float] | None = None,
     fairness_bonus_weight: float = 0.0,
+    weak_group_bonus_weight: float | None = None,
     diversity_bonus_weight: float = 0.0,
+    protected_group_coverage_weight: float = 0.0,
+    spread_proxy_weight: float = 0.0,
 ) -> pd.DataFrame:
     normalized_ranking = _normalize_score_map(ranking_scores or {})
     normalized_ris = _normalize_score_map(ris_scores or {})
     normalized_fair_ris = _normalize_score_map(fair_ris_scores or {})
-    normalized_fairness_bonus = _normalize_score_map(fairness_bonus_scores or {})
+    normalized_weak_group_bonus = _normalize_score_map(weak_group_bonus_scores or fairness_bonus_scores or {})
     normalized_diversity_bonus = _normalize_score_map(diversity_bonus_scores or {})
+    normalized_protected_group_coverage = _normalize_score_map(protected_group_coverage_scores or {})
+    normalized_spread_proxy = _normalize_score_map(spread_proxy_scores or {})
     all_nodes = sorted(
         set(normalized_ranking)
         | set(normalized_ris)
         | set(normalized_fair_ris)
-        | set(normalized_fairness_bonus)
-        | set(normalized_diversity_bonus),
+        | set(normalized_weak_group_bonus)
+        | set(normalized_diversity_bonus)
+        | set(normalized_protected_group_coverage)
+        | set(normalized_spread_proxy),
         key=_sort_key,
     )
     if not all_nodes:
@@ -1030,7 +1383,10 @@ def _combined_guidance_score_frame(
                 "ris_score",
                 "fair_ris_score",
                 "fairness_bonus",
+                "weak_group_bonus",
                 "community_diversity_bonus",
+                "protected_group_coverage_bonus",
+                "spread_proxy_score",
                 "combined_score",
             ]
         )
@@ -1042,14 +1398,23 @@ def _combined_guidance_score_frame(
         ml_score = float(normalized_ranking.get(node_id, 0.0))
         ris_score = float(normalized_ris.get(node_id, 0.0))
         fair_ris_score = float(normalized_fair_ris.get(node_id, 0.0))
-        fairness_bonus = float(normalized_fairness_bonus.get(node_id, 0.0))
+        weak_group_bonus = float(normalized_weak_group_bonus.get(node_id, 0.0))
         community_diversity_bonus = float(normalized_diversity_bonus.get(node_id, 0.0))
+        protected_group_coverage_bonus = float(normalized_protected_group_coverage.get(node_id, 0.0))
+        spread_proxy_score = float(normalized_spread_proxy.get(node_id, 0.0))
+        resolved_weak_group_weight = (
+            float(fairness_bonus_weight)
+            if weak_group_bonus_weight is None
+            else float(weak_group_bonus_weight)
+        )
         combined_score = float(
             resolved_ml_weight * normalized_ranking.get(node_id, 0.0)
             + resolved_ris_weight * normalized_ris.get(node_id, 0.0)
             + resolved_fair_ris_weight * normalized_fair_ris.get(node_id, 0.0)
-            + float(fairness_bonus_weight) * normalized_fairness_bonus.get(node_id, 0.0)
+            + resolved_weak_group_weight * normalized_weak_group_bonus.get(node_id, 0.0)
             + float(diversity_bonus_weight) * normalized_diversity_bonus.get(node_id, 0.0)
+            + float(protected_group_coverage_weight) * normalized_protected_group_coverage.get(node_id, 0.0)
+            + float(spread_proxy_weight) * normalized_spread_proxy.get(node_id, 0.0)
         )
         rows.append(
             {
@@ -1057,8 +1422,11 @@ def _combined_guidance_score_frame(
                 "ml_score": ml_score,
                 "ris_score": ris_score,
                 "fair_ris_score": fair_ris_score,
-                "fairness_bonus": fairness_bonus,
+                "fairness_bonus": weak_group_bonus,
+                "weak_group_bonus": weak_group_bonus,
                 "community_diversity_bonus": community_diversity_bonus,
+                "protected_group_coverage_bonus": protected_group_coverage_bonus,
+                "spread_proxy_score": spread_proxy_score,
                 "combined_score": combined_score,
             }
         )
@@ -1075,9 +1443,15 @@ def _combine_guidance_scores(
     ris_score_weight: float | None = None,
     fair_ris_score_weight: float | None = None,
     fairness_bonus_scores: Mapping[Any, float] | None = None,
+    weak_group_bonus_scores: Mapping[Any, float] | None = None,
     diversity_bonus_scores: Mapping[Any, float] | None = None,
+    protected_group_coverage_scores: Mapping[Any, float] | None = None,
+    spread_proxy_scores: Mapping[Any, float] | None = None,
     fairness_bonus_weight: float = 0.0,
+    weak_group_bonus_weight: float | None = None,
     diversity_bonus_weight: float = 0.0,
+    protected_group_coverage_weight: float = 0.0,
+    spread_proxy_weight: float = 0.0,
 ) -> dict[Any, float]:
     frame = _combined_guidance_score_frame(
         spec,
@@ -1088,9 +1462,15 @@ def _combine_guidance_scores(
         ris_score_weight=ris_score_weight,
         fair_ris_score_weight=fair_ris_score_weight,
         fairness_bonus_scores=fairness_bonus_scores,
+        weak_group_bonus_scores=weak_group_bonus_scores,
         diversity_bonus_scores=diversity_bonus_scores,
+        protected_group_coverage_scores=protected_group_coverage_scores,
+        spread_proxy_scores=spread_proxy_scores,
         fairness_bonus_weight=fairness_bonus_weight,
+        weak_group_bonus_weight=weak_group_bonus_weight,
         diversity_bonus_weight=diversity_bonus_weight,
+        protected_group_coverage_weight=protected_group_coverage_weight,
+        spread_proxy_weight=spread_proxy_weight,
     )
     if frame.empty:
         return {}
@@ -1107,6 +1487,24 @@ def _feature_score_map(feature_frame: pd.DataFrame, column_name: str) -> dict[An
         row.node_id: float(getattr(row, column_name))
         for row in feature_frame[["node_id", column_name]].itertuples(index=False)
     }
+
+
+def _protected_group_coverage_bonus_scores(
+    feature_frame: pd.DataFrame,
+    protected_group_report: ProtectedGroupReport,
+) -> dict[Any, float]:
+    group_by_node = {
+        node_id: str(group_name)
+        for group_name, node_ids in protected_group_report.protected_groups.items()
+        for node_id in node_ids
+    }
+    largest_group = max((int(size) for size in protected_group_report.group_sizes.values()), default=1)
+    scores: dict[Any, float] = {}
+    for node_id in feature_frame["node_id"].tolist() if "node_id" in feature_frame.columns else []:
+        group_name = group_by_node.get(node_id)
+        group_size = int(protected_group_report.group_sizes.get(group_name, largest_group))
+        scores[node_id] = float(largest_group) / float(max(1, group_size))
+    return scores
 
 
 def _seed_community_coverage(seed_set: Sequence[Any], community_result) -> str:
@@ -1132,33 +1530,69 @@ def _seed_protected_group_coverage(seed_set: Sequence[Any], protected_group_repo
     return json.dumps(dict(sorted(counts.items(), key=lambda item: item[0])))
 
 
+def _seed_community_coverage_ratio(seed_set: Sequence[Any], community_result) -> float:
+    covered_communities = {
+        community_result.community_id_by_node[node_id]
+        for node_id in seed_set
+        if node_id in community_result.community_id_by_node
+    }
+    return float(len(covered_communities)) / float(max(1, int(community_result.stats.num_communities)))
+
+
+def _fairness_coverage_fields(evaluation: SeedSetEvaluation) -> dict[str, object]:
+    group_spread = dict(evaluation.fairness.group_spread)
+    covered_groups = [group_name for group_name, value in group_spread.items() if float(value) > 0.0]
+    total_groups = max(1, len(group_spread))
+    fraction_groups_covered = float(len(covered_groups)) / float(total_groups)
+    return {
+        "zero_covered_groups_count": int(total_groups - len(covered_groups)),
+        "fraction_groups_covered": fraction_groups_covered,
+    }
+
+
 def _optimizer_diagnostics_fields(
     optimization_result,
     protected_group_report: ProtectedGroupReport,
     community_result,
 ) -> dict[str, object]:
+    community_coverage = _seed_community_coverage(
+        optimization_result.best_seed_set,
+        community_result,
+    )
+    protected_coverage = _seed_protected_group_coverage(
+        optimization_result.best_seed_set,
+        protected_group_report,
+    )
     return {
         "repaired_seed_sets": int(getattr(optimization_result, "repaired_seed_sets", 0)),
         "successful_swaps": int(getattr(optimization_result, "successful_swaps", 0)),
-        "final_community_coverage": _seed_community_coverage(
-            optimization_result.best_seed_set,
-            community_result,
-        ),
-        "final_protected_group_coverage": _seed_protected_group_coverage(
-            optimization_result.best_seed_set,
-            protected_group_report,
-        ),
+        "final_community_coverage": community_coverage,
+        "final_seed_count_per_community": community_coverage,
+        "community_coverage_ratio": _seed_community_coverage_ratio(optimization_result.best_seed_set, community_result),
+        "final_protected_group_coverage": protected_coverage,
+        "protected_group_coverage_summary": protected_coverage,
+        "candidate_pool_size": int(getattr(optimization_result, "candidate_pool_size", 0)),
+        "fitness_cache_hits": int(getattr(optimization_result, "fitness_cache_hits", 0)),
+        "marginal_cache_hits": int(getattr(optimization_result, "marginal_cache_hits", 0)),
+        "swap_cache_hits": int(getattr(optimization_result, "swap_cache_hits", 0)),
     }
 
 
 def _resolved_candidate_controls(
     spec: FIMPermutationSpec,
     config: FIMPermutationRunConfig,
+    dataset: LoadedDataset,
 ) -> tuple[float | None, int | None, int | None]:
+    adaptive_max_nodes = _effective_candidate_pool_size(dataset, config)
+    configured_max_nodes = spec.candidate_max_nodes if spec.candidate_max_nodes is not None else config.ranking_max_nodes
+    if configured_max_nodes is None or _fairness_first_enabled(spec, config) or str(config.scalability_mode) != "off":
+        max_nodes = adaptive_max_nodes
+    else:
+        max_nodes = int(configured_max_nodes)
     return (
         spec.candidate_top_fraction if spec.candidate_top_fraction is not None else config.ranking_top_fraction,
         spec.candidate_top_n if spec.candidate_top_n is not None else config.ranking_top_n,
-        spec.candidate_max_nodes if spec.candidate_max_nodes is not None else config.ranking_max_nodes,
+        max_nodes,
     )
 
 
@@ -1202,22 +1636,45 @@ def _build_shared_stack_inputs(
         clustering_result=clustering_artifact.clustering_result,
     )
     ris_artifact = None
+    ris_cache_status = "disabled"
+    effective_rr_sets = _effective_ris_rr_sets(dataset, config)
     if spec.use_ris_guidance:
-        ris_artifact = prepare_ris_guidance(
-            dataset=dataset,
-            protected_group_report=protected_group_report,
-            propagation_probability=float(config.propagation_probability),
-            feature_frame=base_feature_frame,
-            output_dir=config.output_dir,
-            protected_attribute=protected_group_report.protected_attribute,
-            stack_name=spec.name,
-            config=RISConfig(
-                num_rr_sets=int(config.ris_num_rr_sets),
-                random_seed=int(config.random_seed),
-                mode="weak_group_weighted" if spec.use_fair_ris else "global",
-                reuse_rr_sets=True,
-            ),
+        cache_path = _ris_cache_path(
+            config.output_dir,
+            dataset.name,
+            protected_group_report.protected_attribute,
+            spec.name,
+            effective_rr_sets,
         )
+        if bool(config.ris_cache) and cache_path is not None and cache_path.exists():
+            try:
+                ris_artifact = pd.read_pickle(cache_path)
+                ris_cache_status = "hit"
+            except Exception:
+                ris_artifact = None
+                ris_cache_status = "miss"
+        if ris_artifact is None:
+            ris_cache_status = "miss" if bool(config.ris_cache) else "disabled"
+            ris_artifact = prepare_ris_guidance(
+                dataset=dataset,
+                protected_group_report=protected_group_report,
+                propagation_probability=float(config.propagation_probability),
+                feature_frame=base_feature_frame,
+                output_dir=config.output_dir,
+                protected_attribute=protected_group_report.protected_attribute,
+                stack_name=spec.name,
+                config=RISConfig(
+                    num_rr_sets=effective_rr_sets,
+                    random_seed=int(config.random_seed),
+                    mode="weak_group_weighted" if spec.use_fair_ris else "global",
+                    reuse_rr_sets=True,
+                ),
+            )
+            if bool(config.ris_cache) and cache_path is not None:
+                try:
+                    pd.to_pickle(ris_artifact, cache_path)
+                except Exception:
+                    ris_cache_status = "miss_unwritten"
     feature_frame = build_ranking_feature_frame(
         dataset=dataset,
         protected_group_report=protected_group_report,
@@ -1237,13 +1694,13 @@ def _build_shared_stack_inputs(
         lambda_weight=float(config.lambda_weight),
         random_seed=int(config.random_seed),
     )
-    top_fraction, top_n, max_nodes = _resolved_candidate_controls(spec, config)
+    top_fraction, top_n, max_nodes = _resolved_candidate_controls(spec, config, dataset)
     ranking_artifact = train_ranking_model(
         dataset=dataset,
         feature_frame=feature_frame,
         label_frame=label_result.label_frame,
         budget=int(config.budget),
-        model_type=spec.ranking_model,
+        model_type=_training_ranking_model(spec.ranking_model),
         target_column="label_score",
         protected_attribute=protected_group_report.protected_attribute,
         stack_name=spec.name,
@@ -1269,18 +1726,27 @@ def _build_shared_stack_inputs(
     )
     fairness_bonus_scores = _feature_score_map(feature_frame, "fraction_neighbors_in_undercovered_groups")
     diversity_bonus_scores = _feature_score_map(feature_frame, "neighboring_communities")
+    protected_group_coverage_scores = _protected_group_coverage_bonus_scores(feature_frame, protected_group_report)
+    spread_proxy_scores = compute_structural_node_scores(feature_frame)
+    score_weights = _resolved_candidate_score_weights(spec, config)
     score_frame = _combined_guidance_score_frame(
         spec,
         ranking_artifact.training_result.predicted_scores,
         None if ris_artifact is None else ris_artifact.global_scores,
         None if ris_artifact is None else ris_artifact.fair_scores,
-        ml_score_weight=config.ml_score_weight,
-        ris_score_weight=config.ris_score_weight,
-        fair_ris_score_weight=config.fair_ris_score_weight,
+        ml_score_weight=score_weights["ml_score_weight"],
+        ris_score_weight=score_weights["ris_score_weight"],
+        fair_ris_score_weight=score_weights["fair_ris_score_weight"],
         fairness_bonus_scores=fairness_bonus_scores,
+        weak_group_bonus_scores=fairness_bonus_scores,
         diversity_bonus_scores=diversity_bonus_scores,
+        protected_group_coverage_scores=protected_group_coverage_scores,
+        spread_proxy_scores=spread_proxy_scores,
         fairness_bonus_weight=float(config.fairness_bonus_weight),
-        diversity_bonus_weight=float(config.diversity_bonus_weight),
+        weak_group_bonus_weight=score_weights["weak_group_bonus_weight"],
+        diversity_bonus_weight=score_weights["community_diversity_weight"],
+        protected_group_coverage_weight=score_weights["protected_group_coverage_weight"],
+        spread_proxy_weight=score_weights["spread_proxy_weight"],
     )
     combined_scores = {
         row.node_id: float(row.combined_score)
@@ -1320,6 +1786,12 @@ def _build_shared_stack_inputs(
         "score_table_path": score_table_path,
         "community_assignments_path": community_paths["community_assignments_path"],
         "community_sizes_path": community_paths["community_sizes_path"],
+        "embedding_cache_status": "hit" if embedding_artifact.loaded_from_cache else ("disabled" if not config.use_embedding_cache else "miss"),
+        "community_cache_status": community_result.metadata.get("community_cache_status", "disabled"),
+        "ris_cache_status": ris_cache_status,
+        "score_cache_status": "hit" if ranking_artifact.training_result.loaded_from_cache else ("disabled" if not config.use_score_cache else "miss"),
+        "effective_ris_num_rr_sets": effective_rr_sets,
+        "candidate_pool_size": len(ranking_artifact.training_result.candidate_nodes),
         "diagnostics_fields": diagnostics_fields,
     }
 
@@ -1352,6 +1824,22 @@ def _stack_notes(
     if extra_notes:
         notes_parts.append(extra_notes)
     return "; ".join(notes_parts)
+
+
+def _shared_stack_reporting_fields(
+    shared: Mapping[str, Any],
+    quality_metrics,
+) -> dict[str, object]:
+    return {
+        "candidate_pool_size": shared.get("candidate_pool_size", pd.NA),
+        "effective_ris_num_rr_sets": shared.get("effective_ris_num_rr_sets", pd.NA),
+        "num_communities": getattr(quality_metrics, "num_communities", pd.NA),
+        "community_modularity": getattr(quality_metrics, "modularity", pd.NA),
+        "embedding_cache_status": shared.get("embedding_cache_status", ""),
+        "community_cache_status": shared.get("community_cache_status", ""),
+        "ris_cache_status": shared.get("ris_cache_status", ""),
+        "score_cache_status": shared.get("score_cache_status", ""),
+    }
 
 
 def _run_community_aware_fair_greedy(
@@ -1451,7 +1939,14 @@ def _run_community_aware_fair_greedy(
                 extra_fields={
                     **diagnostics_fields,
                     "final_community_coverage": _seed_community_coverage(refined_seed_set, community_result),
+                    "final_seed_count_per_community": _seed_community_coverage(refined_seed_set, community_result),
+                    "community_coverage_ratio": _seed_community_coverage_ratio(refined_seed_set, community_result),
                     "final_protected_group_coverage": _seed_protected_group_coverage(refined_seed_set, protected_group_report),
+                    "protected_group_coverage_summary": _seed_protected_group_coverage(refined_seed_set, protected_group_report),
+                    "candidate_pool_size": dataset.graph.number_of_nodes(),
+                    "num_communities": quality.num_communities,
+                    "community_modularity": quality.modularity,
+                    "community_cache_status": community_result.metadata.get("community_cache_status", "disabled"),
                     "community_assignments_path": community_paths["community_assignments_path"],
                     "community_sizes_path": community_paths["community_sizes_path"],
                 },
@@ -1530,6 +2025,8 @@ def _run_experiment_runner_gnn_ris_stack(
             "stack_name": spec.name,
             "permutation_name": spec.name,
             "status": "ok",
+            "budget": int(config.budget),
+            "ranking_policy": _effective_ranking_policy(spec, config),
             "community_input_mode": "graph",
             "clustering_method": "none",
             "clustering_input_mode": "none",
@@ -1543,6 +2040,11 @@ def _run_experiment_runner_gnn_ris_stack(
             "search_spread_estimator": "ris_guidance",
             "search_guidance_estimator": "fair_ris_guidance",
             "final_spread_estimator": spec.spread_estimator_final,
+            "scalability_mode": str(config.scalability_mode),
+            "ris_num_rr_sets": int(config.ris_num_rr_sets),
+            "effective_ris_num_rr_sets": int(config.ris_num_rr_sets),
+            "candidate_pool_size": pd.NA,
+            "scalability_pass": True,
             "key_enabled_modules": _key_enabled_modules(spec, "none"),
             "MF": float(row["mf"]),
             "DCV": float(row["dcv"]),
@@ -1607,6 +2109,12 @@ def _run_ranked_greedy_stack(
                 notes=notes,
                 extra_fields={
                     **shared.get("diagnostics_fields", {}),
+                    **_shared_stack_reporting_fields(shared, quality),
+                    "final_community_coverage": _seed_community_coverage(seed_set, shared["community_result"]),
+                    "final_seed_count_per_community": _seed_community_coverage(seed_set, shared["community_result"]),
+                    "community_coverage_ratio": _seed_community_coverage_ratio(seed_set, shared["community_result"]),
+                    "final_protected_group_coverage": _seed_protected_group_coverage(seed_set, protected_group_report),
+                    "protected_group_coverage_summary": _seed_protected_group_coverage(seed_set, protected_group_report),
                     "score_table_path": shared.get("score_table_path", ""),
                     "embeddings_cache_path": _embedding_artifact_path(shared.get("embedding_artifact")),
                     "community_assignments_path": shared.get("community_assignments_path", ""),
@@ -1669,6 +2177,12 @@ def _run_ranked_maximin_stack(
                 notes=notes,
                 extra_fields={
                     **shared.get("diagnostics_fields", {}),
+                    **_shared_stack_reporting_fields(shared, quality),
+                    "final_community_coverage": _seed_community_coverage(refined_seed_set, shared["community_result"]),
+                    "final_seed_count_per_community": _seed_community_coverage(refined_seed_set, shared["community_result"]),
+                    "community_coverage_ratio": _seed_community_coverage_ratio(refined_seed_set, shared["community_result"]),
+                    "final_protected_group_coverage": _seed_protected_group_coverage(refined_seed_set, protected_group_report),
+                    "protected_group_coverage_summary": _seed_protected_group_coverage(refined_seed_set, protected_group_report),
                     "score_table_path": shared.get("score_table_path", ""),
                     "embeddings_cache_path": _embedding_artifact_path(shared.get("embedding_artifact")),
                     "community_assignments_path": shared.get("community_assignments_path", ""),
@@ -1686,6 +2200,8 @@ def _hybrid_optimizer_config(spec: FIMPermutationSpec, config: FIMPermutationRun
     use_ml_repair = True if config.use_ml_scores_in_repair is None else bool(config.use_ml_scores_in_repair)
     use_ml_local_search = True if config.use_ml_scores_in_local_search is None else bool(config.use_ml_scores_in_local_search)
     protected_balance = bool(config.protected_group_balance_enabled)
+    fairness_first = _fairness_first_enabled(spec, config)
+    fair_guidance = bool((spec.use_fair_ris or fairness_first) and protected_balance)
     return HybridSIEAConfig(
         budget=int(config.budget),
         population_size=int(config.population_size),
@@ -1695,6 +2211,15 @@ def _hybrid_optimizer_config(spec: FIMPermutationSpec, config: FIMPermutationRun
         diffusion_model=spec.diffusion_model,
         lambda_weight=float(config.lambda_weight),
         random_seed=int(config.random_seed),
+        fitness_policy="fairness_first" if fairness_first else "f_score",
+        fscore_weight=float(config.fscore_weight),
+        mf_weight=float(config.mf_weight),
+        dcv_weight=float(config.dcv_weight),
+        spread_weight=float(config.spread_weight),
+        runtime_penalty_weight=float(config.runtime_penalty_weight),
+        fairness_tolerance_dcv=float(config.fairness_tolerance_dcv),
+        fairness_tolerance_fscore_drop=float(config.fairness_tolerance_fscore_drop),
+        use_fairness_first_swap_acceptance=bool(config.use_fairness_first_swap_acceptance or fairness_first),
         local_search_steps=max(0, int(config.local_search_steps)),
         disable_local_search=int(config.local_search_steps) <= 0,
         disable_community_aware_mutation=not bool(config.community_balance_enabled),
@@ -1702,7 +2227,7 @@ def _hybrid_optimizer_config(spec: FIMPermutationSpec, config: FIMPermutationRun
         ml_guidance_mode="two_tier",
         ml_primary_pool_ratio=0.50,
         ml_secondary_exploration_rate=0.10,
-        ml_initialization_bias=0.25 if use_ml_initialization else 0.0,
+        ml_initialization_bias=(0.40 if fairness_first else 0.25) if use_ml_initialization else 0.0,
         ml_initialization_primary_rate=0.90 if use_ml_initialization else 0.0,
         ml_mutation_primary_rate=0.80 if use_ml_mutation else 0.0,
         ml_repair_primary_rate=0.70 if use_ml_repair else 0.0,
@@ -1710,20 +2235,30 @@ def _hybrid_optimizer_config(spec: FIMPermutationSpec, config: FIMPermutationRun
         ml_mutation_bias_weight=0.20 if use_ml_mutation else 0.0,
         ml_repair_bias_weight=0.15 if use_ml_repair else 0.0,
         ml_local_search_bias_weight=0.25 if use_ml_local_search else 0.0,
-        fairness_first_init_enabled=bool(spec.use_fair_ris and protected_balance),
-        fairness_first_init_slots=min(2, int(config.budget)),
-        fairness_first_init_weight=0.75 if spec.use_fair_ris and protected_balance else 0.0,
-        weakest_group_k=3 if spec.use_fair_ris and protected_balance else 1,
-        weakest_group_mutation_weight=0.35 if spec.use_fair_ris and protected_balance else 0.0,
-        zero_group_bonus_weight=0.25 if spec.use_fair_ris and protected_balance else 0.0,
-        bridge_to_weak_group_weight=0.15 if spec.use_fair_ris and protected_balance else 0.0,
-        repair_fairness_weight=0.40 if spec.use_fair_ris and protected_balance and config.repair_mode != "basic" else 0.0,
-        repair_bridge_weight=0.20 if spec.use_fair_ris and protected_balance and config.repair_mode != "basic" else 0.0,
-        local_search_focus_mode="worst_group" if spec.use_fair_ris and protected_balance else "default",
+        fairness_first_init_enabled=fair_guidance,
+        fairness_first_init_slots=min(3 if fairness_first else 2, int(config.budget)) if fair_guidance else 0,
+        fairness_first_init_weight=1.0 if fairness_first and fair_guidance else (0.75 if fair_guidance else 0.0),
+        weakest_group_k=3 if fair_guidance else 1,
+        weakest_group_mutation_weight=(1.0 if fairness_first else 0.35) if fair_guidance else 0.0,
+        zero_group_bonus_weight=(0.50 if fairness_first else 0.25) if fair_guidance else 0.0,
+        bridge_to_weak_group_weight=(0.30 if fairness_first else 0.15) if fair_guidance else 0.0,
+        repair_fairness_weight=(0.75 if fairness_first else 0.40) if fair_guidance and config.repair_mode != "basic" else 0.0,
+        repair_bridge_weight=(0.35 if fairness_first else 0.20) if fair_guidance and config.repair_mode != "basic" else 0.0,
+        repair_diversity_weight=0.20 if fairness_first and bool(config.community_balance_enabled) else 0.0,
+        local_search_focus_mode="worst_group" if fair_guidance else "default",
         local_search_bottom_k_groups=3,
         local_search_swap_trials=max(1, int(config.local_search_steps)),
         local_search_candidate_pool_size=max(4, int(config.swap_candidate_pool_size)),
         swap_candidate_pool_size=max(4, int(config.swap_candidate_pool_size)),
+        enable_fitness_cache=True,
+        enable_marginal_cache=fairness_first,
+        enable_swap_cache=fairness_first,
+        marginal_gain_scoring_enabled=fairness_first,
+        marginal_gain_delta_mf_weight=1.0 if fairness_first else 0.0,
+        marginal_gain_delta_dcv_weight=1.0 if fairness_first else 0.0,
+        marginal_gain_spread_weight=0.25 if fairness_first else 0.0,
+        local_search_delta_mf_weight=1.0 if fairness_first else 0.0,
+        local_search_delta_dcv_weight=1.0 if fairness_first else 0.0,
         optimization_mode="full",
     )
 
@@ -1791,6 +2326,7 @@ def _run_ranked_hybrid_stack(
                 notes=notes,
                 extra_fields={
                     **shared.get("diagnostics_fields", {}),
+                    **_shared_stack_reporting_fields(shared, quality),
                     **_optimizer_diagnostics_fields(
                         optimization_result,
                         protected_group_report,
@@ -1824,6 +2360,7 @@ def _run_no_ml_hybrid_stack(
     structural_scores = compute_structural_node_scores(feature_frame)
     fairness_bonus_scores = _feature_score_map(feature_frame, "fraction_neighbors_in_undercovered_groups")
     diversity_bonus_scores = _feature_score_map(feature_frame, "neighboring_communities")
+    protected_group_coverage_scores = _protected_group_coverage_bonus_scores(feature_frame, protected_group_report)
     score_frame = _combined_guidance_score_frame(
         spec,
         structural_scores,
@@ -1831,9 +2368,13 @@ def _run_no_ml_hybrid_stack(
         None,
         ml_score_weight=config.ml_score_weight,
         fairness_bonus_scores=fairness_bonus_scores,
+        weak_group_bonus_scores=fairness_bonus_scores,
         diversity_bonus_scores=diversity_bonus_scores,
+        protected_group_coverage_scores=protected_group_coverage_scores,
         fairness_bonus_weight=float(config.fairness_bonus_weight),
+        weak_group_bonus_weight=_weak_group_bonus_weight(config),
         diversity_bonus_weight=float(config.diversity_bonus_weight),
+        protected_group_coverage_weight=float(config.protected_group_coverage_weight),
     )
     combined_scores = {
         row.node_id: float(row.combined_score)
@@ -1900,6 +2441,9 @@ def _run_no_ml_hybrid_stack(
                         protected_group_report,
                         community_result,
                     ),
+                    "num_communities": quality.num_communities,
+                    "community_modularity": quality.modularity,
+                    "community_cache_status": community_result.metadata.get("community_cache_status", "disabled"),
                     "score_table_path": score_table_path,
                     "community_assignments_path": community_paths["community_assignments_path"],
                     "community_sizes_path": community_paths["community_sizes_path"],
@@ -1946,10 +2490,72 @@ def _print_stack_exception(
     traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
 
 
-def _recommend_stack_name(frame: pd.DataFrame, mask: pd.Series) -> str | None:
+def _numeric_series(frame: pd.DataFrame, column: str, default: float = 0.0) -> pd.Series:
+    if column not in frame.columns:
+        return pd.Series([default] * len(frame), index=frame.index, dtype="float64")
+    return pd.to_numeric(frame[column], errors="coerce").fillna(default)
+
+
+def _fairness_valid_mask(frame: pd.DataFrame, *, config: FIMPermutationRunConfig | None = None) -> pd.Series:
+    min_f_score = 0.0 if config is None else float(config.min_f_score)
+    min_mf = 0.0001 if config is None else float(config.min_mf)
+    max_dcv = 0.25 if config is None else float(config.max_dcv)
+    min_fraction = 0.80 if config is None else float(config.min_fraction_groups_covered)
+    ok = frame["status"].astype(str).eq("ok") if "status" in frame.columns else pd.Series([True] * len(frame), index=frame.index)
+    mask = (
+        ok
+        & (_numeric_series(frame, "f_score") >= min_f_score)
+        & (_numeric_series(frame, "mf") > min_mf)
+        & (_numeric_series(frame, "dcv", default=1.0) < max_dcv)
+    )
+    if "fraction_groups_covered" in frame.columns:
+        fraction = pd.to_numeric(frame["fraction_groups_covered"], errors="coerce")
+        mask &= fraction.isna() | (fraction >= min_fraction)
+    return mask
+
+
+def _fairness_priority_order(frame: pd.DataFrame, *, config: FIMPermutationRunConfig | None = None) -> pd.DataFrame:
+    if frame.empty:
+        return frame.copy()
+    sortable = frame.copy()
+    sortable["_f_score_sort"] = _numeric_series(sortable, "f_score")
+    sortable["_mf_sort"] = _numeric_series(sortable, "mf")
+    sortable["_dcv_sort"] = _numeric_series(sortable, "dcv", default=1.0)
+    sortable["_zero_groups_sort"] = _numeric_series(sortable, "zero_covered_groups_count", default=0.0)
+    sortable["_fraction_groups_sort"] = _numeric_series(sortable, "fraction_groups_covered", default=1.0)
+    scalability_values = sortable["scalability_pass"] if "scalability_pass" in sortable.columns else pd.Series([True] * len(sortable), index=sortable.index)
+    sortable["_scalability_sort"] = scalability_values.fillna(True).map(
+        lambda value: 1 if bool(value) and str(value) != "<NA>" else 0
+    )
+    sortable["_spread_sort"] = _numeric_series(sortable, "total_spread")
+    sortable["_runtime_sort"] = _numeric_series(sortable, "runtime_seconds", default=float("inf"))
+    valid_mask = _fairness_valid_mask(sortable, config=config)
+    sortable["_fairness_valid_sort"] = valid_mask.astype(int)
+    ordered = sortable.sort_values(
+        [
+            "_fairness_valid_sort",
+            "_f_score_sort",
+            "_mf_sort",
+            "_dcv_sort",
+            "_zero_groups_sort",
+            "_fraction_groups_sort",
+            "_scalability_sort",
+            "_spread_sort",
+            "_runtime_sort",
+        ],
+        ascending=[False, False, False, True, True, False, False, False, True],
+        na_position="last",
+    )
+    return ordered.drop(columns=[column for column in ordered.columns if column.endswith("_sort")])
+
+
+def _recommend_stack_name(frame: pd.DataFrame, mask: pd.Series, *, config: FIMPermutationRunConfig | None = None) -> str | None:
     candidates = frame.loc[mask].copy()
     if candidates.empty:
         return None
+    if config is not None and str(config.ranking_policy) == FAIRNESS_FIRST_PRIORITY:
+        ordered = _fairness_priority_order(candidates, config=config)
+        return str(ordered.iloc[0]["stack_name"]) if not ordered.empty else None
     for column in ["f_score", "mf", "total_spread", "runtime_seconds"]:
         candidates[column] = pd.to_numeric(candidates[column], errors="coerce")
     ordered = candidates.sort_values(
@@ -1962,7 +2568,7 @@ def _recommend_stack_name(frame: pd.DataFrame, mask: pd.Series) -> str | None:
     return str(ordered.iloc[0]["stack_name"])
 
 
-def recommend_fim_stacks(frame: pd.DataFrame) -> dict[str, str | None]:
+def recommend_fim_stacks(frame: pd.DataFrame, config: FIMPermutationRunConfig | None = None) -> dict[str, str | None]:
     """Return the best stack names under the configured recommendation rules."""
 
     if frame.empty:
@@ -1970,6 +2576,11 @@ def recommend_fim_stacks(frame: pd.DataFrame) -> dict[str, str | None]:
             "best_interpretable_baseline": None,
             "best_practical_ml_default": None,
             "best_exploratory_fairness_heavy": None,
+            "best_fairness_quality_method": None,
+            "best_scalable_method": None,
+            "best_spread_method": None,
+            "best_runtime_method": None,
+            "final_professor_priority_recommendation": None,
         }
     ok_mask = frame["status"].astype(str) == "ok"
     debias_mask = ~frame["debias_mode"].astype(str).isin({"none", "off"})
@@ -1977,10 +2588,53 @@ def recommend_fim_stacks(frame: pd.DataFrame) -> dict[str, str | None]:
     interpretable_mask = ok_mask & frame["variant_type"].astype(str).eq(_FIM_VARIANT_TYPES["baseline"])
     ml_mask = ok_mask & ~frame["ranking_model"].astype(str).isin(_BASELINE_RANKING_MODELS)
     fairness_mask = ok_mask & (debias_mask | fairness_search_mask)
+    valid_fairness_mask = _fairness_valid_mask(frame, config=config) if config is not None else ok_mask
+    strict_fairness_first = config is not None and str(config.ranking_policy) == FAIRNESS_FIRST_PRIORITY
+    if not bool(valid_fairness_mask.any()) and not strict_fairness_first:
+        valid_fairness_mask = ok_mask
+    if strict_fairness_first:
+        interpretable_mask &= valid_fairness_mask
+        ml_mask &= valid_fairness_mask
+        fairness_mask &= valid_fairness_mask
+    scalability_values = frame["scalability_pass"] if "scalability_pass" in frame.columns else pd.Series([True] * len(frame), index=frame.index)
+    scalability_mask = scalability_values.fillna(True).map(
+        lambda value: str(value).strip().lower() not in {"false", "0", "no"}
+    )
+    scalable_mask = valid_fairness_mask & scalability_mask
+    spread_candidates = frame.loc[valid_fairness_mask].copy()
+    runtime_candidates = _fairness_priority_order(frame.loc[valid_fairness_mask].copy(), config=config) if bool(valid_fairness_mask.any()) else pd.DataFrame()
+    runtime_close_mask = valid_fairness_mask
+    if config is not None and not runtime_candidates.empty and bool(config.runtime_tiebreak_only):
+        best_f_score = pd.to_numeric(runtime_candidates.iloc[0:1]["f_score"], errors="coerce").fillna(0.0).iloc[0]
+        runtime_close_mask = valid_fairness_mask & (_numeric_series(frame, "f_score") >= float(best_f_score) - float(config.fairness_close_threshold))
+    best_spread_method = None
+    if not spread_candidates.empty:
+        for column in ["total_spread", "f_score", "mf"]:
+            spread_candidates[column] = pd.to_numeric(spread_candidates[column], errors="coerce")
+        best_spread_method = str(
+            spread_candidates.sort_values(["total_spread", "f_score", "mf"], ascending=[False, False, False], na_position="last").iloc[0]["stack_name"]
+        )
+    runtime_subset = frame.loc[runtime_close_mask].copy()
+    best_runtime_method = None
+    if not runtime_subset.empty:
+        runtime_subset["_runtime_sort"] = _numeric_series(runtime_subset, "runtime_seconds", default=float("inf"))
+        runtime_subset["_f_score_sort"] = _numeric_series(runtime_subset, "f_score")
+        runtime_subset = runtime_subset.sort_values(
+            ["_runtime_sort", "_f_score_sort"],
+            ascending=[True, False],
+            na_position="last",
+        )
+        best_runtime_method = str(runtime_subset.iloc[0]["stack_name"])
+    final_professor = _recommend_stack_name(frame, valid_fairness_mask, config=config)
     return {
-        "best_interpretable_baseline": _recommend_stack_name(frame, interpretable_mask),
-        "best_practical_ml_default": _recommend_stack_name(frame, ml_mask),
-        "best_exploratory_fairness_heavy": _recommend_stack_name(frame, fairness_mask),
+        "best_interpretable_baseline": _recommend_stack_name(frame, interpretable_mask, config=config),
+        "best_practical_ml_default": _recommend_stack_name(frame, ml_mask, config=config),
+        "best_exploratory_fairness_heavy": _recommend_stack_name(frame, fairness_mask, config=config),
+        "best_fairness_quality_method": final_professor,
+        "best_scalable_method": _recommend_stack_name(frame, scalable_mask, config=config),
+        "best_spread_method": best_spread_method,
+        "best_runtime_method": best_runtime_method,
+        "final_professor_priority_recommendation": final_professor,
     }
 
 
@@ -1992,6 +2646,7 @@ def format_fim_permutation_report(frame: pd.DataFrame, config: FIMPermutationRun
         "-" * 72,
         f"Protected attribute: {config.protected_attribute}",
         f"Budget: {config.budget}",
+        f"Ranking policy: {config.ranking_policy}",
         f"Final estimator: monte_carlo | mc_runs_eval={config.mc_runs_eval}",
         "",
     ]
@@ -2002,11 +2657,15 @@ def format_fim_permutation_report(frame: pd.DataFrame, config: FIMPermutationRun
     sortable = frame.copy()
     for column in ["f_score", "mf", "total_spread", "runtime_seconds"]:
         sortable[column] = pd.to_numeric(sortable[column], errors="coerce")
-    ok_rows = sortable[sortable["status"] == "ok"].sort_values(
-        ["f_score", "mf", "total_spread", "runtime_seconds"],
-        ascending=[False, False, False, True],
-        na_position="last",
-    )
+    ok_slice = sortable[sortable["status"] == "ok"]
+    if str(config.ranking_policy) == FAIRNESS_FIRST_PRIORITY:
+        ok_rows = _fairness_priority_order(ok_slice, config=config)
+    else:
+        ok_rows = ok_slice.sort_values(
+            ["f_score", "mf", "total_spread", "runtime_seconds"],
+            ascending=[False, False, False, True],
+            na_position="last",
+        )
     skipped_rows = sortable[sortable["status"] != "ok"]
     ordered = pd.concat([ok_rows, skipped_rows], ignore_index=True)
     for index, row in ordered.iterrows():
@@ -2021,6 +2680,14 @@ def format_fim_permutation_report(frame: pd.DataFrame, config: FIMPermutationRun
                 f"DCV={float(row['dcv']):.4f} | "
                 f"F-score={float(row['f_score']):.4f} | "
                 f"runtime={float(row['runtime_seconds']):.3f}s"
+            )
+            lines.append(
+                "   "
+                f"zero_covered_groups={row.get('zero_covered_groups_count')} | "
+                f"fraction_groups_covered={row.get('fraction_groups_covered')} | "
+                f"scalability_pass={row.get('scalability_pass')} | "
+                f"candidate_pool={row.get('candidate_pool_size')} | "
+                f"ris_rr_sets={row.get('effective_ris_num_rr_sets')}"
             )
         else:
             lines.append(f"   skip_reason={row.get('skip_reason', '')}")
@@ -2038,6 +2705,7 @@ def format_fim_permutation_report(frame: pd.DataFrame, config: FIMPermutationRun
             lines.append(
                 "   "
                 f"pipeline: fim_stack={row.get('fim_stack', row.get('stack_name'))} | "
+                f"ranking_policy={row.get('ranking_policy')} | "
                 f"mode={row.get('pipeline_mode')} | "
                 f"method_type={row.get('method_type')} | "
                 f"repair={row.get('repair_enabled')} | "
@@ -2054,8 +2722,9 @@ def format_fim_permutation_report(frame: pd.DataFrame, config: FIMPermutationRun
                 f"guidance: ml={row.get('ml_score_weight')} | "
                 f"ris={row.get('ris_score_weight')} | "
                 f"fair_ris={row.get('fair_ris_score_weight')} | "
-                f"fairness={row.get('fairness_bonus_weight')} | "
-                f"community_diversity={row.get('community_diversity_weight')}"
+                f"weak_group={row.get('weak_group_bonus_weight')} | "
+                f"community_diversity={row.get('community_diversity_weight')} | "
+                f"protected_group_coverage={row.get('protected_group_coverage_weight')}"
             )
             lines.append(
                 "   "
@@ -2063,7 +2732,17 @@ def format_fim_permutation_report(frame: pd.DataFrame, config: FIMPermutationRun
                 f"repaired_seed_sets={row.get('repaired_seed_sets')} | "
                 f"successful_swaps={row.get('successful_swaps')} | "
                 f"community_coverage={row.get('final_community_coverage')} | "
+                f"community_coverage_ratio={row.get('community_coverage_ratio')} | "
                 f"protected_group_coverage={row.get('final_protected_group_coverage')}"
+            )
+            lines.append(
+                "   "
+                f"caches: embedding={row.get('embedding_cache_status')} | "
+                f"community={row.get('community_cache_status')} | "
+                f"ris={row.get('ris_cache_status')} | "
+                f"score={row.get('score_cache_status')} | "
+                f"fitness_hits={row.get('fitness_cache_hits')} | "
+                f"swap_hits={row.get('swap_cache_hits')}"
             )
             lines.append(
                 "   "
@@ -2076,7 +2755,7 @@ def format_fim_permutation_report(frame: pd.DataFrame, config: FIMPermutationRun
             lines.append(f"   notes={notes}")
         lines.append("")
 
-    recommendations = recommend_fim_stacks(frame)
+    recommendations = recommend_fim_stacks(frame, config=config)
     lines.append("Recommendations")
     lines.append("-" * 72)
     lines.append(
@@ -2087,6 +2766,16 @@ def format_fim_permutation_report(frame: pd.DataFrame, config: FIMPermutationRun
     )
     lines.append(
         f"best_exploratory_fairness_heavy={recommendations['best_exploratory_fairness_heavy'] or 'n/a'}"
+    )
+    lines.append(
+        f"best_fairness_quality_method={recommendations['best_fairness_quality_method'] or 'n/a'}"
+    )
+    lines.append(f"best_scalable_method={recommendations['best_scalable_method'] or 'n/a'}")
+    lines.append(f"best_spread_method={recommendations['best_spread_method'] or 'n/a'}")
+    lines.append(f"best_runtime_method={recommendations['best_runtime_method'] or 'n/a'}")
+    lines.append(
+        "final_professor_priority_recommendation="
+        f"{recommendations['final_professor_priority_recommendation'] or 'n/a'}"
     )
     return "\n".join(lines).rstrip()
 

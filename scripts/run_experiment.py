@@ -537,6 +537,10 @@ _FIM_STACK_PRESETS = {
     "gcn_community_siea",
     "node2vec_xgboost_community_siea",
     "no_ml_community_siea",
+    "fairness_first_scalable_ml_siea",
+    "node2vec_xgboost_fair_siea",
+    "gcn_fair_siea",
+    "community_fair_greedy_baseline",
 }
 
 
@@ -568,7 +572,13 @@ def _resolve_single_community_method(args: argparse.Namespace) -> str:
 def _preset_spec(args: argparse.Namespace) -> FIMPermutationSpec:
     stack_name = str(args.fim_stack).strip().lower()
     community_method = _resolve_single_community_method(args)
-    if stack_name not in {"baseline_community_greedy", "community_aware_fair_greedy"} and args.optimizer_mode != "hybrid_si_ea":
+    effective_ranking_policy = (
+        "fairness_first_priority"
+        if stack_name in {"fairness_first_scalable_ml_siea", "node2vec_xgboost_fair_siea", "gcn_fair_siea", "community_fair_greedy_baseline"}
+        and str(args.ranking_policy) == "fim_default"
+        else str(args.ranking_policy)
+    )
+    if stack_name not in {"baseline_community_greedy", "community_aware_fair_greedy", "community_fair_greedy_baseline"} and args.optimizer_mode != "hybrid_si_ea":
         raise ValueError(
             f"--fim-stack {stack_name} is wired to Hybrid SI+EA in this runner; "
             "use --optimizer-mode hybrid_si_ea or the existing standard experiment path."
@@ -577,12 +587,63 @@ def _preset_spec(args: argparse.Namespace) -> FIMPermutationSpec:
         "graphsage_community_siea",
         "gcn_community_siea",
         "node2vec_xgboost_community_siea",
+        "fairness_first_scalable_ml_siea",
+        "node2vec_xgboost_fair_siea",
+        "gcn_fair_siea",
     }
-    if stack_name in {"baseline_community_greedy", "community_aware_fair_greedy"}:
+    if stack_name in {"baseline_community_greedy", "community_aware_fair_greedy", "community_fair_greedy_baseline"}:
+        base_name = "community_fair_greedy_baseline" if stack_name == "community_fair_greedy_baseline" else "community_aware_fair_greedy"
         return replace(
-            get_fim_permutation_spec("community_aware_fair_greedy"),
+            get_fim_permutation_spec(base_name),
             name=stack_name,
             community_method=community_method,
+            ranking_policy=effective_ranking_policy if stack_name == "community_fair_greedy_baseline" else "fim_default",
+            notes=f"preset={stack_name}",
+        )
+    if stack_name == "fairness_first_scalable_ml_siea":
+        embedding_method = str(args.embedding_method or "graphsage").strip().lower()
+        ranking_model = str(args.ranking_model or ("xgboost" if embedding_method == "node2vec" else f"{embedding_method}_plus_fair_ris")).strip().lower()
+        if embedding_method == "graphsage" and ranking_model == "graphsage_plus_fair_ris":
+            ranking_model = "graphsage_plus_fair_ris"
+        if embedding_method == "gcn" and ranking_model == "gcn_plus_fair_ris":
+            ranking_model = "gcn_plus_fair_ris"
+        return FIMPermutationSpec(
+            name=stack_name,
+            description="Fairness-first scalable ML SI+EA with graph-native communities, ML guidance, Fair RIS, repair, and swap search.",
+            runner_kind="ranked_hybrid",
+            diffusion_model=args.diffusion_model,
+            community_method=community_method,
+            spread_estimator_search="fairness_aware_ris",
+            spread_estimator_final="monte_carlo",
+            embedding_method=embedding_method,
+            ranking_model=ranking_model,
+            optimizer_mode="hybrid_si_ea",
+            debias_mode="worst_group_boost",
+            fairness_objective="f_score",
+            ranking_policy=effective_ranking_policy,
+            variant_family="ml",
+            candidate_top_fraction=None,
+            use_ris_guidance=True,
+            use_fair_ris=use_fair_ris,
+            ranking_weight=0.8,
+            ris_weight=0.8,
+            fair_ris_weight=1.2,
+            notes=f"preset={stack_name}",
+        )
+    if stack_name == "node2vec_xgboost_fair_siea":
+        return replace(
+            get_fim_permutation_spec("node2vec_xgboost_fair_siea"),
+            community_method=community_method,
+            diffusion_model=args.diffusion_model,
+            ranking_policy=effective_ranking_policy,
+            notes=f"preset={stack_name}",
+        )
+    if stack_name == "gcn_fair_siea":
+        return replace(
+            get_fim_permutation_spec("gcn_fair_siea"),
+            community_method=community_method,
+            diffusion_model=args.diffusion_model,
+            ranking_policy=effective_ranking_policy,
             notes=f"preset={stack_name}",
         )
     if stack_name == "graphsage_community_siea":
@@ -657,8 +718,27 @@ def _preset_spec(args: argparse.Namespace) -> FIMPermutationSpec:
     raise ValueError(f"Unsupported --fim-stack '{args.fim_stack}'. Supported values: {supported}.")
 
 
+def _direct_weight_defaults(args: argparse.Namespace, spec: FIMPermutationSpec) -> dict[str, float]:
+    fairness_first = spec.ranking_policy == "fairness_first_priority" or str(args.ranking_policy) == "fairness_first_priority"
+    defaults = {
+        "ml_score_weight": 0.8 if fairness_first else 1.0,
+        "ris_score_weight": 0.8 if fairness_first else 1.0,
+        "fair_ris_score_weight": 1.2 if fairness_first else 0.5,
+        "fairness_bonus_weight": 1.0 if fairness_first else 0.2,
+        "weak_group_bonus_weight": 1.0 if fairness_first else 0.2,
+        "community_diversity_weight": 0.4 if fairness_first else 0.2,
+        "protected_group_coverage_weight": 1.0 if fairness_first else 0.0,
+    }
+    return {
+        key: defaults[key] if getattr(args, key) is None else float(getattr(args, key))
+        for key in defaults
+    }
+
+
 def _run_direct_fim_stack(args: argparse.Namespace, dataset_config: DatasetConfig) -> pd.DataFrame:
     spec = _preset_spec(args)
+    weights = _direct_weight_defaults(args, spec)
+    effective_ranking_policy = spec.ranking_policy if str(args.ranking_policy) == "fim_default" else str(args.ranking_policy)
     run_config = FIMPermutationRunConfig(
         protected_attribute=args.protected_attribute,
         budget=int(args.budget),
@@ -668,7 +748,7 @@ def _run_direct_fim_stack(args: argparse.Namespace, dataset_config: DatasetConfi
         lambda_weight=float(args.lambda_weight),
         random_seed=int(args.random_seed),
         output_dir=_resolve_repo_path(args.output_dir),
-        continue_on_error=False,
+        continue_on_error=True,
         swap_candidate_pool_size=int(args.swap_candidate_pool_size or args.local_search_candidate_pool_size or 16),
         local_search_steps=int(args.local_search_steps),
         population_size=int(args.population_size),
@@ -689,11 +769,35 @@ def _run_direct_fim_stack(args: argparse.Namespace, dataset_config: DatasetConfi
         use_ml_scores_in_crossover=bool(args.use_ml_scores_in_crossover),
         use_ml_scores_in_repair=bool(args.use_ml_scores_in_repair),
         use_ml_scores_in_local_search=bool(args.use_ml_scores_in_local_search),
-        ml_score_weight=float(args.ml_score_weight),
-        ris_score_weight=float(args.ris_score_weight),
-        fair_ris_score_weight=float(args.fair_ris_score_weight),
-        fairness_bonus_weight=float(args.fairness_bonus_weight),
-        diversity_bonus_weight=float(args.community_diversity_weight),
+        ml_score_weight=weights["ml_score_weight"],
+        ris_score_weight=weights["ris_score_weight"],
+        fair_ris_score_weight=weights["fair_ris_score_weight"],
+        fairness_bonus_weight=weights["fairness_bonus_weight"],
+        weak_group_bonus_weight=weights["weak_group_bonus_weight"],
+        diversity_bonus_weight=weights["community_diversity_weight"],
+        protected_group_coverage_weight=weights["protected_group_coverage_weight"],
+        ranking_policy=effective_ranking_policy,
+        min_f_score=float(args.min_f_score),
+        min_mf=float(args.min_mf),
+        max_dcv=float(args.max_dcv),
+        min_fraction_groups_covered=float(args.min_fraction_groups_covered),
+        fairness_close_threshold=float(args.fairness_close_threshold),
+        runtime_tiebreak_only=bool(args.runtime_tiebreak_only),
+        fscore_weight=float(args.fscore_weight),
+        mf_weight=float(args.mf_weight),
+        dcv_weight=float(args.dcv_weight),
+        spread_weight=float(args.spread_weight),
+        runtime_penalty_weight=float(args.runtime_penalty_weight),
+        fairness_tolerance_dcv=float(args.fairness_tolerance_dcv),
+        fairness_tolerance_fscore_drop=float(args.fairness_tolerance_fscore_drop),
+        use_fairness_first_swap_acceptance=bool(args.use_fairness_first_swap_acceptance),
+        scalability_mode=str(args.scalability_mode),
+        max_candidate_pool_size=int(args.max_candidate_pool_size),
+        candidate_pool_fraction=float(args.candidate_pool_fraction),
+        adaptive_ris_rr_sets=bool(args.adaptive_ris_rr_sets),
+        use_embedding_cache=bool(args.embedding_cache),
+        community_cache=bool(args.community_cache),
+        ris_cache=bool(args.ris_cache),
         community_balance_enabled=bool(args.community_balance_enabled),
         protected_group_balance_enabled=bool(args.protected_group_balance_enabled),
         repair_mode=str(args.repair_mode),
@@ -921,11 +1025,35 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--use-ml-scores-in-crossover", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--use-ml-scores-in-repair", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--use-ml-scores-in-local-search", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--ml-score-weight", type=float, default=1.0)
-    parser.add_argument("--ris-score-weight", type=float, default=1.0)
-    parser.add_argument("--fair-ris-score-weight", type=float, default=0.5)
-    parser.add_argument("--fairness-bonus-weight", type=float, default=0.2)
-    parser.add_argument("--community-diversity-weight", type=float, default=0.2)
+    parser.add_argument("--ranking-policy", choices=["fim_default", "fairness_first", "fairness_first_priority", "spread_first", "runtime_first"], default="fim_default")
+    parser.add_argument("--min-f-score", type=float, default=0.0)
+    parser.add_argument("--min-mf", type=float, default=0.0001)
+    parser.add_argument("--max-dcv", type=float, default=0.25)
+    parser.add_argument("--min-fraction-groups-covered", type=float, default=0.80)
+    parser.add_argument("--fairness-close-threshold", type=float, default=0.003)
+    parser.add_argument("--runtime-tiebreak-only", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--ml-score-weight", type=float, default=None)
+    parser.add_argument("--ris-score-weight", type=float, default=None)
+    parser.add_argument("--fair-ris-score-weight", type=float, default=None)
+    parser.add_argument("--fairness-bonus-weight", type=float, default=None)
+    parser.add_argument("--weak-group-bonus-weight", type=float, default=None)
+    parser.add_argument("--community-diversity-weight", type=float, default=None)
+    parser.add_argument("--protected-group-coverage-weight", type=float, default=None)
+    parser.add_argument("--fscore-weight", type=float, default=3.0)
+    parser.add_argument("--mf-weight", type=float, default=2.0)
+    parser.add_argument("--dcv-weight", type=float, default=2.0)
+    parser.add_argument("--spread-weight", type=float, default=0.5)
+    parser.add_argument("--runtime-penalty-weight", type=float, default=0.05)
+    parser.add_argument("--fairness-tolerance-dcv", type=float, default=0.005)
+    parser.add_argument("--fairness-tolerance-fscore-drop", type=float, default=0.001)
+    parser.add_argument("--use-fairness-first-swap-acceptance", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--scalability-mode", choices=["auto", "off", "large_graph"], default="auto")
+    parser.add_argument("--max-candidate-pool-size", type=int, default=500)
+    parser.add_argument("--candidate-pool-fraction", type=float, default=0.30)
+    parser.add_argument("--adaptive-ris-rr-sets", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--embedding-cache", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--community-cache", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--ris-cache", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--community-balance-enabled", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--protected-group-balance-enabled", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--repair-mode", choices=["basic", "balanced", "fairness"], default="balanced")
