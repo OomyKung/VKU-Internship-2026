@@ -18,10 +18,21 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from fim_hybrid.priority_policy import (  # noqa: E402
+    PROFESSOR_PRIORITY,
+    ProfessorPriorityConfig,
+    fairness_gate_notes,
+    fairness_valid_mask as policy_fairness_valid_mask,
+    is_professor_priority,
+    normalize_ranking_policy,
+    professor_priority_warning,
+    rank_frame_professor_priority,
+)
+
 
 DEFAULT_GLOB_PATTERNS = ("*_permutation_comparison.csv",)
 DEFAULT_GROUP_BY = ("dataset", "protected_attribute", "budget")
-DEFAULT_CLOSE_THRESHOLD = 0.002
+DEFAULT_CLOSE_THRESHOLD = 0.003
 DEFAULT_DCV_COLLAPSE_THRESHOLD = 0.25
 DEFAULT_MF_COLLAPSE_THRESHOLD = 0.001
 DEFAULT_MIN_F_SCORE = 0.0
@@ -48,6 +59,20 @@ STANDARD_COLUMNS = [
     "skip_reason",
     "spread_estimator_search",
     "spread_estimator_final",
+    "use_ris",
+    "use_fair_ris",
+    "fair_ris_enabled",
+    "ris_mode",
+    "ris_num_rr_sets",
+    "effective_ris_num_rr_sets",
+    "ris_reuse_rr_sets",
+    "ris_score_nonzero_count",
+    "ris_score_std",
+    "fair_ris_score_nonzero_count",
+    "fair_ris_score_std",
+    "ris_active_verified",
+    "fair_ris_active_verified",
+    "ris_verification_warnings",
     "total_spread",
     "extra_spread",
     "mf",
@@ -95,6 +120,22 @@ class InsightThresholds:
     mf_collapse_threshold: float = DEFAULT_MF_COLLAPSE_THRESHOLD
     min_f_score: float = DEFAULT_MIN_F_SCORE
     min_fraction_groups_covered: float = DEFAULT_MIN_FRACTION_GROUPS_COVERED
+    scalability_required: bool = True
+    runtime_tiebreak_only: bool = True
+    warn_only_fairness_gates: bool = False
+
+
+def _professor_config_from_thresholds(thresholds: InsightThresholds) -> ProfessorPriorityConfig:
+    return ProfessorPriorityConfig(
+        fairness_close_threshold=float(thresholds.close_threshold),
+        scalability_required=bool(thresholds.scalability_required),
+        runtime_tiebreak_only=bool(thresholds.runtime_tiebreak_only),
+        min_f_score=float(thresholds.min_f_score),
+        min_mf=float(thresholds.mf_collapse_threshold),
+        max_dcv=float(thresholds.dcv_collapse_threshold),
+        min_fraction_groups_covered=float(thresholds.min_fraction_groups_covered),
+        warn_only_fairness_gates=bool(thresholds.warn_only_fairness_gates),
+    )
 
 
 @dataclass(slots=True)
@@ -315,16 +356,28 @@ def _ranking_presets() -> dict[str, RankingSpec]:
             ),
             primary_metric="mf",
         ),
-        "fairness_first_priority": RankingSpec(
-            name="fairness_first_priority",
+        PROFESSOR_PRIORITY: RankingSpec(
+            name=PROFESSOR_PRIORITY,
             criteria=(
                 RankingCriterion("f_score", False),
                 RankingCriterion("mf", False),
                 RankingCriterion("dcv", True),
-                RankingCriterion("zero_covered_groups_count", True),
-                RankingCriterion("fraction_groups_covered", False),
                 RankingCriterion("scalability_pass", False),
                 RankingCriterion("total_spread", False),
+                RankingCriterion("extra_spread", False),
+                RankingCriterion("runtime_seconds", True),
+            ),
+            primary_metric="f_score",
+        ),
+        "fairness_first_priority": RankingSpec(
+            name=PROFESSOR_PRIORITY,
+            criteria=(
+                RankingCriterion("f_score", False),
+                RankingCriterion("mf", False),
+                RankingCriterion("dcv", True),
+                RankingCriterion("scalability_pass", False),
+                RankingCriterion("total_spread", False),
+                RankingCriterion("extra_spread", False),
                 RankingCriterion("runtime_seconds", True),
             ),
             primary_metric="f_score",
@@ -344,6 +397,7 @@ def _ranking_presets() -> dict[str, RankingSpec]:
 
 
 def _ranking_spec(rank_by: str, custom_rank: str | None = None) -> RankingSpec:
+    rank_by = normalize_ranking_policy(rank_by)
     if rank_by != "custom":
         try:
             return _ranking_presets()[rank_by]
@@ -473,6 +527,10 @@ def _parse_permutation_report(path: Path) -> pd.DataFrame:
             current_row["ranking_model"] = modules.get("ranking", pd.NA)
             current_row["optimizer_mode"] = modules.get("optimizer", pd.NA)
             current_row["debias_mode"] = modules.get("debias", pd.NA)
+            current_row["spread_estimator_search"] = modules.get("search_estimator", pd.NA)
+            current_row["spread_estimator_final"] = modules.get("final_estimator", pd.NA)
+            current_row["fair_ris_enabled"] = modules.get("fair_ris", pd.NA)
+            current_row["effective_ris_num_rr_sets"] = modules.get("ris_rr_sets", pd.NA)
             current_row["key_enabled_modules"] = stripped.split(":", 1)[1].strip()
             continue
         if stripped.startswith("notes="):
@@ -814,8 +872,8 @@ def _primary_metric_gap(frame: pd.DataFrame, criterion: RankingCriterion) -> flo
     if pd.isna(first_value) or pd.isna(second_value):
         return None
     if criterion.ascending:
-        return float(second_value) - float(first_value)
-    return float(first_value) - float(second_value)
+        return abs(float(second_value) - float(first_value))
+    return abs(float(first_value) - float(second_value))
 
 
 def _closeness_label(gap: float | None, close_threshold: float) -> str:
@@ -961,6 +1019,23 @@ def _method_note(
         notes.append("F-score below fairness threshold; not recommended as default")
     if pd.notna(row.get("fraction_groups_covered")) and float(row["fraction_groups_covered"]) < thresholds.min_fraction_groups_covered:
         notes.append("Fairness collapse warning: protected-group coverage below threshold")
+    if pd.notna(row.get("spread_estimator_search")):
+        ris_bits = [
+            f"search_estimator={row.get('spread_estimator_search')}",
+            f"final_estimator={row.get('spread_estimator_final', 'monte_carlo')}",
+        ]
+        if pd.notna(row.get("fair_ris_enabled")):
+            ris_bits.append(f"fair_ris={row.get('fair_ris_enabled')}")
+        if pd.notna(row.get("effective_ris_num_rr_sets")):
+            ris_bits.append(f"ris_rr_sets={row.get('effective_ris_num_rr_sets')}")
+        if pd.notna(row.get("ris_active_verified")):
+            ris_bits.append(f"ris_verified={row.get('ris_active_verified')}")
+        if pd.notna(row.get("fair_ris_active_verified")):
+            ris_bits.append(f"fair_ris_verified={row.get('fair_ris_active_verified')}")
+        notes.append("RIS config: " + " | ".join(str(part) for part in ris_bits))
+    ris_warning = str(row.get("ris_verification_warnings", "") or "").strip()
+    if ris_warning and ris_warning != "<NA>":
+        notes.append("RIS warning: " + ris_warning)
     if not notes:
         notes.append("Competitive comparison method")
     return "; ".join(dict.fromkeys(notes))
@@ -975,17 +1050,7 @@ def _group_context(group_columns: Sequence[str], group_key: object) -> dict[str,
 
 
 def _fairness_valid_mask(frame: pd.DataFrame, thresholds: InsightThresholds) -> pd.Series:
-    mask = pd.Series([True] * len(frame), index=frame.index)
-    if "f_score" in frame.columns:
-        mask &= pd.to_numeric(frame["f_score"], errors="coerce").fillna(float("-inf")) >= float(thresholds.min_f_score)
-    if "mf" in frame.columns:
-        mask &= pd.to_numeric(frame["mf"], errors="coerce").fillna(0.0) > float(thresholds.mf_collapse_threshold)
-    if "dcv" in frame.columns:
-        mask &= pd.to_numeric(frame["dcv"], errors="coerce").fillna(float("inf")) < float(thresholds.dcv_collapse_threshold)
-    if "fraction_groups_covered" in frame.columns:
-        fraction = pd.to_numeric(frame["fraction_groups_covered"], errors="coerce")
-        mask &= fraction.isna() | (fraction >= float(thresholds.min_fraction_groups_covered))
-    return mask
+    return policy_fairness_valid_mask(frame, _professor_config_from_thresholds(thresholds))
 
 
 def _fairness_first_ranked_frame(
@@ -993,16 +1058,12 @@ def _fairness_first_ranked_frame(
     ranking_criteria: Sequence[RankingCriterion],
     thresholds: InsightThresholds,
 ) -> pd.DataFrame:
-    ranked_valid = _sort_frame(aggregated.loc[_fairness_valid_mask(aggregated, thresholds)].copy(), ranking_criteria)
-    rejected = aggregated.loc[~_fairness_valid_mask(aggregated, thresholds)].copy()
-    if rejected.empty:
-        return ranked_valid
-    rejected = _sort_frame(rejected, ranking_criteria)
-    rejected["fairness_rejected"] = True
-    if not ranked_valid.empty:
-        ranked_valid["fairness_rejected"] = False
-        return pd.concat([ranked_valid, rejected], ignore_index=True)
-    return rejected
+    policy_config = _professor_config_from_thresholds(thresholds)
+    ranked = rank_frame_professor_priority(aggregated.copy(), policy_config)
+    rejected_mask = ~_fairness_valid_mask(ranked, thresholds)
+    ranked["fairness_rejected"] = rejected_mask
+    ranked["fairness_gate_failures"] = fairness_gate_notes(ranked, policy_config)
+    return ranked
 
 
 def evaluate_result_frame(
@@ -1020,6 +1081,7 @@ def evaluate_result_frame(
         raise ValueError("No result rows are available for evaluation.")
 
     ranking_spec = _ranking_spec(rank_by, custom_rank=custom_rank)
+    priority_ranking = is_professor_priority(ranking_spec.name)
     group_columns = _resolve_group_columns(frame, group_by)
     overall_warnings: list[str] = []
     missing_metrics = [column for column in METRIC_COLUMNS if column not in frame.columns or not frame[column].notna().any()]
@@ -1038,7 +1100,7 @@ def evaluate_result_frame(
     pairwise_frames: list[pd.DataFrame] = []
 
     spread_spec = _ranking_presets()["spread_first"]
-    fairness_spec = _ranking_presets()["fairness_first_priority" if ranking_spec.name == "fairness_first_priority" else "fairness_first"]
+    fairness_spec = _ranking_presets()[PROFESSOR_PRIORITY if priority_ranking else "fairness_first"]
     runtime_spec = _ranking_presets()["runtime_first"]
 
     for group_key, group_frame in grouped_iterable:
@@ -1079,11 +1141,14 @@ def evaluate_result_frame(
 
         ranking_criteria, ranking_warnings = _available_ranking_criteria(aggregated, ranking_spec)
         group_warnings.extend(ranking_warnings)
-        if ranking_spec.name == "fairness_first_priority":
+        if priority_ranking:
             ranked = _fairness_first_ranked_frame(aggregated.copy(), ranking_criteria, thresholds)
             rejected_count = int(pd.to_numeric(ranked.get("fairness_rejected", False), errors="coerce").fillna(0).sum()) if "fairness_rejected" in ranked.columns else 0
             if rejected_count:
                 group_warnings.append(f"{rejected_count} method(s) were placed after fairness-collapse filters.")
+            all_failed_warning = professor_priority_warning(ranked, _professor_config_from_thresholds(thresholds))
+            if all_failed_warning:
+                group_warnings.append(all_failed_warning)
         else:
             ranked = _sort_frame(aggregated.copy(), ranking_criteria)
         ranked["rank"] = range(1, len(ranked) + 1)
@@ -1095,18 +1160,34 @@ def evaluate_result_frame(
         group_warnings.extend(fairness_warnings)
         group_warnings.extend(runtime_warnings)
 
-        winner_row = _select_best_row(ranked, ranking_criteria)
+        winner_row = ranked.iloc[0] if priority_ranking and not ranked.empty else _select_best_row(ranked, ranking_criteria)
         spread_row = _select_best_row(ranked, spread_criteria) if spread_criteria else None
-        fairness_row = _select_best_row(ranked, fairness_criteria) if fairness_criteria else None
+        fairness_row = ranked.iloc[0] if priority_ranking and not ranked.empty else (_select_best_row(ranked, fairness_criteria) if fairness_criteria else None)
         fastest_row = _select_best_row(ranked, runtime_criteria) if runtime_criteria else None
 
         winner_name = _row_identity(winner_row)
         spread_name = _row_identity(spread_row)
         fairness_name = _row_identity(fairness_row)
         fastest_name = _row_identity(fastest_row)
+        if fairness_row is not None:
+            fairness_f = pd.to_numeric(pd.Series([fairness_row.get("f_score", pd.NA)]), errors="coerce").iloc[0]
+            fairness_mf = pd.to_numeric(pd.Series([fairness_row.get("mf", pd.NA)]), errors="coerce").iloc[0]
+            fairness_dcv = pd.to_numeric(pd.Series([fairness_row.get("dcv", pd.NA)]), errors="coerce").iloc[0]
+            if pd.notna(fairness_f) and pd.notna(fairness_mf) and pd.notna(fairness_dcv):
+                ranked_f = pd.to_numeric(ranked["f_score"], errors="coerce") if "f_score" in ranked.columns else pd.Series(pd.NA, index=ranked.index)
+                ranked_mf = pd.to_numeric(ranked["mf"], errors="coerce") if "mf" in ranked.columns else pd.Series(pd.NA, index=ranked.index)
+                ranked_dcv = pd.to_numeric(ranked["dcv"], errors="coerce") if "dcv" in ranked.columns else pd.Series(pd.NA, index=ranked.index)
+                dominating_rows = ranked[
+                    (ranked_f > float(fairness_f))
+                    & (ranked_mf > float(fairness_mf))
+                    & (ranked_dcv < float(fairness_dcv))
+                ]
+                if not dominating_rows.empty:
+                    fairness_row = dominating_rows.iloc[0]
+                    fairness_name = _row_identity(fairness_row)
         fairness_valid_ranked_mask = _fairness_valid_mask(ranked, thresholds)
-        if ranking_spec.name == "fairness_first_priority" and not bool(fairness_valid_ranked_mask.any()):
-            group_warnings.append("No method passed fairness-first collapse thresholds; professor-priority recommendation is n/a.")
+        if priority_ranking and not bool(fairness_valid_ranked_mask.any()):
+            group_warnings.append("No method passed professor-priority fairness gates; recommending the least-bad method with warning.")
 
         primary_criterion = ranking_criteria[0]
         primary_gap = _primary_metric_gap(ranked, primary_criterion)
@@ -1176,6 +1257,8 @@ def evaluate_result_frame(
                 pd.to_numeric(ranked["fraction_groups_covered"], errors="coerce").fillna(1.0)
                 < thresholds.min_fraction_groups_covered
             )
+        if "zero_covered_groups_count" in ranked.columns:
+            collapse_mask |= pd.to_numeric(ranked["zero_covered_groups_count"], errors="coerce").fillna(0.0) > 0.0
         collapse_rows = ranked[collapse_mask]
         if not collapse_rows.empty:
             insight_lines.append(
@@ -1190,7 +1273,7 @@ def evaluate_result_frame(
             insight_lines.append(f"Best interpretable baseline: {baseline_name}")
         if exploratory_name is not None:
             insight_lines.append(f"Best exploratory comparator: {exploratory_name}")
-        if ranking_spec.name == "fairness_first_priority" and winner_name is not None and bool(fairness_valid_ranked_mask.any()):
+        if priority_ranking and winner_name is not None:
             insight_lines.append(f"Professor-priority recommendation: {winner_name}")
 
         method_notes = {
@@ -1221,9 +1304,7 @@ def evaluate_result_frame(
             if scalable_rows.empty:
                 scalable_rows = ranked
         scalable_name = str(scalable_rows.iloc[0]["stack_name"]) if not scalable_rows.empty else None
-        professor_priority_name = winner_name if ranking_spec.name != "fairness_first_priority" or bool(fairness_valid_ranked_mask.any()) else None
-        if ranking_spec.name == "fairness_first_priority" and not bool(fairness_valid_ranked_mask.any()):
-            scalable_name = None
+        professor_priority_name = winner_name
         recommendations = {
             "best_overall_method": winner_name,
             "best_fairness_first_method": fairness_name,
@@ -1232,11 +1313,11 @@ def evaluate_result_frame(
             "best_interpretable_baseline": baseline_name,
             "best_exploratory_comparator": exploratory_name,
             "best_practical_choice": practical_name,
-            "best_fairness_quality_method": professor_priority_name if ranking_spec.name == "fairness_first_priority" else fairness_name,
+            "best_fairness_quality_method": professor_priority_name if priority_ranking else fairness_name,
             "best_scalable_method": scalable_name,
             "best_spread_method": spread_name,
             "best_runtime_method": fastest_name,
-            "final_professor_priority_recommendation": professor_priority_name if ranking_spec.name == "fairness_first_priority" else practical_name,
+            "final_professor_priority_recommendation": professor_priority_name if priority_ranking else practical_name,
         }
 
         for key, value in context.items():
@@ -1523,13 +1604,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--rank-by",
-        choices=["fim_default", "spread_first", "fairness_first", "fairness_first_priority", "runtime_first", "custom"],
+        choices=["fim_default", "spread_first", "fairness_first", "fairness_first_priority", "professor_priority", "runtime_first", "custom"],
         default="fim_default",
         help="Ranking preset used for consistent method ordering.",
     )
     parser.add_argument(
         "--ranking-policy",
-        choices=["fim_default", "spread_first", "fairness_first", "fairness_first_priority", "runtime_first", "custom"],
+        choices=["fim_default", "spread_first", "fairness_first", "fairness_first_priority", "professor_priority", "runtime_first", "custom"],
         default=None,
         help="Alias for --rank-by used by FIM stack CLIs.",
     )
@@ -1546,14 +1627,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-mf", type=float, default=None)
     parser.add_argument("--max-dcv", type=float, default=None)
     parser.add_argument("--min-fraction-groups-covered", type=float, default=DEFAULT_MIN_FRACTION_GROUPS_COVERED)
+    parser.add_argument("--scalability-required", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--runtime-tiebreak-only", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--warn-only-fairness-gates", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--save-json", action=argparse.BooleanOptionalAction, default=False)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    rank_by = str(args.ranking_policy or args.rank_by)
+    rank_by = normalize_ranking_policy(str(args.ranking_policy or args.rank_by))
     input_paths = [path if Path(path).is_absolute() else ROOT / path for path in args.input_path]
     loaded = load_evaluation_inputs(
         input_paths,
@@ -1579,6 +1662,9 @@ def main() -> None:
             mf_collapse_threshold=float(args.min_mf if args.min_mf is not None else args.mf_collapse_threshold),
             min_f_score=float(args.min_f_score),
             min_fraction_groups_covered=float(args.min_fraction_groups_covered),
+            scalability_required=bool(args.scalability_required),
+            runtime_tiebreak_only=bool(args.runtime_tiebreak_only),
+            warn_only_fairness_gates=bool(args.warn_only_fairness_gates),
         ),
     )
 

@@ -1,0 +1,30 @@
+{
+  "adaptive_fairness_multiplier": 1.0,
+  "all_candidate_score_components_constant": null,
+  "budget": 40,
+  "budget_adequacy_warning": "",
+  "budget_per_group_estimate": {
+    "0": 8.98876404494382,
+    "1": 31.01123595505618
+  },
+  "constant_components": {},
+  "dataset": "rice_subset",
+  "imbalance_ratio": 3.45,
+  "large_imbalance_fairness_active": false,
+  "large_imbalance_fairness_mode": "auto",
+  "largest_community_size": 55,
+  "largest_group_size": 345,
+  "num_communities": 16,
+  "num_edges": 19320,
+  "num_nodes": 445,
+  "protected_attribute": "color",
+  "protected_group_counts": {
+    "0": 100,
+    "1": 345
+  },
+  "score_normalization": "global",
+  "score_table_path": "",
+  "smallest_community_size": 1,
+  "smallest_group_size": 100,
+  "stack_name": "community_aware_fair_greedy"
+}

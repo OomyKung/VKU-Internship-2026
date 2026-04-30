@@ -170,7 +170,9 @@ def _selection_config_from_args(args: argparse.Namespace) -> TradeoffSelectionCo
         min_mf=float(args.min_mf),
         max_dcv=float(args.max_dcv),
         min_fraction_groups_covered=float(args.min_fraction_groups_covered),
+        scalability_required=bool(args.scalability_required),
         runtime_tiebreak_only=bool(args.runtime_tiebreak_only),
+        warn_only_fairness_gates=bool(args.warn_only_fairness_gates),
         runtime_priority_when_close=bool(args.selection_runtime_priority_when_close),
         max_dcv_delta_vs_best=float(args.selection_max_dcv_delta_vs_best),
         min_mf_ratio_vs_best=float(args.selection_min_mf_ratio_vs_best),
@@ -440,6 +442,7 @@ def _build_run_config(
         weak_group_bonus_weight=float(selected.pipeline.weak_group_bonus_weight),
         diversity_bonus_weight=float(selected.pipeline.diversity_bonus_weight),
         protected_group_coverage_weight=float(selected.pipeline.protected_group_coverage_weight),
+        dcv_penalty_weight=float(selected.pipeline.dcv_penalty_weight),
         ranking_policy=str(selected.selection_policy),
         min_f_score=float(args.min_f_score),
         min_mf=float(args.min_mf),
@@ -974,7 +977,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--protected-attribute", required=True)
     parser.add_argument("--budget", type=int, required=True)
     parser.add_argument("--auto-select-stack-from", default=None)
-    parser.add_argument("--selection-policy", choices=["fairness_runtime_tradeoff", "quality_runtime", "fairness_first_priority"], default="fairness_runtime_tradeoff")
+    parser.add_argument("--selection-policy", choices=["fairness_runtime_tradeoff", "quality_runtime", "fairness_first_priority", "professor_priority"], default="fairness_runtime_tradeoff")
     parser.add_argument("--selection-close-fscore-threshold", "--close-fscore-threshold", dest="selection_close_fscore_threshold", type=float, default=0.003)
     parser.add_argument("--selection-max-dcv-delta-vs-best", type=float, default=0.01)
     parser.add_argument("--selection-min-mf-ratio-vs-best", type=float, default=0.95)
@@ -984,7 +987,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-dcv", type=float, default=0.25)
     parser.add_argument("--min-fraction-groups-covered", type=float, default=0.80)
     parser.add_argument("--fairness-close-threshold", type=float, default=None)
+    parser.add_argument("--scalability-required", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--runtime-tiebreak-only", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--warn-only-fairness-gates", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--selection-runtime-priority-when-close", "--runtime-priority-when-close", dest="selection_runtime_priority_when_close", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--quality-runtime-lambda", type=float, default=0.0)
     parser.add_argument(

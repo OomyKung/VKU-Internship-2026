@@ -1,0 +1,81 @@
+FIM Result Evaluation
+====================================================================================================
+Report: ml_fim_benchmark
+Inputs: ml_fim_benchmark
+Rows loaded: 4
+Ranking mode: professor_priority
+
+Global Warnings
+------------------------------------------------------------------------
+- 4 method(s) were placed after fairness-collapse filters.
+- No method passed professor-priority fairness gates; showing the least-bad method by F-score, MF, DCV, scalability, spread, extra spread, then runtime.
+- No method passed professor-priority fairness gates; recommending the least-bad method with warning.
+
+Group 1: dataset=graph_spa_500_0 | protected_attribute=region | budget=40
+------------------------------------------------------------------------
+Rows: 4 methods | ranking=professor_priority | aggregated_runs=no
+
+Rank  Method                         F-score   MF      DCV     Spread   Extra   Runtime
+1     graphsage_community_siea       0.0100   0.0643  0.0442  41.433   1.433   4.973s
+2     community_aware_fair_greedy    0.0064   0.0667  0.0538  41.567   1.567   21.132s
+3     gcn_community_siea             0.0020   0.0591  0.0550  41.300   1.300   2.093s
+4     node2vec_xgboost_community_... -0.0021  0.0490  0.0532  41.667   1.667   5.767s
+
+Instant Insights
+- Overall winner: graphsage_community_siea
+- Best spread: node2vec_xgboost_community_siea
+- Best fairness profile: graphsage_community_siea
+- Fastest method: gcn_community_siea
+- Result closeness: moderate overall result; top f_score gap is 0.0036
+- Trade-off: node2vec_xgboost_community_siea delivers the best spread, but graphsage_community_siea keeps the stronger fairness-adjusted score.
+- Warning: node2vec_xgboost_community_siea shows a fairness collapse signal.
+- Best practical choice: graphsage_community_siea
+- Best interpretable baseline: community_aware_fair_greedy
+- Professor-priority recommendation: graphsage_community_siea
+
+Per-Method Notes
+- graphsage_community_siea: Best overall fairness-adjusted result
+- community_aware_fair_greedy: Best interpretable baseline
+- gcn_community_siea: Fastest evaluated method
+- node2vec_xgboost_community_siea: Best spread-oriented method, but not best fairness-adjusted method; F-score below fairness threshold; not recommended as default
+
+Warnings
+- 4 method(s) were placed after fairness-collapse filters.
+- No method passed professor-priority fairness gates; showing the least-bad method by F-score, MF, DCV, scalability, spread, extra spread, then runtime.
+- No method passed professor-priority fairness gates; recommending the least-bad method with warning.
+
+Recommendation
+- best_overall_method=graphsage_community_siea
+- best_fairness_first_method=graphsage_community_siea
+- best_spread_first_method=node2vec_xgboost_community_siea
+- best_runtime_first_method=gcn_community_siea
+- best_interpretable_baseline=community_aware_fair_greedy
+- best_exploratory_comparator=n/a
+- best_practical_choice=graphsage_community_siea
+- best_fairness_quality_method=graphsage_community_siea
+- best_scalable_method=graphsage_community_siea
+- best_spread_method=node2vec_xgboost_community_siea
+- best_runtime_method=gcn_community_siea
+- final_professor_priority_recommendation=graphsage_community_siea
+
+ML Benchmark Insights
+- Best current overall ML stack: graphsage_community_siea
+- Best fairness-first ML stack: graphsage_community_siea
+- Best spread-first ML stack: graphsage_community_siea
+- Best fast ML stack: gcn_community_siea
+- Best interpretable baseline: community_aware_fair_greedy
+- Strongest practical default: graphsage_community_siea
+
+ML Benchmark Recommendation
+- best_current_overall_ml_stack=graphsage_community_siea
+- best_fairness_first_ml_stack=graphsage_community_siea
+- best_spread_first_ml_stack=graphsage_community_siea
+- best_fast_ml_stack=gcn_community_siea
+- best_interpretable_baseline=community_aware_fair_greedy
+- strongest_practical_default=graphsage_community_siea
+- best_fairness_quality_method=graphsage_community_siea
+- best_scalable_method=graphsage_community_siea
+- best_spread_method=graphsage_community_siea
+- best_runtime_method=gcn_community_siea
+- final_professor_priority_recommendation=graphsage_community_siea
+- stacks_needing_more_work=n/a

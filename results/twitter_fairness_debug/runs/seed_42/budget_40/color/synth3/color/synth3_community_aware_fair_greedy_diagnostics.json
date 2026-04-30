@@ -1,0 +1,51 @@
+{
+  "adaptive_fairness_multiplier": 1.0,
+  "all_candidate_score_components_constant": false,
+  "budget": 40,
+  "budget_adequacy_warning": "",
+  "budget_per_group_estimate": {
+    "0": 10.0,
+    "1": 24.0,
+    "2": 6.0
+  },
+  "constant_components": {
+    "combined_score": false,
+    "community_diversity_bonus": false,
+    "fair_ris_score": true,
+    "fairness_bonus": false,
+    "ml_score": false,
+    "protected_group_coverage_bonus": false,
+    "ris_score": true,
+    "spread_proxy_score": false,
+    "weak_group_bonus": false
+  },
+  "dataset": "synth3",
+  "effective_ris_num_rr_sets": 128,
+  "fair_ris_enabled": false,
+  "imbalance_ratio": 4.0,
+  "large_imbalance_fairness_active": false,
+  "large_imbalance_fairness_mode": "off",
+  "largest_community_size": 107,
+  "largest_group_size": 300,
+  "num_communities": 28,
+  "num_edges": 2918,
+  "num_nodes": 500,
+  "protected_attribute": "color",
+  "protected_group_counts": {
+    "0": 125,
+    "1": 300,
+    "2": 75
+  },
+  "ris_mode": "weak_group_weighted",
+  "ris_num_rr_sets": 128,
+  "ris_reuse_rr_sets": true,
+  "score_normalization": "global",
+  "score_table_path": "C:\\Users\\User\\Desktop\\VKU-Internship-2026\\results\\twitter_fairness_debug\\runs\\seed_42\\budget_40\\color\\synth3\\color\\synth3_community_aware_fair_greedy_combined_candidate_scores.csv",
+  "smallest_community_size": 1,
+  "smallest_group_size": 75,
+  "spread_estimator_final": "monte_carlo",
+  "spread_estimator_search": "monte_carlo",
+  "stack_name": "community_aware_fair_greedy",
+  "use_fair_ris": false,
+  "use_ris": false
+}

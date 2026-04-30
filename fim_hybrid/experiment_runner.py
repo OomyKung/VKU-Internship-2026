@@ -131,6 +131,11 @@ class ExperimentSettings:
     elite_fraction: float = 0.25
     leader_guidance_fraction: float = 0.34
     local_search_steps: int = 2
+    use_fairness_first_swap_acceptance: bool = True
+    use_group_quota_repair: bool = True
+    min_seeds_per_protected_group: int = 1
+    quota_mode: str = "support_aware"
+    quota_min_group_support: int = 5
     random_seed: int = 42
     output_dir: Path | None = None
     derive_protected_groups: bool = False
@@ -1015,7 +1020,24 @@ def _static_diversity_scores(feature_frame: pd.DataFrame) -> dict[object, float]
 def _ris_group_weights(
     feature_frame: pd.DataFrame,
     protected_group_report: ProtectedGroupReport,
+    mode: str = "weak_group_weighted",
 ) -> dict[str, float]:
+    normalized_mode = str(mode or "weak_group_weighted").strip().lower()
+    if normalized_mode in {"standard", "global"}:
+        return {group_name: 1.0 for group_name in protected_group_report.group_sizes}
+    if normalized_mode == "group_balanced":
+        positive_sizes = [
+            int(size)
+            for size in protected_group_report.group_sizes.values()
+            if int(size) > 0
+        ]
+        largest = max(positive_sizes, default=1)
+        return {
+            group_name: float(largest) / float(max(1, int(group_size)))
+            for group_name, group_size in protected_group_report.group_sizes.items()
+        }
+    if normalized_mode != "weak_group_weighted":
+        raise ValueError("ris_mode must be one of ['standard', 'global', 'weak_group_weighted', 'group_balanced'].")
     required_columns = {
         "protected_group",
         "fraction_neighbors_in_undercovered_groups",
@@ -1093,13 +1115,13 @@ def _select_ris_scores(
     protected_group_report: ProtectedGroupReport,
     settings: ExperimentSettings,
 ) -> dict[object, float]:
-    if settings.ris_mode == "global":
+    if settings.ris_mode in {"global", "standard"}:
         return dict(ris_result.global_node_scores)
-    if settings.ris_mode == "weak_group_weighted":
+    if settings.ris_mode in {"weak_group_weighted", "group_balanced"}:
         return ris_result.weighted_node_scores(
-            _ris_group_weights(feature_frame, protected_group_report)
+            _ris_group_weights(feature_frame, protected_group_report, settings.ris_mode)
         )
-    raise ValueError("ris_mode must be one of ['global', 'weak_group_weighted'].")
+    raise ValueError("ris_mode must be one of ['standard', 'global', 'weak_group_weighted', 'group_balanced'].")
 
 
 def _build_fair_ris_scores(
@@ -1108,7 +1130,7 @@ def _build_fair_ris_scores(
     protected_group_report: ProtectedGroupReport,
 ) -> dict[object, float]:
     return ris_result.weighted_node_scores(
-        _ris_group_weights(feature_frame, protected_group_report)
+        _ris_group_weights(feature_frame, protected_group_report, "weak_group_weighted")
     )
 
 
@@ -1385,6 +1407,11 @@ def _build_optimizer_config(
         mc_runs=mc_runs_search,
         lambda_weight=settings.lambda_weight,
         random_seed=settings.random_seed,
+        use_fairness_first_swap_acceptance=settings.use_fairness_first_swap_acceptance,
+        use_group_quota_repair=settings.use_group_quota_repair,
+        min_seeds_per_protected_group=settings.min_seeds_per_protected_group,
+        quota_mode=settings.quota_mode,
+        quota_min_group_support=settings.quota_min_group_support,
         local_search_steps=settings.local_search_steps,
         ml_guidance_mode="off",
         ml_primary_pool_ratio=settings.ml_primary_pool_ratio,

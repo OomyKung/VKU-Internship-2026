@@ -23,6 +23,13 @@ from fim_hybrid.permutations import (  # noqa: E402
     get_fim_permutation_spec,
     run_fim_permutation_benchmark_from_config,
 )
+from fim_hybrid.priority_policy import (  # noqa: E402
+    PROFESSOR_PRIORITY,
+    ProfessorPriorityConfig,
+    normalize_ranking_policy,
+    professor_priority_warning,
+    rank_frame_professor_priority,
+)
 from scripts.evaluate_fim_results import (  # noqa: E402
     InsightThresholds,
     build_evaluation_report,
@@ -35,15 +42,18 @@ from scripts.run_experiment import build_dataset_config  # noqa: E402
 DEFAULT_BENCHMARK_NAME = "ml_fim_benchmark"
 DEFAULT_STRONG_STACKS = (
     "community_fair_greedy_baseline",
-    "fairness_first_scalable_ml_siea",
-    "node2vec_xgboost_fair_siea",
-    "gcn_fair_siea",
+    "graphsage_community_siea",
+    "node2vec_xgboost_community_siea",
+    "gcn_community_siea",
 )
 WEAK_ML_BASELINES = (
     "deepwalk_mlp",
     "line_fast_ml",
 )
 DEFAULT_ALL_STACKS = DEFAULT_STRONG_STACKS + (
+    "fairness_first_scalable_ml_siea",
+    "node2vec_xgboost_fair_siea",
+    "gcn_fair_siea",
     "graphsage_fair_ris_hybrid",
     "gcn_fair_ris_hybrid",
     "graphcl_maximin",
@@ -52,9 +62,18 @@ DEFAULT_ALL_STACKS = DEFAULT_STRONG_STACKS + (
     "node2vec_xgboost",
     "node2vec_kmeans_logreg_hybrid",
 ) + WEAK_ML_BASELINES
-_VALID_SPREAD_SEARCH = {"monte_carlo", "ris_guidance", "fairness_aware_ris"}
+_VALID_SPREAD_SEARCH = {"monte_carlo", "ris", "ris_guidance", "fairness_aware_ris"}
+_CLI_SPREAD_SEARCH = {"auto"} | _VALID_SPREAD_SEARCH
 _VALID_FINAL_ESTIMATORS = {"monte_carlo"}
 _VALID_OPTIMIZER_MODES = {"greedy", "local_search", "hybrid_si_ea"}
+_ML_GUIDED_COMMUNITY_SIEA_STACKS = {
+    "graphsage_community_siea",
+    "gcn_community_siea",
+    "node2vec_xgboost_community_siea",
+    "graphsage_fair_ris_hybrid",
+    "gcn_fair_ris_hybrid",
+    "node2vec_xgboost",
+}
 
 
 @dataclass(slots=True)
@@ -84,6 +103,102 @@ def _clone_named_spec(name: str, *, public_name: str | None = None, **updates: o
     if public_name is not None:
         changes["name"] = public_name
     return replace(base, **changes)
+
+
+def _normalize_spread_estimator_search(value: object) -> str:
+    if value is None:
+        return "auto"
+    normalized = str(value).strip().lower()
+    if normalized in {"", "auto"}:
+        return "auto"
+    if normalized == "ris_guidance":
+        return "ris"
+    if normalized not in {"monte_carlo", "ris", "fairness_aware_ris"}:
+        raise ValueError(f"Unsupported spread_estimator_search '{value}'.")
+    return normalized
+
+
+def _is_ml_guided_community_siea(spec: FIMPermutationSpec) -> bool:
+    if spec.name in _ML_GUIDED_COMMUNITY_SIEA_STACKS:
+        return True
+    return (
+        spec.runner_kind in {"ranked_hybrid", "experiment_runner_gnn_ris"}
+        and spec.optimizer_mode == "hybrid_si_ea"
+        and spec.embedding_method not in {"", "none"}
+    )
+
+
+def _with_appended_note(spec: FIMPermutationSpec, note: str) -> str:
+    existing = str(spec.notes or "").strip()
+    return "; ".join(part for part in [existing, note] if part)
+
+
+def _configure_spec_ris(
+    spec: FIMPermutationSpec,
+    *,
+    spread_estimator_search: object,
+    use_ris: bool = False,
+    use_fair_ris: bool = False,
+) -> FIMPermutationSpec:
+    search = _normalize_spread_estimator_search(spread_estimator_search)
+    fair_requested = bool(use_fair_ris) or search == "fairness_aware_ris"
+    ris_requested = bool(use_ris) or search == "ris"
+
+    if fair_requested:
+        return replace(
+            spec,
+            spread_estimator_search="fairness_aware_ris",
+            use_ris_guidance=True,
+            use_fair_ris=True,
+            notes=_with_appended_note(spec, "fair_ris_explicit=true"),
+        )
+    if ris_requested:
+        return replace(
+            spec,
+            spread_estimator_search="ris",
+            use_ris_guidance=True,
+            use_fair_ris=False,
+            fair_ris_weight=0.0,
+            notes=_with_appended_note(spec, "ris_explicit=true"),
+        )
+    if search == "monte_carlo":
+        return replace(
+            spec,
+            spread_estimator_search="monte_carlo",
+            use_ris_guidance=False,
+            use_fair_ris=False,
+            fair_ris_weight=0.0,
+            notes=_with_appended_note(spec, "ris_disabled_explicit=true"),
+        )
+    if _is_ml_guided_community_siea(spec):
+        return replace(
+            spec,
+            spread_estimator_search="fairness_aware_ris",
+            use_ris_guidance=True,
+            use_fair_ris=True,
+            notes=_with_appended_note(spec, "fair_ris_auto=true"),
+        )
+    if spec.spread_estimator_search == "ris_guidance":
+        return replace(spec, spread_estimator_search="ris")
+    return spec
+
+
+def _configure_specs_ris(
+    specs: Sequence[FIMPermutationSpec],
+    *,
+    spread_estimator_search: object,
+    use_ris: bool = False,
+    use_fair_ris: bool = False,
+) -> list[FIMPermutationSpec]:
+    return [
+        _configure_spec_ris(
+            spec,
+            spread_estimator_search=spread_estimator_search,
+            use_ris=use_ris,
+            use_fair_ris=use_fair_ris,
+        )
+        for spec in specs
+    ]
 
 
 def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
@@ -150,10 +265,12 @@ def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
         "graphsage_fair_ris_hybrid": _clone_named_spec(
             "leiden_graphsage_fair_ris_hybrid",
             public_name="graphsage_fair_ris_hybrid",
+            runner_kind="ranked_hybrid",
         ),
         "gcn_fair_ris_hybrid": _clone_named_spec(
             "leiden_gcn_fair_ris_hybrid",
             public_name="gcn_fair_ris_hybrid",
+            runner_kind="ranked_hybrid",
         ),
         "graphcl_maximin": _clone_named_spec(
             "infomap_graphcl_logreg_maximin",
@@ -338,9 +455,10 @@ def _generated_stack_name(
     parts = [community_method, embedding_method, ranking_model]
     if clustering_method not in {"", "none"}:
         parts.append(clustering_method)
-    if spread_estimator_search == "fairness_aware_ris":
+    normalized_search = _normalize_spread_estimator_search(spread_estimator_search)
+    if normalized_search == "fairness_aware_ris":
         parts.append("fair_ris")
-    elif spread_estimator_search == "ris_guidance":
+    elif normalized_search == "ris":
         parts.append("ris")
     parts.append(optimizer_mode)
     return "_".join(parts)
@@ -358,7 +476,10 @@ def _make_generated_stack_spec(
 ) -> FIMPermutationSpec:
     if spread_estimator_final not in _VALID_FINAL_ESTIMATORS:
         raise ValueError("All benchmark stacks must use spread_estimator_final='monte_carlo'.")
-    if spread_estimator_search not in _VALID_SPREAD_SEARCH:
+    normalized_search = _normalize_spread_estimator_search(spread_estimator_search)
+    if normalized_search == "auto":
+        normalized_search = "monte_carlo"
+    if normalized_search not in _VALID_SPREAD_SEARCH:
         raise ValueError(f"Unsupported spread_estimator_search '{spread_estimator_search}'.")
     if optimizer_mode not in _VALID_OPTIMIZER_MODES:
         raise ValueError(f"Unsupported optimizer_mode '{optimizer_mode}'.")
@@ -367,10 +488,10 @@ def _make_generated_stack_spec(
         embedding_method=embedding_method,
         ranking_model=ranking_model,
         optimizer_mode=optimizer_mode,
-        spread_estimator_search=spread_estimator_search,
+        spread_estimator_search=normalized_search,
     )
-    use_ris_guidance = spread_estimator_search in {"ris_guidance", "fairness_aware_ris"}
-    use_fair_ris = spread_estimator_search == "fairness_aware_ris"
+    use_ris_guidance = normalized_search in {"ris", "ris_guidance", "fairness_aware_ris"}
+    use_fair_ris = normalized_search == "fairness_aware_ris"
     normalized_clustering = str(clustering_method).strip().lower()
     return FIMPermutationSpec(
         name=_generated_stack_name(
@@ -379,13 +500,13 @@ def _make_generated_stack_spec(
             ranking_model=str(ranking_model).strip().lower(),
             optimizer_mode=str(optimizer_mode).strip().lower(),
             clustering_method=normalized_clustering,
-            spread_estimator_search=str(spread_estimator_search).strip().lower(),
+            spread_estimator_search=normalized_search,
         ),
         description="CLI-generated ML benchmark stack.",
         runner_kind=runner_kind,
         diffusion_model="ic",
         community_method=str(community_method).strip().lower(),
-        spread_estimator_search=str(spread_estimator_search).strip().lower(),
+        spread_estimator_search=normalized_search,
         spread_estimator_final=str(spread_estimator_final).strip().lower(),
         embedding_method=str(embedding_method).strip().lower(),
         clustering_method=normalized_clustering if normalized_clustering else "none",
@@ -414,6 +535,8 @@ def resolve_ml_benchmark_specs(
     spread_estimator_final: str,
     optimizer_mode: str | None,
     include_weak_ml_baselines: bool = False,
+    use_ris: bool = False,
+    use_fair_ris: bool = False,
 ) -> list[FIMPermutationSpec]:
     registry = _named_ml_stack_registry()
     requested_tokens = [str(value).strip().lower() for value in (ml_stacks or ["strong_ml"]) if str(value).strip()]
@@ -436,10 +559,10 @@ def resolve_ml_benchmark_specs(
         selected_specs.append(registry[name])
 
     selected_names_set = {spec.name for spec in selected_specs}
-    if include_baseline and not ({"community_aware_fair_greedy", "community_fair_greedy_baseline"} & selected_names_set):
+    if include_baseline and "community_aware_fair_greedy" not in selected_names_set:
         selected_specs.insert(0, registry["community_aware_fair_greedy"])
 
-    search_filter = None if spread_estimator_search is None else str(spread_estimator_search).strip().lower()
+    search_filter = _normalize_spread_estimator_search(spread_estimator_search)
     final_filter = str(spread_estimator_final).strip().lower()
     filtered_specs = _apply_stack_filters(
         selected_specs,
@@ -447,13 +570,18 @@ def resolve_ml_benchmark_specs(
         ranking_models=ranking_models,
         community_method=community_method,
         clustering_method=clustering_method,
-        spread_estimator_search=search_filter,
+        spread_estimator_search=None,
         spread_estimator_final=final_filter,
         optimizer_mode=optimizer_mode,
     )
 
     if filtered_specs:
-        return filtered_specs
+        return _configure_specs_ris(
+            filtered_specs,
+            spread_estimator_search=search_filter,
+            use_ris=use_ris,
+            use_fair_ris=use_fair_ris,
+        )
 
     if not embedding_methods:
         raise ValueError(
@@ -473,14 +601,23 @@ def resolve_ml_benchmark_specs(
                     ranking_model=ranking_model,
                     community_method=(community_method or "leiden"),
                     clustering_method=(clustering_method or "none"),
-                    spread_estimator_search=(search_filter or ("fairness_aware_ris" if ranking_model in {"graphsage", "gcn"} else "monte_carlo")),
+                    spread_estimator_search=(
+                        ("fairness_aware_ris" if ranking_model in {"graphsage", "gcn"} else "monte_carlo")
+                        if search_filter == "auto"
+                        else search_filter
+                    ),
                     spread_estimator_final=final_filter,
                     optimizer_mode=(optimizer_mode or ("hybrid_si_ea" if ranking_model in {"graphsage", "gcn", "xgboost", "logistic_regression"} else "greedy")),
                 )
             )
     if include_baseline:
         generated_specs.insert(0, registry["community_aware_fair_greedy"])
-    return generated_specs
+    return _configure_specs_ris(
+        generated_specs,
+        spread_estimator_search=search_filter,
+        use_ris=use_ris,
+        use_fair_ris=use_fair_ris,
+    )
 
 
 def _is_baseline_row(row: pd.Series) -> bool:
@@ -505,6 +642,16 @@ def build_ml_benchmark_insights(
     thresholds: InsightThresholds,
 ) -> tuple[list[str], dict[str, str | None]]:
     ranked = evaluation_result.ranked_frame.copy()
+    policy_config = ProfessorPriorityConfig(
+        fairness_close_threshold=float(thresholds.close_threshold),
+        min_f_score=float(thresholds.min_f_score),
+        min_mf=float(thresholds.mf_collapse_threshold),
+        max_dcv=float(thresholds.dcv_collapse_threshold),
+        min_fraction_groups_covered=float(thresholds.min_fraction_groups_covered),
+        scalability_required=bool(getattr(thresholds, "scalability_required", True)),
+        runtime_tiebreak_only=bool(getattr(thresholds, "runtime_tiebreak_only", True)),
+        warn_only_fairness_gates=bool(getattr(thresholds, "warn_only_fairness_gates", False)),
+    )
     if ranked.empty:
         return ["No successful benchmark rows were available for ML insight generation."], {
             "best_current_overall_ml_stack": None,
@@ -523,7 +670,17 @@ def build_ml_benchmark_insights(
 
     metric_columns = [
         column_name
-        for column_name in ("f_score", "mf", "dcv", "total_spread", "extra_spread", "runtime_seconds")
+        for column_name in (
+            "f_score",
+            "mf",
+            "dcv",
+            "total_spread",
+            "extra_spread",
+            "runtime_seconds",
+            "zero_covered_groups_count",
+            "fraction_groups_covered",
+            "scalability_pass",
+        )
         if column_name in ranked.columns
     ]
     descriptor_columns = [
@@ -559,19 +716,21 @@ def build_ml_benchmark_insights(
     if "fraction_groups_covered" in ml_ranked.columns:
         fraction_groups = pd.to_numeric(ml_ranked["fraction_groups_covered"], errors="coerce")
         collapse_mask |= fraction_groups.notna() & (fraction_groups < float(getattr(thresholds, "min_fraction_groups_covered", 0.80)))
+    if "zero_covered_groups_count" in ml_ranked.columns:
+        collapse_mask |= pd.to_numeric(ml_ranked["zero_covered_groups_count"], errors="coerce").fillna(0.0) > 0.0
     fairness_candidates = ml_ranked.loc[~collapse_mask].copy()
     all_ml_invalid = bool(not ml_ranked.empty and fairness_candidates.empty)
     if fairness_candidates.empty:
         fairness_candidates = ml_ranked.copy()
 
-    ml_ranked = _rank_ml_subset(fairness_candidates, ["f_score", "mf", "dcv", "zero_covered_groups_count", "fraction_groups_covered", "scalability_pass", "total_spread", "runtime_seconds"], [False, False, True, True, False, False, False, True])
+    ml_ranked = rank_frame_professor_priority(fairness_candidates, policy_config)
     fairness_ranked = ml_ranked.copy()
     spread_ranked = _rank_ml_subset(ml_ranked, ["total_spread", "extra_spread", "mf", "dcv", "runtime_seconds"], [False, False, False, True, True])
     runtime_ranked = _rank_ml_subset(ml_ranked, ["runtime_seconds", "f_score", "mf", "dcv", "total_spread"], [True, False, False, True, False])
 
     best_overall_ml = None if ml_ranked.empty else str(ml_ranked.iloc[0]["stack_name"])
 
-    baseline_ranked = _rank_ml_subset(baseline_ranked, ["f_score", "mf", "dcv", "total_spread", "runtime_seconds"], [False, False, True, False, True])
+    baseline_ranked = rank_frame_professor_priority(baseline_ranked, policy_config)
 
     best_fairness_ml = None if fairness_ranked.empty else str(fairness_ranked.iloc[0]["stack_name"])
     best_spread_ml = None if spread_ranked.empty else str(spread_ranked.iloc[0]["stack_name"])
@@ -585,10 +744,14 @@ def build_ml_benchmark_insights(
     best_scalable_ml = None if scalable_ranked.empty else str(scalable_ranked.iloc[0]["stack_name"])
 
     practical_default = best_overall_ml
+    if all_ml_invalid:
+        practical_default = None
     if not ml_ranked.empty and len(ml_ranked) > 1:
         fastest = runtime_ranked.iloc[0]
         best = ml_ranked.iloc[0]
         if (
+            not all_ml_invalid
+            and
             pd.notna(fastest.get("runtime_seconds"))
             and pd.notna(best.get("runtime_seconds"))
             and pd.notna(fastest.get("f_score"))
@@ -600,7 +763,7 @@ def build_ml_benchmark_insights(
 
     close_text = None
     if len(ml_ranked) >= 2 and pd.notna(ml_ranked.iloc[0].get("f_score")) and pd.notna(ml_ranked.iloc[1].get("f_score")):
-        gap = float(ml_ranked.iloc[0]["f_score"]) - float(ml_ranked.iloc[1]["f_score"])
+        gap = abs(float(ml_ranked.iloc[0]["f_score"]) - float(ml_ranked.iloc[1]["f_score"]))
         if gap <= float(thresholds.close_threshold):
             close_text = f"Close result; top two ML F-scores differ by {gap:.4f}."
 
@@ -627,7 +790,11 @@ def build_ml_benchmark_insights(
         f"Best spread-first ML stack: {best_spread_ml or 'n/a'}",
         f"Best fast ML stack: {best_fast_ml or 'n/a'}",
         f"Best interpretable baseline: {best_baseline or 'n/a'}",
-        f"Strongest practical default: {practical_default or 'n/a'}",
+        (
+            "Strongest practical default: n/a (no ML stack passed professor-priority fairness gates)"
+            if all_ml_invalid
+            else f"Strongest practical default: {practical_default or 'n/a'}"
+        ),
     ]
     if close_text is not None:
         lines.append(close_text)
@@ -638,7 +805,10 @@ def build_ml_benchmark_insights(
     if underperformers:
         lines.append("Fairness collapse warning: " + ", ".join(underperformers))
     if all_ml_invalid:
-        lines.append("No ML stack passed fairness-first collapse thresholds; professor-priority recommendation is n/a.")
+        warning = professor_priority_warning(ml_ranked, policy_config)
+        lines.append(warning or "No ML stack passed professor-priority fairness gates; showing the least-bad method with warning.")
+        if best_fairness_ml is not None:
+            lines.append(f"Least-bad ML method under professor priority: {best_fairness_ml} (warning: fairness gates failed).")
     if skipped_summaries:
         lines.append("Skipped stacks: " + "; ".join(skipped_summaries))
 
@@ -649,11 +819,11 @@ def build_ml_benchmark_insights(
         "best_fast_ml_stack": best_fast_ml,
         "best_interpretable_baseline": best_baseline,
         "strongest_practical_default": practical_default,
-        "best_fairness_quality_method": None if all_ml_invalid else best_fairness_ml,
-        "best_scalable_method": None if all_ml_invalid else best_scalable_ml,
+        "best_fairness_quality_method": best_fairness_ml,
+        "best_scalable_method": best_scalable_ml,
         "best_spread_method": best_spread_ml,
         "best_runtime_method": best_fast_ml,
-        "final_professor_priority_recommendation": None if all_ml_invalid else best_fairness_ml,
+        "final_professor_priority_recommendation": best_fairness_ml,
         "stacks_needing_more_work": ", ".join(underperformers) if underperformers else None,
     }
     return lines, recommendations
@@ -684,6 +854,7 @@ def run_ml_fim_benchmark(
     ranking_policy: str = "fim_default",
     save_json: bool = False,
 ) -> MLFIMBenchmarkResult:
+    ranking_policy = normalize_ranking_policy(ranking_policy)
     raw_frames: list[pd.DataFrame] = []
     for protected_attribute in protected_attributes:
         for budget in budgets:
@@ -819,9 +990,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--clustering-method", default=None, help="Optional stack filter or generator override.")
     parser.add_argument(
         "--spread-estimator-search",
-        default=None,
-        choices=sorted(_VALID_SPREAD_SEARCH),
-        help="Optional stack filter or generator override.",
+        default="auto",
+        choices=sorted(_CLI_SPREAD_SEARCH),
+        help="Search-time spread guidance: auto, monte_carlo, ris, or fairness_aware_ris. 'ris_guidance' is accepted as a legacy alias for ris.",
     )
     parser.add_argument(
         "--spread-estimator-final",
@@ -848,16 +1019,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gnn-learning-rate", type=float, default=1e-3)
     parser.add_argument("--gnn-weight-decay", type=float, default=5e-4)
     parser.add_argument("--embedding-dim", type=int, default=64)
+    parser.add_argument("--use-ris", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--use-fair-ris", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--require-ris", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument(
+        "--ris-mode",
+        choices=["standard", "weak_group_weighted", "group_balanced"],
+        default="weak_group_weighted",
+    )
     parser.add_argument("--ris-num-rr-sets", type=int, default=128)
+    parser.add_argument("--ris-reuse-rr-sets", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--swap-candidate-pool-size", type=int, default=24)
     parser.add_argument("--local-search-steps", type=int, default=1)
-    parser.add_argument("--ranking-policy", choices=["fim_default", "fairness_first", "fairness_first_priority", "spread_first", "runtime_first"], default="fairness_first_priority")
+    parser.add_argument("--ranking-policy", choices=["fim_default", "fairness_first", "fairness_first_priority", "professor_priority", "spread_first", "runtime_first"], default="professor_priority")
     parser.add_argument("--min-f-score", type=float, default=0.0)
     parser.add_argument("--min-mf", type=float, default=0.0001)
     parser.add_argument("--max-dcv", type=float, default=0.25)
     parser.add_argument("--min-fraction-groups-covered", type=float, default=0.80)
     parser.add_argument("--fairness-close-threshold", type=float, default=0.003)
+    parser.add_argument("--scalability-required", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--runtime-tiebreak-only", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--warn-only-fairness-gates", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--ml-score-weight", type=float, default=None)
     parser.add_argument("--ris-score-weight", type=float, default=None)
     parser.add_argument("--fair-ris-score-weight", type=float, default=None)
@@ -865,18 +1047,59 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weak-group-bonus-weight", type=float, default=None)
     parser.add_argument("--community-diversity-weight", type=float, default=None)
     parser.add_argument("--protected-group-coverage-weight", type=float, default=None)
-    parser.add_argument("--fscore-weight", type=float, default=3.0)
+    parser.add_argument("--spread-proxy-weight", type=float, default=None)
+    parser.add_argument("--fscore-weight", type=float, default=4.0)
     parser.add_argument("--mf-weight", type=float, default=2.0)
-    parser.add_argument("--dcv-weight", type=float, default=2.0)
+    parser.add_argument("--dcv-weight", type=float, default=2.5)
+    parser.add_argument("--group-coverage-weight", type=float, default=1.0)
+    parser.add_argument("--scalability-weight", type=float, default=0.5)
     parser.add_argument("--spread-weight", type=float, default=0.5)
     parser.add_argument("--runtime-penalty-weight", type=float, default=0.05)
+    parser.add_argument("--runtime-weight", type=float, default=0.05)
     parser.add_argument("--fairness-tolerance-dcv", type=float, default=0.005)
     parser.add_argument("--fairness-tolerance-fscore-drop", type=float, default=0.001)
     parser.add_argument("--use-fairness-first-swap-acceptance", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--use-professor-priority-fitness", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--fair-greedy-objective", choices=["default", "f_score", "maximin", "professor_priority"], default="professor_priority")
+    parser.add_argument("--dcv-penalty-weight", type=float, default=2.5)
+    parser.add_argument("--community-coverage-weight", type=float, default=0.5)
+    parser.add_argument("--use-ris-greedy-approximation", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--adaptive-fairness-weights", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--imbalance-threshold-medium", type=float, default=5.0)
+    parser.add_argument("--imbalance-threshold-high", type=float, default=10.0)
+    parser.add_argument("--adaptive-fairness-multiplier-medium", type=float, default=1.5)
+    parser.add_argument("--adaptive-fairness-multiplier-high", type=float, default=2.0)
+    parser.add_argument("--large-imbalance-fairness-mode", choices=["auto", "off", "force"], default="off")
+    parser.add_argument("--large-imbalance-threshold", type=float, default=5.0)
+    parser.add_argument("--large-graph-threshold", type=int, default=1000)
+    parser.add_argument("--use-group-stratified-candidate-pool", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--min-group-candidate-floor", type=int, default=20)
+    parser.add_argument("--group-candidate-multiplier", type=float, default=3.0)
+    parser.add_argument("--use-protected-group-quota-initialization", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--small-group-seed-fraction", type=float, default=0.10)
+    parser.add_argument("--initialization-quota-mode", choices=["proportional", "sqrt", "uniform_min"], default="sqrt")
+    parser.add_argument("--score-normalization", choices=["global", "per_group", "hybrid"], default="global")
+    parser.add_argument("--large-imbalance-ml-score-weight", type=float, default=0.4)
+    parser.add_argument("--large-imbalance-ris-score-weight", type=float, default=0.5)
+    parser.add_argument("--large-imbalance-fair-ris-score-weight", type=float, default=2.0)
+    parser.add_argument("--large-imbalance-weak-group-bonus-weight", type=float, default=2.0)
+    parser.add_argument("--large-imbalance-protected-group-coverage-weight", type=float, default=2.0)
+    parser.add_argument("--large-imbalance-community-diversity-weight", type=float, default=0.8)
+    parser.add_argument("--large-imbalance-spread-proxy-weight", type=float, default=0.2)
+    parser.add_argument("--use-group-quota-repair", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--min-seeds-per-protected-group", type=int, default=1)
+    parser.add_argument("--quota-mode", choices=["none", "at_least_one", "proportional", "support_aware"], default="support_aware")
+    parser.add_argument("--quota-min-group-support", type=int, default=5)
+    parser.add_argument("--use-fairness-first-repair", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--weak-group-repair-rounds", type=int, default=0)
+    parser.add_argument("--majority-overconcentration-threshold", type=float, default=0.60)
     parser.add_argument("--scalability-mode", choices=["auto", "off", "large_graph"], default="auto")
     parser.add_argument("--max-candidate-pool-size", type=int, default=500)
     parser.add_argument("--candidate-pool-fraction", type=float, default=0.30)
     parser.add_argument("--adaptive-ris-rr-sets", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--swap-reject-spread-gain-if-fairness-collapses", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--min-budget-node-ratio-warning", type=float, default=0.02)
+    parser.add_argument("--min-seeds-per-group-warning", type=int, default=5)
     parser.add_argument("--embedding-cache", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--community-cache", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--ris-cache", action=argparse.BooleanOptionalAction, default=True)
@@ -892,7 +1115,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repeat-protected-attributes", nargs="+", default=None)
     parser.add_argument("--output-dir", default="results/ml_fim_benchmark")
     parser.add_argument("--report-name", default=DEFAULT_BENCHMARK_NAME)
-    parser.add_argument("--close-threshold", type=float, default=0.002)
+    parser.add_argument("--close-threshold", type=float, default=0.003)
     parser.add_argument("--dcv-collapse-threshold", type=float, default=0.25)
     parser.add_argument("--mf-collapse-threshold", type=float, default=0.001)
     parser.add_argument(
@@ -955,6 +1178,8 @@ def main() -> None:
         spread_estimator_final=args.spread_estimator_final,
         optimizer_mode=args.optimizer_mode,
         include_weak_ml_baselines=bool(args.include_weak_ml_baselines),
+        use_ris=bool(args.use_ris),
+        use_fair_ris=bool(args.use_fair_ris),
     )
     output_dir = _resolve_repo_path(args.output_dir)
     if output_dir is None:
@@ -963,14 +1188,16 @@ def main() -> None:
     protected_attributes = [str(value) for value in _resolve_repeat_values(args.protected_attribute, args.repeat_protected_attributes)]
     budgets = [int(value) for value in _resolve_repeat_values(args.budget, args.repeat_budgets)]
     seeds = [int(value) for value in _resolve_repeat_values(args.random_seed, args.repeat_seeds)]
-    fairness_first_weights = str(args.ranking_policy) == "fairness_first_priority"
-    ml_score_weight = (0.8 if fairness_first_weights else 1.0) if args.ml_score_weight is None else float(args.ml_score_weight)
-    ris_score_weight = (0.8 if fairness_first_weights else 1.0) if args.ris_score_weight is None else float(args.ris_score_weight)
-    fair_ris_score_weight = (1.2 if fairness_first_weights else 0.5) if args.fair_ris_score_weight is None else float(args.fair_ris_score_weight)
+    ranking_policy = normalize_ranking_policy(args.ranking_policy)
+    fairness_first_weights = ranking_policy == PROFESSOR_PRIORITY
+    ml_score_weight = None if args.ml_score_weight is None else float(args.ml_score_weight)
+    ris_score_weight = None if args.ris_score_weight is None else float(args.ris_score_weight)
+    fair_ris_score_weight = None if args.fair_ris_score_weight is None else float(args.fair_ris_score_weight)
     fairness_bonus_weight = (1.0 if fairness_first_weights else 0.2) if args.fairness_bonus_weight is None else float(args.fairness_bonus_weight)
-    weak_group_bonus_weight = (1.0 if fairness_first_weights else 0.2) if args.weak_group_bonus_weight is None else float(args.weak_group_bonus_weight)
-    community_diversity_weight = (0.4 if fairness_first_weights else 0.2) if args.community_diversity_weight is None else float(args.community_diversity_weight)
-    protected_group_coverage_weight = (1.0 if fairness_first_weights else 0.0) if args.protected_group_coverage_weight is None else float(args.protected_group_coverage_weight)
+    weak_group_bonus_weight = None if args.weak_group_bonus_weight is None else float(args.weak_group_bonus_weight)
+    community_diversity_weight = 0.2 if args.community_diversity_weight is None else float(args.community_diversity_weight)
+    protected_group_coverage_weight = 0.0 if args.protected_group_coverage_weight is None else float(args.protected_group_coverage_weight)
+    spread_proxy_weight = 0.0 if args.spread_proxy_weight is None else float(args.spread_proxy_weight)
     base_run_config = FIMPermutationRunConfig(
         protected_attribute=args.protected_attribute,
         budget=int(args.budget),
@@ -994,6 +1221,11 @@ def main() -> None:
         gnn_learning_rate=float(args.gnn_learning_rate),
         gnn_weight_decay=float(args.gnn_weight_decay),
         ris_num_rr_sets=int(args.ris_num_rr_sets),
+        use_ris=bool(args.use_ris),
+        use_fair_ris=bool(args.use_fair_ris),
+        require_ris=bool(args.require_ris),
+        ris_mode=str(args.ris_mode),
+        ris_reuse_rr_sets=bool(args.ris_reuse_rr_sets),
         embedding_dim=int(args.embedding_dim),
         use_embedding_cache=bool(args.use_embedding_cache and args.embedding_cache),
         use_score_cache=bool(args.use_score_cache),
@@ -1005,27 +1237,70 @@ def main() -> None:
         weak_group_bonus_weight=weak_group_bonus_weight,
         diversity_bonus_weight=community_diversity_weight,
         protected_group_coverage_weight=protected_group_coverage_weight,
-        ranking_policy=str(args.ranking_policy),
+        ranking_policy=ranking_policy,
         min_f_score=float(args.min_f_score),
         min_mf=float(args.min_mf),
         max_dcv=float(args.max_dcv),
         min_fraction_groups_covered=float(args.min_fraction_groups_covered),
         fairness_close_threshold=float(args.fairness_close_threshold),
+        scalability_required=bool(args.scalability_required),
         runtime_tiebreak_only=bool(args.runtime_tiebreak_only),
+        warn_only_fairness_gates=bool(args.warn_only_fairness_gates),
         fscore_weight=float(args.fscore_weight),
         mf_weight=float(args.mf_weight),
         dcv_weight=float(args.dcv_weight),
+        group_coverage_weight=float(args.group_coverage_weight),
+        scalability_weight=float(args.scalability_weight),
         spread_weight=float(args.spread_weight),
         runtime_penalty_weight=float(args.runtime_penalty_weight),
+        runtime_weight=float(args.runtime_weight),
         fairness_tolerance_dcv=float(args.fairness_tolerance_dcv),
         fairness_tolerance_fscore_drop=float(args.fairness_tolerance_fscore_drop),
         use_fairness_first_swap_acceptance=bool(args.use_fairness_first_swap_acceptance),
+        use_professor_priority_fitness=bool(args.use_professor_priority_fitness),
+        fair_greedy_objective=str(args.fair_greedy_objective),
+        dcv_penalty_weight=float(args.dcv_penalty_weight),
+        community_coverage_weight=float(args.community_coverage_weight),
+        use_ris_greedy_approximation=bool(args.use_ris_greedy_approximation),
+        adaptive_fairness_weights=bool(args.adaptive_fairness_weights),
+        imbalance_threshold_medium=float(args.imbalance_threshold_medium),
+        imbalance_threshold_high=float(args.imbalance_threshold_high),
+        adaptive_fairness_multiplier_medium=float(args.adaptive_fairness_multiplier_medium),
+        adaptive_fairness_multiplier_high=float(args.adaptive_fairness_multiplier_high),
+        large_imbalance_fairness_mode=str(args.large_imbalance_fairness_mode),
+        large_imbalance_threshold=float(args.large_imbalance_threshold),
+        large_graph_threshold=int(args.large_graph_threshold),
+        use_group_stratified_candidate_pool=args.use_group_stratified_candidate_pool,
+        min_group_candidate_floor=int(args.min_group_candidate_floor),
+        group_candidate_multiplier=float(args.group_candidate_multiplier),
+        use_protected_group_quota_initialization=args.use_protected_group_quota_initialization,
+        small_group_seed_fraction=float(args.small_group_seed_fraction),
+        initialization_quota_mode=str(args.initialization_quota_mode),
+        score_normalization=str(args.score_normalization),
+        large_imbalance_ml_score_weight=float(args.large_imbalance_ml_score_weight),
+        large_imbalance_ris_score_weight=float(args.large_imbalance_ris_score_weight),
+        large_imbalance_fair_ris_score_weight=float(args.large_imbalance_fair_ris_score_weight),
+        large_imbalance_weak_group_bonus_weight=float(args.large_imbalance_weak_group_bonus_weight),
+        large_imbalance_protected_group_coverage_weight=float(args.large_imbalance_protected_group_coverage_weight),
+        large_imbalance_community_diversity_weight=float(args.large_imbalance_community_diversity_weight),
+        large_imbalance_spread_proxy_weight=float(args.large_imbalance_spread_proxy_weight),
+        use_group_quota_repair=bool(args.use_group_quota_repair),
+        min_seeds_per_protected_group=int(args.min_seeds_per_protected_group),
+        quota_mode=str(args.quota_mode),
+        quota_min_group_support=int(args.quota_min_group_support),
+        use_fairness_first_repair=bool(args.use_fairness_first_repair),
+        weak_group_repair_rounds=int(args.weak_group_repair_rounds),
+        majority_overconcentration_threshold=float(args.majority_overconcentration_threshold),
+        swap_reject_spread_gain_if_fairness_collapses=bool(args.swap_reject_spread_gain_if_fairness_collapses),
+        min_budget_node_ratio_warning=float(args.min_budget_node_ratio_warning),
+        min_seeds_per_group_warning=int(args.min_seeds_per_group_warning),
         scalability_mode=str(args.scalability_mode),
         max_candidate_pool_size=int(args.max_candidate_pool_size),
         candidate_pool_fraction=float(args.candidate_pool_fraction),
         adaptive_ris_rr_sets=bool(args.adaptive_ris_rr_sets),
         community_cache=bool(args.community_cache),
         ris_cache=bool(args.ris_cache),
+        spread_proxy_weight=spread_proxy_weight,
     )
     insight_thresholds = InsightThresholds(
         close_threshold=float(args.fairness_close_threshold if args.fairness_close_threshold is not None else args.close_threshold),
@@ -1033,6 +1308,9 @@ def main() -> None:
         mf_collapse_threshold=float(args.min_mf),
         min_f_score=float(args.min_f_score),
         min_fraction_groups_covered=float(args.min_fraction_groups_covered),
+        scalability_required=bool(args.scalability_required),
+        runtime_tiebreak_only=bool(args.runtime_tiebreak_only),
+        warn_only_fairness_gates=bool(args.warn_only_fairness_gates),
     )
     result = run_ml_fim_benchmark(
         dataset_config=dataset_config,
@@ -1044,7 +1322,7 @@ def main() -> None:
         output_dir=output_dir,
         report_name=str(args.report_name),
         insight_thresholds=insight_thresholds,
-        ranking_policy=str(args.ranking_policy),
+        ranking_policy=ranking_policy,
         save_json=bool(args.save_json),
     )
     print(result.report_text.rstrip())

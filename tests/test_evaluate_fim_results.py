@@ -218,6 +218,51 @@ Final estimator: monte_carlo | mc_runs_eval=1000
         self.assertIn("Best practical high-speed option", group.method_notes["graphsage_fair_ris_hybrid"])
         self.assertIn("Fairness collapse warning", group.method_notes["infomap_graphcl_maximin"])
 
+    def test_professor_priority_does_not_select_faster_clear_fscore_loss(self) -> None:
+        frame = pd.DataFrame(
+            [
+                {
+                    "stack_name": "slow_fair",
+                    "dataset": "toy_graph",
+                    "protected_attribute": "region",
+                    "budget": 4,
+                    "status": "ok",
+                    "total_spread": 10.0,
+                    "extra_spread": 1.0,
+                    "mf": 0.20,
+                    "dcv": 0.05,
+                    "f_score": 0.200,
+                    "runtime_seconds": 100.0,
+                    "scalability_pass": True,
+                },
+                {
+                    "stack_name": "fast_less_fair",
+                    "dataset": "toy_graph",
+                    "protected_attribute": "region",
+                    "budget": 4,
+                    "status": "ok",
+                    "total_spread": 15.0,
+                    "extra_spread": 6.0,
+                    "mf": 0.25,
+                    "dcv": 0.04,
+                    "f_score": 0.190,
+                    "runtime_seconds": 1.0,
+                    "scalability_pass": True,
+                },
+            ]
+        )
+
+        result = evaluate_result_frame(
+            frame,
+            rank_by="professor_priority",
+            group_by=["dataset", "protected_attribute", "budget"],
+            thresholds=InsightThresholds(close_threshold=0.003),
+        )
+
+        group = result.group_results[0]
+        self.assertEqual(group.recommendations["final_professor_priority_recommendation"], "slow_fair")
+        self.assertEqual(str(group.ranked_frame.iloc[0]["stack_name"]), "slow_fair")
+
     def test_custom_rank_and_output_saving_work(self) -> None:
         frame = _toy_result_rows(seed=3)
         result = evaluate_result_frame(

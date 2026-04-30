@@ -230,7 +230,24 @@ def prepare_optional_clustering(
 def _ris_group_weights(
     feature_frame: pd.DataFrame,
     protected_group_report: ProtectedGroupReport,
+    mode: str = "weak_group_weighted",
 ) -> dict[str, float]:
+    normalized_mode = str(mode or "weak_group_weighted").strip().lower()
+    if normalized_mode in {"standard", "global"}:
+        return {group_name: 1.0 for group_name in protected_group_report.group_sizes}
+    if normalized_mode == "group_balanced":
+        positive_sizes = [
+            int(size)
+            for size in protected_group_report.group_sizes.values()
+            if int(size) > 0
+        ]
+        largest = max(positive_sizes, default=1)
+        return {
+            group_name: float(largest) / float(max(1, int(group_size)))
+            for group_name, group_size in protected_group_report.group_sizes.items()
+        }
+    if normalized_mode != "weak_group_weighted":
+        raise ValueError("ris_mode must be one of ['standard', 'global', 'weak_group_weighted', 'group_balanced'].")
     required_columns = {
         "protected_group",
         "fraction_neighbors_in_undercovered_groups",
@@ -289,7 +306,7 @@ def prepare_ris_guidance(
     )
     global_scores = dict(ris_result.global_node_scores)
     fair_scores = ris_result.weighted_node_scores(
-        _ris_group_weights(feature_frame, protected_group_report)
+        _ris_group_weights(feature_frame, protected_group_report, resolved_config.mode)
     )
     scores_csv_path = None
     if protected_attribute is not None and stack_name is not None:

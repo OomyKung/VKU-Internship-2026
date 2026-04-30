@@ -118,6 +118,41 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ranking-max-nodes", type=int, default=None)
     parser.add_argument("--clustering-n-clusters", type=int, default=None)
     parser.add_argument("--clustering-min-cluster-size", type=int, default=None)
+    parser.add_argument("--adaptive-fairness-weights", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--imbalance-threshold-medium", type=float, default=5.0)
+    parser.add_argument("--imbalance-threshold-high", type=float, default=10.0)
+    parser.add_argument("--adaptive-fairness-multiplier-medium", type=float, default=1.5)
+    parser.add_argument("--adaptive-fairness-multiplier-high", type=float, default=2.0)
+    parser.add_argument("--large-imbalance-fairness-mode", choices=["auto", "off", "force"], default="off")
+    parser.add_argument("--large-imbalance-threshold", type=float, default=5.0)
+    parser.add_argument("--large-graph-threshold", type=int, default=1000)
+    parser.add_argument("--use-group-stratified-candidate-pool", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--min-group-candidate-floor", type=int, default=20)
+    parser.add_argument("--group-candidate-multiplier", type=float, default=3.0)
+    parser.add_argument("--use-protected-group-quota-initialization", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--small-group-seed-fraction", type=float, default=0.10)
+    parser.add_argument("--initialization-quota-mode", choices=["proportional", "sqrt", "uniform_min"], default="sqrt")
+    parser.add_argument("--score-normalization", choices=["global", "per_group", "hybrid"], default="global")
+    parser.add_argument("--large-imbalance-ml-score-weight", type=float, default=0.4)
+    parser.add_argument("--large-imbalance-ris-score-weight", type=float, default=0.5)
+    parser.add_argument("--large-imbalance-fair-ris-score-weight", type=float, default=2.0)
+    parser.add_argument("--large-imbalance-weak-group-bonus-weight", type=float, default=2.0)
+    parser.add_argument("--large-imbalance-protected-group-coverage-weight", type=float, default=2.0)
+    parser.add_argument("--large-imbalance-community-diversity-weight", type=float, default=0.8)
+    parser.add_argument("--large-imbalance-spread-proxy-weight", type=float, default=0.2)
+    parser.add_argument("--use-group-quota-repair", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--min-seeds-per-protected-group", type=int, default=1)
+    parser.add_argument("--quota-mode", choices=["none", "at_least_one", "proportional", "support_aware"], default="support_aware")
+    parser.add_argument("--quota-min-group-support", type=int, default=5)
+    parser.add_argument("--use-fairness-first-repair", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--weak-group-repair-rounds", type=int, default=0)
+    parser.add_argument("--majority-overconcentration-threshold", type=float, default=0.60)
+    parser.add_argument("--use-fairness-first-swap-acceptance", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--fairness-tolerance-fscore-drop", type=float, default=0.001)
+    parser.add_argument("--fairness-tolerance-dcv", type=float, default=0.005)
+    parser.add_argument("--swap-reject-spread-gain-if-fairness-collapses", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--min-budget-node-ratio-warning", type=float, default=0.02)
+    parser.add_argument("--min-seeds-per-group-warning", type=int, default=5)
     return parser.parse_args()
 
 
@@ -152,6 +187,41 @@ def main() -> None:
         ranking_max_nodes=args.ranking_max_nodes,
         clustering_n_clusters=args.clustering_n_clusters,
         clustering_min_cluster_size=args.clustering_min_cluster_size,
+        adaptive_fairness_weights=bool(args.adaptive_fairness_weights),
+        imbalance_threshold_medium=float(args.imbalance_threshold_medium),
+        imbalance_threshold_high=float(args.imbalance_threshold_high),
+        adaptive_fairness_multiplier_medium=float(args.adaptive_fairness_multiplier_medium),
+        adaptive_fairness_multiplier_high=float(args.adaptive_fairness_multiplier_high),
+        large_imbalance_fairness_mode=str(args.large_imbalance_fairness_mode),
+        large_imbalance_threshold=float(args.large_imbalance_threshold),
+        large_graph_threshold=int(args.large_graph_threshold),
+        use_group_stratified_candidate_pool=args.use_group_stratified_candidate_pool,
+        min_group_candidate_floor=int(args.min_group_candidate_floor),
+        group_candidate_multiplier=float(args.group_candidate_multiplier),
+        use_protected_group_quota_initialization=args.use_protected_group_quota_initialization,
+        small_group_seed_fraction=float(args.small_group_seed_fraction),
+        initialization_quota_mode=str(args.initialization_quota_mode),
+        score_normalization=str(args.score_normalization),
+        large_imbalance_ml_score_weight=float(args.large_imbalance_ml_score_weight),
+        large_imbalance_ris_score_weight=float(args.large_imbalance_ris_score_weight),
+        large_imbalance_fair_ris_score_weight=float(args.large_imbalance_fair_ris_score_weight),
+        large_imbalance_weak_group_bonus_weight=float(args.large_imbalance_weak_group_bonus_weight),
+        large_imbalance_protected_group_coverage_weight=float(args.large_imbalance_protected_group_coverage_weight),
+        large_imbalance_community_diversity_weight=float(args.large_imbalance_community_diversity_weight),
+        large_imbalance_spread_proxy_weight=float(args.large_imbalance_spread_proxy_weight),
+        use_group_quota_repair=bool(args.use_group_quota_repair),
+        min_seeds_per_protected_group=int(args.min_seeds_per_protected_group),
+        quota_mode=str(args.quota_mode),
+        quota_min_group_support=int(args.quota_min_group_support),
+        use_fairness_first_repair=bool(args.use_fairness_first_repair),
+        weak_group_repair_rounds=int(args.weak_group_repair_rounds),
+        majority_overconcentration_threshold=float(args.majority_overconcentration_threshold),
+        use_fairness_first_swap_acceptance=bool(args.use_fairness_first_swap_acceptance),
+        fairness_tolerance_fscore_drop=float(args.fairness_tolerance_fscore_drop),
+        fairness_tolerance_dcv=float(args.fairness_tolerance_dcv),
+        swap_reject_spread_gain_if_fairness_collapses=bool(args.swap_reject_spread_gain_if_fairness_collapses),
+        min_budget_node_ratio_warning=float(args.min_budget_node_ratio_warning),
+        min_seeds_per_group_warning=int(args.min_seeds_per_group_warning),
     )
     result = run_fim_permutation_benchmark_from_config(
         dataset_config=dataset_config,

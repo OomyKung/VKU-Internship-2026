@@ -1,0 +1,75 @@
+FIM Result Evaluation
+====================================================================================================
+Report: graph_require
+Inputs: ml_fim_benchmark
+Rows loaded: 1
+Ranking mode: professor_priority
+
+Global Warnings
+------------------------------------------------------------------------
+- 1 method(s) were placed after fairness-collapse filters.
+- No method passed professor-priority fairness gates; showing the least-bad method by F-score, MF, DCV, scalability, spread, extra spread, then runtime.
+- No method passed professor-priority fairness gates; recommending the least-bad method with warning.
+
+Group 1: dataset=graph_spa_500_0 | protected_attribute=region | budget=5
+------------------------------------------------------------------------
+Rows: 1 methods | ranking=professor_priority | aggregated_runs=no
+
+Rank  Method                         F-score   MF      DCV     Spread   Extra   Runtime
+1     node2vec_xgboost_community_... -0.3077  0.0000  0.6154  5.000    0.000   4.853s
+
+Instant Insights
+- Overall winner: node2vec_xgboost_community_siea
+- Best spread: node2vec_xgboost_community_siea
+- Best fairness profile: node2vec_xgboost_community_siea
+- Fastest method: node2vec_xgboost_community_siea
+- Warning: node2vec_xgboost_community_siea shows a fairness collapse signal.
+- Best practical choice: node2vec_xgboost_community_siea
+- Professor-priority recommendation: node2vec_xgboost_community_siea
+
+Per-Method Notes
+- node2vec_xgboost_community_siea: Best overall fairness-adjusted result; Fastest evaluated method; Fairness collapse warning: MF near zero; Fairness collapse warning: DCV extremely high; F-score below fairness threshold; not recommended as default; Fairness collapse warning: protected-group coverage below threshold; RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=256 | ris_verified=True | fair_ris_verified=True
+
+Warnings
+- 1 method(s) were placed after fairness-collapse filters.
+- No method passed professor-priority fairness gates; showing the least-bad method by F-score, MF, DCV, scalability, spread, extra spread, then runtime.
+- No method passed professor-priority fairness gates; recommending the least-bad method with warning.
+
+Recommendation
+- best_overall_method=node2vec_xgboost_community_siea
+- best_fairness_first_method=node2vec_xgboost_community_siea
+- best_spread_first_method=node2vec_xgboost_community_siea
+- best_runtime_first_method=node2vec_xgboost_community_siea
+- best_interpretable_baseline=n/a
+- best_exploratory_comparator=n/a
+- best_practical_choice=node2vec_xgboost_community_siea
+- best_fairness_quality_method=node2vec_xgboost_community_siea
+- best_scalable_method=node2vec_xgboost_community_siea
+- best_spread_method=node2vec_xgboost_community_siea
+- best_runtime_method=node2vec_xgboost_community_siea
+- final_professor_priority_recommendation=node2vec_xgboost_community_siea
+
+ML Benchmark Insights
+- Best current overall ML stack: node2vec_xgboost_community_siea
+- Best fairness-first ML stack: node2vec_xgboost_community_siea
+- Best spread-first ML stack: node2vec_xgboost_community_siea
+- Best fast ML stack: node2vec_xgboost_community_siea
+- Best interpretable baseline: n/a
+- Strongest practical default: n/a (no ML stack passed professor-priority fairness gates)
+- Fairness collapse warning: node2vec_xgboost_community_siea
+- No method passed professor-priority fairness gates; showing the least-bad method by F-score, MF, DCV, scalability, spread, extra spread, then runtime.
+- Least-bad ML method under professor priority: node2vec_xgboost_community_siea (warning: fairness gates failed).
+
+ML Benchmark Recommendation
+- best_current_overall_ml_stack=node2vec_xgboost_community_siea
+- best_fairness_first_ml_stack=node2vec_xgboost_community_siea
+- best_spread_first_ml_stack=node2vec_xgboost_community_siea
+- best_fast_ml_stack=node2vec_xgboost_community_siea
+- best_interpretable_baseline=n/a
+- strongest_practical_default=n/a
+- best_fairness_quality_method=node2vec_xgboost_community_siea
+- best_scalable_method=node2vec_xgboost_community_siea
+- best_spread_method=node2vec_xgboost_community_siea
+- best_runtime_method=node2vec_xgboost_community_siea
+- final_professor_priority_recommendation=node2vec_xgboost_community_siea
+- stacks_needing_more_work=node2vec_xgboost_community_siea

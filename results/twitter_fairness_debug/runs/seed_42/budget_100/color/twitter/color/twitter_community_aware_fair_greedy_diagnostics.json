@@ -1,0 +1,32 @@
+{
+  "adaptive_fairness_multiplier": 2.0,
+  "all_candidate_score_components_constant": null,
+  "budget": 100,
+  "budget_adequacy_warning": "Budget may be too small for stable fairness on this graph. Reasons: number of communities exceeds budget",
+  "budget_per_group_estimate": {
+    "0": 21.636024513722354,
+    "1": 73.40794031441513,
+    "2": 4.95603517186251
+  },
+  "constant_components": {},
+  "dataset": "twitter",
+  "imbalance_ratio": 14.811827956989248,
+  "large_imbalance_fairness_active": true,
+  "large_imbalance_fairness_mode": "auto",
+  "largest_community_size": 442,
+  "largest_group_size": 2755,
+  "num_communities": 118,
+  "num_edges": 13986,
+  "num_nodes": 3753,
+  "protected_attribute": "color",
+  "protected_group_counts": {
+    "0": 812,
+    "1": 2755,
+    "2": 186
+  },
+  "score_normalization": "per_group",
+  "score_table_path": "",
+  "smallest_community_size": 2,
+  "smallest_group_size": 186,
+  "stack_name": "community_aware_fair_greedy"
+}

@@ -1,0 +1,31 @@
+{
+  "all_candidate_score_components_constant": false,
+  "budget": 40,
+  "constant_components": {
+    "combined_score": false,
+    "community_diversity_bonus": false,
+    "fair_ris_score": false,
+    "fairness_bonus": false,
+    "ml_score": false,
+    "protected_group_coverage_bonus": false,
+    "ris_score": false,
+    "spread_proxy_score": false,
+    "weak_group_bonus": false
+  },
+  "dataset": "graph_spa_500_0",
+  "largest_community_size": 48,
+  "num_communities": 19,
+  "num_edges": 1689,
+  "num_nodes": 500,
+  "protected_attribute": "ethnicity",
+  "protected_group_counts": {
+    "asian": 16,
+    "black": 68,
+    "latino": 153,
+    "other": 20,
+    "white": 243
+  },
+  "score_table_path": "C:\\Users\\User\\Desktop\\VKU-Internship-2026\\results\\professor_priority_graph_spa\\runs\\seed_42\\budget_40\\ethnicity\\graph_spa_500_0\\ethnicity\\graph_spa_500_0_graphsage_community_siea_combined_candidate_scores.csv",
+  "smallest_community_size": 6,
+  "stack_name": "graphsage_community_siea"
+}

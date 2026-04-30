@@ -9,6 +9,16 @@ from typing import Any, Mapping
 
 import pandas as pd
 
+from fim_hybrid.priority_policy import (
+    PROFESSOR_PRIORITY,
+    ProfessorPriorityConfig,
+    fairness_gate_notes,
+    fairness_valid_mask,
+    normalize_ranking_policy,
+    professor_priority_warning,
+    rank_frame_professor_priority,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class TradeoffSelectionConfig:
@@ -19,13 +29,28 @@ class TradeoffSelectionConfig:
     min_mf: float = 0.0001
     max_dcv: float = 0.25
     min_fraction_groups_covered: float = 0.80
+    scalability_required: bool = True
     runtime_tiebreak_only: bool = True
+    warn_only_fairness_gates: bool = False
     runtime_priority_when_close: bool = True
     max_dcv_delta_vs_best: float = 0.01
     min_mf_ratio_vs_best: float = 0.95
     selection_policy: str = "fairness_runtime_tradeoff"
     quality_runtime_lambda: float = 0.0
     fallback_stack: str | None = None
+
+
+def _professor_config_from_selection(config: TradeoffSelectionConfig) -> ProfessorPriorityConfig:
+    return ProfessorPriorityConfig(
+        fairness_close_threshold=float(config.close_fscore_threshold),
+        scalability_required=bool(config.scalability_required),
+        runtime_tiebreak_only=bool(config.runtime_tiebreak_only),
+        min_f_score=float(config.min_f_score),
+        min_mf=float(config.min_mf),
+        max_dcv=float(config.max_dcv),
+        min_fraction_groups_covered=float(config.min_fraction_groups_covered),
+        warn_only_fairness_gates=bool(config.warn_only_fairness_gates),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +77,7 @@ class StackPipelineConfig:
     diversity_bonus_weight: float = 0.0
     weak_group_bonus_weight: float = 0.0
     protected_group_coverage_weight: float = 0.0
+    dcv_penalty_weight: float = 2.5
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,6 +156,63 @@ STACK_PIPELINE_CONFIGS: dict[str, StackPipelineConfig] = {
         diversity_bonus_weight=0.4,
         weak_group_bonus_weight=1.0,
         protected_group_coverage_weight=1.0,
+    ),
+    "graphsage_community_siea": StackPipelineConfig(
+        stack_name="graphsage_community_siea",
+        community_method="leiden",
+        embedding_method="graphsage",
+        ranking_model="graphsage",
+        spread_estimator_search="fairness_aware_ris",
+        spread_estimator_final="monte_carlo",
+        optimizer_mode="hybrid_si_ea",
+        use_repair=True,
+        use_swap_local_search=True,
+        ml_score_weight=0.7,
+        ris_score_weight=0.7,
+        fair_ris_score_weight=1.3,
+        fairness_bonus_weight=1.0,
+        diversity_bonus_weight=0.4,
+        weak_group_bonus_weight=1.2,
+        protected_group_coverage_weight=1.0,
+        dcv_penalty_weight=2.5,
+    ),
+    "gcn_community_siea": StackPipelineConfig(
+        stack_name="gcn_community_siea",
+        community_method="leiden",
+        embedding_method="gcn",
+        ranking_model="gcn",
+        spread_estimator_search="fairness_aware_ris",
+        spread_estimator_final="monte_carlo",
+        optimizer_mode="hybrid_si_ea",
+        use_repair=True,
+        use_swap_local_search=True,
+        ml_score_weight=0.6,
+        ris_score_weight=0.7,
+        fair_ris_score_weight=1.4,
+        fairness_bonus_weight=1.0,
+        diversity_bonus_weight=0.4,
+        weak_group_bonus_weight=1.3,
+        protected_group_coverage_weight=1.0,
+        dcv_penalty_weight=2.5,
+    ),
+    "node2vec_xgboost_community_siea": StackPipelineConfig(
+        stack_name="node2vec_xgboost_community_siea",
+        community_method="leiden",
+        embedding_method="node2vec",
+        ranking_model="xgboost",
+        spread_estimator_search="fairness_aware_ris",
+        spread_estimator_final="monte_carlo",
+        optimizer_mode="hybrid_si_ea",
+        use_repair=True,
+        use_swap_local_search=True,
+        ml_score_weight=0.8,
+        ris_score_weight=0.7,
+        fair_ris_score_weight=1.2,
+        fairness_bonus_weight=1.0,
+        diversity_bonus_weight=0.4,
+        weak_group_bonus_weight=1.2,
+        protected_group_coverage_weight=1.2,
+        dcv_penalty_weight=2.5,
     ),
     "node2vec_xgboost_fair_siea": StackPipelineConfig(
         stack_name="node2vec_xgboost_fair_siea",
@@ -505,35 +588,30 @@ def select_stack_from_benchmark_frame(
     if successful.empty:
         raise ValueError("No successful benchmark rows are available for selection.")
 
-    collapse_mask = (
-        pd.to_numeric(successful["f_score"], errors="coerce").lt(float(config.min_f_score))
-        | pd.to_numeric(successful["mf"], errors="coerce").le(float(config.min_mf))
-        | pd.to_numeric(successful["dcv"], errors="coerce").ge(float(config.max_dcv))
-    )
-    if "fraction_groups_covered" in successful.columns:
-        fraction_groups = pd.to_numeric(successful["fraction_groups_covered"], errors="coerce")
-        collapse_mask |= fraction_groups.notna() & fraction_groups.lt(float(config.min_fraction_groups_covered))
+    policy_config = _professor_config_from_selection(config)
+    collapse_mask = ~fairness_valid_mask(successful, policy_config)
     rejected = successful[collapse_mask].copy()
     valid = successful[~collapse_mask].dropna(subset=["f_score", "runtime_seconds"]).copy()
+    all_failed_gates = False
     if valid.empty:
-        raise ValueError(
-            "No successful benchmark rows remain after fairness-collapse rejection "
-            f"(min_f_score={config.min_f_score}, min_mf={config.min_mf}, max_dcv={config.max_dcv})."
-        )
+        all_failed_gates = True
+        valid = successful.dropna(subset=["f_score", "runtime_seconds"]).copy()
+        if valid.empty:
+            raise ValueError(
+                "No successful benchmark rows remain after fairness-collapse rejection "
+                f"(min_f_score={config.min_f_score}, min_mf={config.min_mf}, max_dcv={config.max_dcv})."
+            )
+        warning = professor_priority_warning(successful, policy_config)
+        if warning:
+            valid["selection_warning"] = warning
 
     valid = _with_quality_runtime_score(valid, float(config.quality_runtime_lambda))
-    zero_column = "zero_covered_groups_count" if "zero_covered_groups_count" in valid.columns else "dcv"
-    fraction_column = "fraction_groups_covered" if "fraction_groups_covered" in valid.columns else "f_score"
-    scalability_column = "scalability_pass" if "scalability_pass" in valid.columns else "f_score"
-    best_candidates = valid.sort_values(
-        ["f_score", "mf", "dcv", zero_column, fraction_column, scalability_column, "total_spread", "runtime_seconds", "stack_name"],
-        ascending=[False, False, True, True, False, False, False, True, True],
-        kind="mergesort",
-    )
+    valid["fairness_gate_failures"] = fairness_gate_notes(valid, policy_config)
+    best_candidates = rank_frame_professor_priority(valid, policy_config)
     best_row = best_candidates.iloc[0]
-    policy = str(config.selection_policy).strip().lower()
-    if policy not in {"fairness_runtime_tradeoff", "quality_runtime", "fairness_first_priority"}:
-        raise ValueError("selection_policy must be 'fairness_runtime_tradeoff', 'quality_runtime', or 'fairness_first_priority'.")
+    policy = normalize_ranking_policy(config.selection_policy)
+    if policy not in {"fairness_runtime_tradeoff", "quality_runtime", PROFESSOR_PRIORITY}:
+        raise ValueError("selection_policy must be 'fairness_runtime_tradeoff', 'quality_runtime', or 'professor_priority'.")
     if policy == "quality_runtime":
         candidates = valid.sort_values(
             ["quality_runtime_score", "f_score", "mf", "dcv", "runtime_seconds", "stack_name"],
@@ -544,11 +622,11 @@ def select_stack_from_benchmark_frame(
             "selected by explicit quality_runtime policy "
             f"(lambda_runtime={float(config.quality_runtime_lambda):.6f})"
         )
-    elif policy == "fairness_first_priority":
+    elif policy == PROFESSOR_PRIORITY:
         candidates = best_candidates
         reason = (
-            "selected by fairness_first_priority: F-score, MF, DCV, group coverage, "
-            "scalability, spread, then runtime"
+            "selected by professor_priority: F-score, MF, DCV, scalability, "
+            "spread, extra spread, then runtime"
         )
     else:
         max_f_score = float(best_row["f_score"])
@@ -582,17 +660,30 @@ def select_stack_from_benchmark_frame(
         selected_row,
         protected_attribute=protected_attribute,
         budget=budget,
-        reason=reason,
+        reason=reason + ("; warning: all methods failed fairness gates, using least-bad row" if all_failed_gates else ""),
         selection_policy=policy,
-        decision_status="selected_from_benchmark",
+        decision_status="selected_with_fairness_gate_warning" if all_failed_gates else "selected_from_benchmark",
     )
-    fallback = select_fairness_fallback(
-        valid,
-        selected.selected_stack,
-        config,
-        protected_attribute=protected_attribute,
-        budget=budget,
-    )
+    try:
+        fallback = select_fairness_fallback(
+            valid,
+            selected.selected_stack,
+            config,
+            protected_attribute=protected_attribute,
+            budget=budget,
+        )
+    except ValueError:
+        if not all_failed_gates:
+            raise
+        fallback_row = best_candidates.iloc[1] if len(best_candidates) > 1 else selected_row
+        fallback = _selected_config_from_row(
+            fallback_row,
+            protected_attribute=protected_attribute,
+            budget=budget,
+            reason="fallback selected from least-bad rows because all methods failed fairness gates",
+            selection_policy=policy,
+            decision_status="fallback_with_fairness_gate_warning",
+        )
     return TradeoffSelectionResult(
         selected_config=selected,
         fallback_config=fallback,
@@ -645,6 +736,7 @@ def load_selected_stack_config(path: str | Path) -> SelectedStackConfig:
         diversity_bonus_weight=float(pipeline_payload.get("diversity_bonus_weight", 0.0)),
         weak_group_bonus_weight=float(pipeline_payload.get("weak_group_bonus_weight", 0.0)),
         protected_group_coverage_weight=float(pipeline_payload.get("protected_group_coverage_weight", 0.0)),
+        dcv_penalty_weight=float(pipeline_payload.get("dcv_penalty_weight", 2.5)),
     )
     return SelectedStackConfig(
         selected_stack=str(payload.get("selected_stack", pipeline.stack_name)),

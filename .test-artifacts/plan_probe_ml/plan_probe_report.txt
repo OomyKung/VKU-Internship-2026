@@ -1,0 +1,79 @@
+FIM Result Evaluation
+====================================================================================================
+Report: plan_probe
+Inputs: ml_fim_benchmark
+Rows loaded: 4
+Ranking mode: fairness_first_priority
+
+Global Warnings
+------------------------------------------------------------------------
+- 4 method(s) were placed after fairness-collapse filters.
+- No method passed fairness-first collapse thresholds; professor-priority recommendation is n/a.
+
+Group 1: dataset=graph_spa_500_0 | protected_attribute=region | budget=4
+------------------------------------------------------------------------
+Rows: 4 methods | ranking=fairness_first_priority | aggregated_runs=no
+
+Rank  Method                         F-score   MF      DCV     Spread   Extra   Runtime
+1     node2vec_xgboost_community_... -0.3462  0.0000  0.6923  6.000    2.000   5.453s
+2     graphsage_community_siea       -0.3618  0.0000  0.7237  4.000    0.000   40.144s
+3     community_aware_fair_greedy    -0.3760  0.0000  0.7520  4.000    0.000   1.249s
+4     gcn_community_siea             -0.3760  0.0000  0.7520  4.000    0.000   1.976s
+
+Instant Insights
+- Overall winner: node2vec_xgboost_community_siea
+- Best spread: node2vec_xgboost_community_siea
+- Best fairness profile: node2vec_xgboost_community_siea
+- Fastest method: community_aware_fair_greedy
+- Result closeness: decisive overall result; top f_score gap is 0.0157
+- Warning: node2vec_xgboost_community_siea, graphsage_community_siea, community_aware_fair_greedy, gcn_community_siea shows a fairness collapse signal.
+- Best practical choice: node2vec_xgboost_community_siea
+- Best interpretable baseline: community_aware_fair_greedy
+
+Per-Method Notes
+- node2vec_xgboost_community_siea: Best overall fairness-adjusted result; Fairness collapse warning: MF near zero; Fairness collapse warning: DCV extremely high; F-score below fairness threshold; not recommended as default; Fairness collapse warning: protected-group coverage below threshold
+- graphsage_community_siea: Fairness collapse warning: MF near zero; Fairness collapse warning: DCV extremely high; F-score below fairness threshold; not recommended as default; Fairness collapse warning: protected-group coverage below threshold
+- community_aware_fair_greedy: Fastest evaluated method; Best interpretable baseline; Fairness collapse warning: MF near zero; Fairness collapse warning: DCV extremely high; F-score below fairness threshold; not recommended as default; Fairness collapse warning: protected-group coverage below threshold
+- gcn_community_siea: Fairness collapse warning: MF near zero; Fairness collapse warning: DCV extremely high; F-score below fairness threshold; not recommended as default; Fairness collapse warning: protected-group coverage below threshold
+
+Warnings
+- 4 method(s) were placed after fairness-collapse filters.
+- No method passed fairness-first collapse thresholds; professor-priority recommendation is n/a.
+
+Recommendation
+- best_overall_method=node2vec_xgboost_community_siea
+- best_fairness_first_method=node2vec_xgboost_community_siea
+- best_spread_first_method=node2vec_xgboost_community_siea
+- best_runtime_first_method=community_aware_fair_greedy
+- best_interpretable_baseline=community_aware_fair_greedy
+- best_exploratory_comparator=n/a
+- best_practical_choice=node2vec_xgboost_community_siea
+- best_fairness_quality_method=n/a
+- best_scalable_method=n/a
+- best_spread_method=node2vec_xgboost_community_siea
+- best_runtime_method=community_aware_fair_greedy
+- final_professor_priority_recommendation=n/a
+
+ML Benchmark Insights
+- Best current overall ML stack: node2vec_xgboost_community_siea
+- Best fairness-first ML stack: node2vec_xgboost_community_siea
+- Best spread-first ML stack: node2vec_xgboost_community_siea
+- Best fast ML stack: gcn_community_siea
+- Best interpretable baseline: community_aware_fair_greedy
+- Strongest practical default: node2vec_xgboost_community_siea
+- Fairness collapse warning: gcn_community_siea, graphsage_community_siea, node2vec_xgboost_community_siea
+- No ML stack passed fairness-first collapse thresholds; professor-priority recommendation is n/a.
+
+ML Benchmark Recommendation
+- best_current_overall_ml_stack=node2vec_xgboost_community_siea
+- best_fairness_first_ml_stack=node2vec_xgboost_community_siea
+- best_spread_first_ml_stack=node2vec_xgboost_community_siea
+- best_fast_ml_stack=gcn_community_siea
+- best_interpretable_baseline=community_aware_fair_greedy
+- strongest_practical_default=node2vec_xgboost_community_siea
+- best_fairness_quality_method=n/a
+- best_scalable_method=n/a
+- best_spread_method=node2vec_xgboost_community_siea
+- best_runtime_method=gcn_community_siea
+- final_professor_priority_recommendation=n/a
+- stacks_needing_more_work=gcn_community_siea, graphsage_community_siea, node2vec_xgboost_community_siea

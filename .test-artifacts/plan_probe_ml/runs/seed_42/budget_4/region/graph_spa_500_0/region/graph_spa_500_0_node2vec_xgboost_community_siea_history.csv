@@ -1,0 +1,2 @@
+generation,best_score,best_f_score,best_objective_score,best_spread,best_mf,best_dcv,average_population_score,population_diversity,best_seed_set,local_search_applied_count,local_search_swap_evaluations,screening_evaluation_calls,full_evaluation_calls,zero_covered_groups_count,bottom_3_avg_group_spread,fraction_groups_covered,weakest_groups_note
+0,-2.5183685023387783,-0.36033411033411034,-2.5183685023387783,4.0,0.0,0.7206682206682207,-2.5339454239733277,0.8174603174603177,"[238, 260, 266, 468]",4,0,0,9,9,0.0,0.3076923076923077,"acton,desert_view_highlands,lancaster"

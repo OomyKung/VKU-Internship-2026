@@ -159,6 +159,33 @@ class TradeoffSelectorTestCase(unittest.TestCase):
         self.assertIn("quality_runtime", result.selected_config.reason)
         self.assertIn("quality_runtime_score", result.selected_config.benchmark_row)
 
+    def test_professor_priority_policy_uses_runtime_only_after_fairness(self) -> None:
+        result = select_stack_from_benchmark_frame(
+            _aggregate_rows(),
+            protected_attribute="region",
+            budget=40,
+            config=TradeoffSelectionConfig(selection_policy="professor_priority", close_fscore_threshold=0.003),
+        )
+
+        self.assertEqual(result.selected_config.selected_stack, "community_aware_fair_greedy")
+        self.assertIn("professor_priority", result.selected_config.reason)
+
+    def test_all_fairness_gate_failures_select_least_bad_with_warning(self) -> None:
+        rows = _aggregate_rows()
+        rows["mean_f_score"] = [-0.01, -0.02, -0.20]
+        rows["mean_mf"] = [0.0, 0.0, 0.0]
+        rows["mean_dcv"] = [0.40, 0.50, 0.60]
+
+        result = select_stack_from_benchmark_frame(
+            rows,
+            protected_attribute="region",
+            budget=40,
+            config=TradeoffSelectionConfig(selection_policy="professor_priority"),
+        )
+
+        self.assertEqual(result.selected_config.selected_stack, "community_aware_fair_greedy")
+        self.assertEqual(result.selected_config.decision_status, "selected_with_fairness_gate_warning")
+
     def test_missing_columns_and_missing_files_fail_clearly(self) -> None:
         with self.assertRaisesRegex(ValueError, "missing required metric columns"):
             normalize_benchmark_frame(pd.DataFrame([{"stack_name": "x"}]))

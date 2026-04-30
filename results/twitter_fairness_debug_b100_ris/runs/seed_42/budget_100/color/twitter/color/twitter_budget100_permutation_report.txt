@@ -1,0 +1,76 @@
+FIM Algorithm-Stack Permutation Comparison
+------------------------------------------------------------------------
+Protected attribute: color
+Budget: 100
+Ranking policy: professor_priority
+Fairness gates: min_f_score=0.0, min_mf=0.0001, max_dcv=0.25, min_fraction_groups_covered=0.8, scalability_required=True, warn_only=False
+Final estimator: monte_carlo | mc_runs_eval=300
+
+Budget may be too small for stable fairness on this graph. Reasons: number of communities exceeds budget
+
+1. node2vec_xgboost_community_siea [ok]
+   spread=112.4333 | extra=12.4333 | MF=0.0292 | DCV=0.0083 | F-score=0.0104 | runtime=1954.761s
+   zero_covered_groups=0 | fraction_groups_covered=1.0 | scalability_pass=True | candidate_pool=1000 | ris_rr_sets=256
+   fairness_diagnostics: seed_group_counts={"0": 21, "1": 73, "2": 6} | influence={'0': 25.333333333333332, '1': 80.47666666666667, '2': 6.623333333333333} | normalized_influence={'0': 0.031198686371100164, '1': 0.02921113127646703, '2': 0.03560931899641577} | weakest=1 | strongest=2
+   modules: diffusion=ic | search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=256 | community=leiden | embedding=node2vec | clustering=none | ranking=xgboost | optimizer=hybrid_si_ea | debias=none
+   pipeline: fim_stack=node2vec_xgboost_community_siea | ranking_policy=professor_priority | mode=ml_guided_community_siea | method_type=ml_guided_hybrid | repair=True | swap_local_search=True
+   features: use_community_features=True | community_feature_mode=basic | allow_protected_features_in_ml=False
+   guidance: ml=0.5 | ris=0.6 | fair_ris=2.0 | ris_verified=True | fair_ris_verified=True | ris_score_nonzero=258 | fair_ris_score_nonzero=258 | weak_group=2.0 | community_diversity=0.8 | protected_group_coverage=2.0 | spread_proxy=0.2 | large_imbalance_active=True | score_normalization=per_group
+   candidate_pool_diagnostics: stratified=True | group_counts={'0': 210, '1': 690, '2': 100} | group_quota=100.0 | quota_shortfall={'0': 0, '1': 0, '2': 0}
+   optimizer_diagnostics: initial_seed_source=combined_candidate_score | repaired_seed_sets=2785.0 | repair_attempts=8355.0 | weak_group_repairs=8355.0 | successful_swaps=160.0 | swap_attempts=2412.0 | swap_accepted=1198.0 | swap_rejected_fairness=1214.0 | community_coverage={"0": 10, "1": 1, "10": 35, "104": 1, "110": 1, "13": 1, "14": 1, "15": 1, "17": 2, "18": 1, "19": 8, "2": 10, "20": 2, "21": 1, "22": 3, "24": 1, "25": 1, "27": 1, "29": 1, "3": 1, "30": 1, "35": 2, "38": 2, "4": 2, "5": 1, "51": 2, "7": 2, "78": 1, "8": 1, "9": 3} | community_coverage_ratio=0.2542372881355932 | protected_group_coverage={"0": 21, "1": 73, "2": 6}
+   caches: embedding=miss | community=miss | ris=miss | score=miss | fitness_hits=1065.0 | swap_hits=0.0
+   artifacts: score_table=C:\Users\User\Desktop\VKU-Internship-2026\results\twitter_fairness_debug_b100_ris\runs\seed_42\budget_100\color\twitter\color\twitter_node2vec_xgboost_community_siea_combined_candidate_scores.csv | embeddings=C:\Users\User\Desktop\VKU-Internship-2026\results\twitter_fairness_debug_b100_ris\runs\seed_42\budget_100\color\twitter\embeddings\twitter_node2vec_embeddings.pkl | community_assignments=C:\Users\User\Desktop\VKU-Internship-2026\results\twitter_fairness_debug_b100_ris\runs\seed_42\budget_100\color\twitter\color\twitter_node2vec_xgboost_community_siea_leiden_community_assignments.csv
+   notes=main_method=true; lightweight_quality_runtime=true; ml_guided_only=true; fair_ris_explicit=true; communities=118; modularity=0.655835; embedding_cache=miss; target=label_score; backend=tabular; candidate_pool=1000; validation_spearman=0.5889; validation_precision_at_budget=0.9700; history=twitter_node2vec_xgboost_community_siea_history.csv
+
+2. gcn_community_siea [ok]
+   spread=111.0033 | extra=11.0033 | MF=0.0288 | DCV=0.0093 | F-score=0.0097 | runtime=1894.744s
+   zero_covered_groups=0 | fraction_groups_covered=1.0 | scalability_pass=True | candidate_pool=1000 | ris_rr_sets=256
+   fairness_diagnostics: seed_group_counts={"0": 21, "1": 73, "2": 6} | influence={'0': 24.62, '1': 79.22, '2': 7.163333333333333} | normalized_influence={'0': 0.030320197044334977, '1': 0.028754990925589835, '2': 0.03851254480286738} | weakest=1 | strongest=2
+   modules: diffusion=ic | search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=256 | community=leiden | embedding=gcn | clustering=none | ranking=gcn | optimizer=hybrid_si_ea | debias=none
+   pipeline: fim_stack=gcn_community_siea | ranking_policy=professor_priority | mode=ml_guided_community_siea | method_type=ml_guided_hybrid | repair=True | swap_local_search=True
+   features: use_community_features=True | community_feature_mode=basic | allow_protected_features_in_ml=False
+   guidance: ml=0.5 | ris=0.6 | fair_ris=2.0 | ris_verified=True | fair_ris_verified=True | ris_score_nonzero=258 | fair_ris_score_nonzero=258 | weak_group=2.0 | community_diversity=0.8 | protected_group_coverage=2.0 | spread_proxy=0.2 | large_imbalance_active=True | score_normalization=per_group
+   candidate_pool_diagnostics: stratified=True | group_counts={'0': 212, '1': 688, '2': 100} | group_quota=100.0 | quota_shortfall={'0': 0, '1': 0, '2': 0}
+   optimizer_diagnostics: initial_seed_source=combined_candidate_score | repaired_seed_sets=2744.0 | repair_attempts=8232.0 | weak_group_repairs=8232.0 | successful_swaps=160.0 | swap_attempts=2376.0 | swap_accepted=1143.0 | swap_rejected_fairness=1233.0 | community_coverage={"0": 6, "1": 5, "10": 37, "104": 1, "110": 1, "13": 1, "14": 1, "15": 1, "17": 2, "18": 5, "19": 7, "2": 5, "20": 2, "22": 2, "24": 1, "25": 1, "27": 1, "29": 4, "3": 1, "30": 1, "35": 3, "38": 1, "4": 5, "51": 1, "7": 2, "78": 1, "8": 1, "9": 1} | community_coverage_ratio=0.23728813559322035 | protected_group_coverage={"0": 21, "1": 73, "2": 6}
+   caches: embedding=miss | community=miss | ris=miss | score=miss | fitness_hits=1025.0 | swap_hits=0.0
+   artifacts: score_table=C:\Users\User\Desktop\VKU-Internship-2026\results\twitter_fairness_debug_b100_ris\runs\seed_42\budget_100\color\twitter\color\twitter_gcn_community_siea_combined_candidate_scores.csv | embeddings=C:\Users\User\Desktop\VKU-Internship-2026\results\twitter_fairness_debug_b100_ris\runs\seed_42\budget_100\color\twitter\embeddings\twitter_gcn_embeddings.pkl | community_assignments=C:\Users\User\Desktop\VKU-Internship-2026\results\twitter_fairness_debug_b100_ris\runs\seed_42\budget_100\color\twitter\color\twitter_gcn_community_siea_leiden_community_assignments.csv
+   notes=optional_gnn_comparison=true; ml_guided_only=true; fair_ris_explicit=true; communities=118; modularity=0.655835; embedding_cache=miss; target=label_score; backend=gnn; candidate_pool=1000; validation_spearman=-0.0365; validation_precision_at_budget=0.0800; history=twitter_gcn_community_siea_history.csv
+
+3. graphsage_community_siea [ok]
+   spread=112.4933 | extra=12.4933 | MF=0.0290 | DCV=0.0113 | F-score=0.0088 | runtime=1764.335s
+   zero_covered_groups=0 | fraction_groups_covered=1.0 | scalability_pass=True | candidate_pool=1000 | ris_rr_sets=256
+   fairness_diagnostics: seed_group_counts={"0": 21, "1": 72, "2": 7} | influence={'0': 25.07, '1': 79.77333333333333, '2': 7.65} | normalized_influence={'0': 0.030874384236453202, '1': 0.028955837870538414, '2': 0.04112903225806452} | weakest=1 | strongest=2
+   modules: diffusion=ic | search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=256 | community=leiden | embedding=graphsage | clustering=none | ranking=graphsage | optimizer=hybrid_si_ea | debias=none
+   pipeline: fim_stack=graphsage_community_siea | ranking_policy=professor_priority | mode=ml_guided_community_siea | method_type=ml_guided_hybrid | repair=True | swap_local_search=True
+   features: use_community_features=True | community_feature_mode=basic | allow_protected_features_in_ml=False
+   guidance: ml=0.5 | ris=0.6 | fair_ris=2.0 | ris_verified=True | fair_ris_verified=True | ris_score_nonzero=258 | fair_ris_score_nonzero=258 | weak_group=2.0 | community_diversity=0.8 | protected_group_coverage=2.0 | spread_proxy=0.2 | large_imbalance_active=True | score_normalization=per_group
+   candidate_pool_diagnostics: stratified=True | group_counts={'0': 196, '1': 704, '2': 100} | group_quota=100.0 | quota_shortfall={'0': 0, '1': 0, '2': 0}
+   optimizer_diagnostics: initial_seed_source=combined_candidate_score | repaired_seed_sets=2599.0 | repair_attempts=7797.0 | weak_group_repairs=7797.0 | successful_swaps=160.0 | swap_attempts=2224.0 | swap_accepted=978.0 | swap_rejected_fairness=1246.0 | community_coverage={"0": 7, "1": 4, "10": 33, "110": 1, "13": 1, "14": 1, "16": 1, "17": 1, "18": 5, "19": 7, "2": 9, "20": 2, "22": 3, "24": 2, "25": 1, "27": 2, "29": 1, "3": 1, "30": 1, "35": 2, "38": 2, "4": 5, "5": 1, "7": 3, "78": 1, "8": 1, "9": 2} | community_coverage_ratio=0.2288135593220339 | protected_group_coverage={"0": 21, "1": 72, "2": 7}
+   caches: embedding=miss | community=miss | ris=miss | score=miss | fitness_hits=1017.0 | swap_hits=0.0
+   artifacts: score_table=C:\Users\User\Desktop\VKU-Internship-2026\results\twitter_fairness_debug_b100_ris\runs\seed_42\budget_100\color\twitter\color\twitter_graphsage_community_siea_combined_candidate_scores.csv | embeddings=C:\Users\User\Desktop\VKU-Internship-2026\results\twitter_fairness_debug_b100_ris\runs\seed_42\budget_100\color\twitter\embeddings\twitter_graphsage_embeddings.pkl | community_assignments=C:\Users\User\Desktop\VKU-Internship-2026\results\twitter_fairness_debug_b100_ris\runs\seed_42\budget_100\color\twitter\color\twitter_graphsage_community_siea_leiden_community_assignments.csv
+   notes=main_method=true; ml_guided_only=true; fair_ris_explicit=true; communities=118; modularity=0.655835; embedding_cache=miss; target=label_score; backend=gnn; candidate_pool=1000; validation_spearman=0.0110; validation_precision_at_budget=0.1800; history=twitter_graphsage_community_siea_history.csv
+
+4. community_aware_fair_greedy [ok]
+   spread=106.7533 | extra=6.7533 | MF=0.0278 | DCV=0.0079 | F-score=0.0099 | runtime=1399.114s
+   zero_covered_groups=0 | fraction_groups_covered=1.0 | scalability_pass=False | candidate_pool=3753 | ris_rr_sets=256
+   fairness_diagnostics: seed_group_counts={"0": 23, "1": 72, "2": 5} | influence={'0': 24.776666666666667, '1': 76.49666666666667, '2': 5.48} | normalized_influence={'0': 0.03051313628899836, '1': 0.0277664851784634, '2': 0.02946236559139785} | weakest=1 | strongest=0
+   modules: diffusion=ic | search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=256 | community=leiden | embedding=none | clustering=none | ranking=fairness_weighted_greedy | optimizer=local_search | debias=none
+   pipeline: fim_stack=community_aware_fair_greedy | ranking_policy=professor_priority | mode=baseline | method_type=non_ml_baseline | repair=True | swap_local_search=True
+   features: use_community_features=True | community_feature_mode=basic | allow_protected_features_in_ml=False
+   guidance: ml=0.5 | ris=0.6 | fair_ris=2.0 | ris_verified=True | fair_ris_verified=True | ris_score_nonzero=258 | fair_ris_score_nonzero=258 | weak_group=2.0 | community_diversity=0.8 | protected_group_coverage=2.0 | spread_proxy=0.2 | large_imbalance_active=True | score_normalization=per_group
+   candidate_pool_diagnostics: stratified=None | group_counts=None | group_quota=nan | quota_shortfall=None
+   optimizer_diagnostics: initial_seed_source=fairness_weighted_greedy | repaired_seed_sets=nan | repair_attempts=nan | weak_group_repairs=nan | successful_swaps=nan | swap_attempts=nan | swap_accepted=nan | swap_rejected_fairness=nan | community_coverage={"0": 13, "1": 9, "10": 10, "14": 1, "16": 1, "17": 1, "18": 5, "19": 5, "2": 11, "20": 1, "21": 2, "22": 2, "24": 7, "25": 1, "27": 1, "29": 3, "30": 5, "31": 1, "4": 2, "40": 1, "45": 1, "7": 10, "8": 2, "9": 4, "95": 1} | community_coverage_ratio=0.211864406779661 | protected_group_coverage={"0": 23, "1": 72, "2": 5}
+   caches: embedding= | community=miss | ris= | score= | fitness_hits=nan | swap_hits=nan
+   artifacts: score_table=C:\Users\User\Desktop\VKU-Internship-2026\results\twitter_fairness_debug_b100_ris\runs\seed_42\budget_100\color\twitter\color\twitter_community_aware_fair_greedy_combined_candidate_scores.csv | embeddings= | community_assignments=C:\Users\User\Desktop\VKU-Internship-2026\results\twitter_fairness_debug_b100_ris\runs\seed_42\budget_100\color\twitter\color\twitter_community_aware_fair_greedy_leiden_community_assignments.csv
+   notes=fair_ris_explicit=true; initial_rr=[10125822, 10214802, 1086591, 11347052, 11350892, 11425612, 11626822, 11920922, 12062282, 12429382, 1290661, 13258742, 1330691, 14053148, 14110743, 14161205, 14161889, 14181937, 14237896, 14239038, 14326743, 14380723, 14680965, 14830184, 14857310, 14930659, 15157283, 15258293, 15469032, 15480002, 15557309, 15621083, 15664977, 15751768, 15878694, 15911231, 16004411, 16333340, 16335288, 16359962, 16394309, 16431844, 16460562, 16499557, 16541717, 16573966, 16784574, 16933135, 16971414, 16980497, 17022135, 17107079, 17240635, 17398289, 17431643, 17540746, 17850012, 17864134, 17877831, 18049260, 18280014, 18301693, 18366220, 18446235, 18602421, 19041498, 19187629, 19285776, 19394410, 19396079, 19686924, 19849576, 20199133, 20788139, 21044126, 21062689, 2140491, 21406735, 21625645, 21661811, 22461427, 23662170, 2384071, 24535621, 25596413, 25681991, 27512951, 27755928, 28426100, 31285824, 35967493, 36057656, 36963624, 43286759, 5054721, 5522622, 575263, 7376382, 7725712, 780591]; greedy=[10125822, 10166632, 10332972, 10651272, 11364652, 11650012, 11724382, 11763862, 11767072, 11792612, 11918842, 11920922, 11963282, 12037502, 12118882, 12174212, 12301112, 12455292, 12790082, 12803772, 12966662, 12973362, 13253832, 13302, 13746182, 13767032, 13894222, 14110253, 14110743, 14111623, 14133954, 14160799, 14161205, 14170847, 14207225, 14219598, 14259990, 14278838, 14301386, 14328764, 14334981, 14344131, 14350969, 14380723, 14418930, 14420936, 14426940, 14437066, 14442244, 14508359, 14519891, 14521343, 14549852, 14552124, 14555289, 14558773, 14690122, 14721642, 14850673, 14965263, 15068090, 15076390, 15078437, 15105269, 15130854, 15135342, 15202082, 15261848, 15264436, 15291641, 15298719, 15307206, 15322509, 15390684, 15465681, 16168407, 16236786, 1708661, 17558182, 17645505, 18037238, 18361955, 18398842, 18589172, 18982304, 19022050, 21706932, 22026974, 22183550, 22242395, 22673770, 25681991, 30095547, 30185290, 31252679, 32232053, 345863, 37183, 4750991, 760244]; objective=professor_priority; communities=118; modularity=0.655835; ris_greedy_approximation=true; ris_rr_sets=256; final_eval=monte_carlo
+
+Recommendations
+------------------------------------------------------------------------
+best_interpretable_baseline=n/a
+best_practical_ml_default=node2vec_xgboost_community_siea
+best_exploratory_fairness_heavy=node2vec_xgboost_community_siea
+best_fairness_quality_method=node2vec_xgboost_community_siea
+best_scalable_method=node2vec_xgboost_community_siea
+best_spread_method=graphsage_community_siea
+best_runtime_method=graphsage_community_siea
+final_professor_priority_recommendation=node2vec_xgboost_community_siea

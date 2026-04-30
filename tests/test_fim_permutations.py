@@ -311,6 +311,22 @@ class FIMPermutationTestCase(unittest.TestCase):
         self.assertEqual(disabled_optimizer_config.ml_repair_bias_weight, 0.0)
         self.assertEqual(disabled_optimizer_config.ml_local_search_bias_weight, 0.0)
 
+    def test_professor_priority_wires_hybrid_fitness_defaults(self) -> None:
+        spec = get_fim_permutation_spec("leiden_node2vec_xgboost_hybrid")
+        config = FIMPermutationRunConfig(
+            protected_attribute="group",
+            budget=2,
+            ranking_policy="professor_priority",
+        )
+
+        optimizer_config = _hybrid_optimizer_config(spec, config)
+
+        self.assertEqual(optimizer_config.fitness_policy, "professor_priority")
+        self.assertEqual(optimizer_config.fscore_weight, 4.0)
+        self.assertEqual(optimizer_config.dcv_weight, 2.5)
+        self.assertEqual(optimizer_config.group_coverage_weight, 1.0)
+        self.assertEqual(optimizer_config.runtime_weight, 0.05)
+
     def test_combined_guidance_scores_include_configurable_bonus_weights(self) -> None:
         spec = get_fim_permutation_spec("leiden_node2vec_xgboost_hybrid")
 

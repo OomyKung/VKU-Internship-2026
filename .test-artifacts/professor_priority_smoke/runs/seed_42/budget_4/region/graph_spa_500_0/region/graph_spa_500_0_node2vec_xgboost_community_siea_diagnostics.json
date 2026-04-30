@@ -1,0 +1,39 @@
+{
+  "all_candidate_score_components_constant": false,
+  "budget": 4,
+  "constant_components": {
+    "combined_score": false,
+    "community_diversity_bonus": false,
+    "fair_ris_score": false,
+    "fairness_bonus": false,
+    "ml_score": false,
+    "protected_group_coverage_bonus": false,
+    "ris_score": false,
+    "spread_proxy_score": false,
+    "weak_group_bonus": false
+  },
+  "dataset": "graph_spa_500_0",
+  "largest_community_size": 48,
+  "num_communities": 19,
+  "num_edges": 1689,
+  "num_nodes": 500,
+  "protected_attribute": "region",
+  "protected_group_counts": {
+    "acton": 11,
+    "desert_view_highlands": 3,
+    "lake_los_angeles": 18,
+    "lancaster": 211,
+    "leona_valley": 2,
+    "littlerock": 2,
+    "northeast_antelope_valley": 7,
+    "northwest_antelope_valley": 5,
+    "northwest_palmdale": 5,
+    "palmdale": 198,
+    "quartz_hill": 15,
+    "southeast_antelope_valley": 8,
+    "sun_village": 15
+  },
+  "score_table_path": "C:\\Users\\User\\Desktop\\VKU-Internship-2026\\.test-artifacts\\professor_priority_smoke\\runs\\seed_42\\budget_4\\region\\graph_spa_500_0\\region\\graph_spa_500_0_node2vec_xgboost_community_siea_combined_candidate_scores.csv",
+  "smallest_community_size": 6,
+  "stack_name": "node2vec_xgboost_community_siea"
+}

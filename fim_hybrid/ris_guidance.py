@@ -94,8 +94,8 @@ class RISGuidanceResult:
 def _validate_config(config: RISConfig) -> None:
     if config.num_rr_sets < 1:
         raise ValueError("ris_num_rr_sets must be at least 1.")
-    if config.mode not in {"global", "weak_group_weighted"}:
-        raise ValueError("ris_mode must be one of ['global', 'weak_group_weighted'].")
+    if config.mode not in {"global", "standard", "weak_group_weighted", "group_balanced"}:
+        raise ValueError("ris_mode must be one of ['standard', 'global', 'weak_group_weighted', 'group_balanced'].")
 
 
 def _reverse_reachable_set(

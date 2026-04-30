@@ -1,0 +1,55 @@
+FIM Algorithm-Stack Permutation Comparison
+------------------------------------------------------------------------
+Protected attribute: region
+Budget: 5
+Ranking policy: professor_priority
+Fairness gates: min_f_score=0.0, min_mf=0.0001, max_dcv=0.25, min_fraction_groups_covered=0.8, scalability_required=True, warn_only=False
+Final estimator: monte_carlo | mc_runs_eval=3
+
+No method passed professor-priority fairness gates; showing the least-bad method by F-score, MF, DCV, scalability, spread, extra spread, then runtime.
+
+Fairness failure diagnostics
+------------------------------------------------------------------------
+No method passed the professor-priority fairness gates.
+protected_group_counts={"acton": 11, "desert_view_highlands": 3, "lake_los_angeles": 18, "lancaster": 211, "leona_valley": 2, "littlerock": 2, "northeast_antelope_valley": 7, "northwest_antelope_valley": 5, "northwest_palmdale": 5, "palmdale": 198, "quartz_hill": 15, "southeast_antelope_valley": 8, "sun_village": 15}
+group_imbalance_ratio=105.5000
+budget_per_group_estimate={"acton": 0.11, "desert_view_highlands": 0.03, "lake_los_angeles": 0.18, "lancaster": 2.11, "leona_valley": 0.02, "littlerock": 0.02, "northeast_antelope_valley": 0.07, "northwest_antelope_valley": 0.05, "northwest_palmdale": 0.05, "palmdale": 1.98, "quartz_hill": 0.15, "southeast_antelope_valley": 0.08, "sun_village": 0.15}
+method_failure=node2vec_xgboost_community_siea: reasons=min_f_score;min_mf;max_dcv;zero_covered_groups;min_fraction_groups_covered;scalability_required; F-score=-0.3077; MF=0.0000; DCV=0.6154; scalability_pass=False; zero_covered_groups=8
+zero_covered_group_names[node2vec_xgboost_community_siea]=["desert_view_highlands", "lake_los_angeles", "lancaster", "littlerock", "northwest_antelope_valley", "palmdale", "quartz_hill", "sun_village"]
+group_influence_distribution[node2vec_xgboost_community_siea]={"acton": 1.0, "desert_view_highlands": 0.0, "lake_los_angeles": 0.0, "lancaster": 0.0, "leona_valley": 1.0, "littlerock": 0.0, "northeast_antelope_valley": 1.0, "northwest_antelope_valley": 0.0, "northwest_palmdale": 1.0, "palmdale": 0.0, "quartz_hill": 0.0, "southeast_antelope_valley": 1.0, "sun_village": 0.0}
+normalized_group_influence_distribution[node2vec_xgboost_community_siea]={"acton": 0.09090909090909091, "desert_view_highlands": 0.0, "lake_los_angeles": 0.0, "lancaster": 0.0, "leona_valley": 0.5, "littlerock": 0.0, "northeast_antelope_valley": 0.14285714285714285, "northwest_antelope_valley": 0.0, "northwest_palmdale": 0.2, "palmdale": 0.0, "quartz_hill": 0.0, "southeast_antelope_valley": 0.125, "sun_village": 0.0}
+Recommended actions:
+- increase budget
+- increase weak_group_bonus_weight
+- increase fair_ris_score_weight
+- enable group quota repair
+- use support-aware fairness metrics
+- run budget sweep
+
+Budget may be too small for stable fairness on this graph. Reasons: budget below protected-group seed warning threshold; budget/node ratio below warning threshold; number of communities exceeds budget
+
+1. node2vec_xgboost_community_siea [ok]
+   spread=5.0000 | extra=0.0000 | MF=0.0000 | DCV=0.6154 | F-score=-0.3077 | runtime=5.340s
+   zero_covered_groups=8 | fraction_groups_covered=0.38461538461538464 | scalability_pass=False | candidate_pool=131 | ris_rr_sets=256
+   fairness_diagnostics: seed_group_counts={"acton": 1, "desert_view_highlands": 0, "lake_los_angeles": 0, "lancaster": 0, "leona_valley": 1, "littlerock": 0, "northeast_antelope_valley": 1, "northwest_antelope_valley": 0, "northwest_palmdale": 1, "palmdale": 0, "quartz_hill": 0, "southeast_antelope_valley": 1, "sun_village": 0} | influence={'acton': 1.0, 'desert_view_highlands': 0.0, 'lake_los_angeles': 0.0, 'lancaster': 0.0, 'leona_valley': 1.0, 'littlerock': 0.0, 'northeast_antelope_valley': 1.0, 'northwest_antelope_valley': 0.0, 'northwest_palmdale': 1.0, 'palmdale': 0.0, 'quartz_hill': 0.0, 'southeast_antelope_valley': 1.0, 'sun_village': 0.0} | normalized_influence={'acton': 0.09090909090909091, 'desert_view_highlands': 0.0, 'lake_los_angeles': 0.0, 'lancaster': 0.0, 'leona_valley': 0.5, 'littlerock': 0.0, 'northeast_antelope_valley': 0.14285714285714285, 'northwest_antelope_valley': 0.0, 'northwest_palmdale': 0.2, 'palmdale': 0.0, 'quartz_hill': 0.0, 'southeast_antelope_valley': 0.125, 'sun_village': 0.0} | weakest=desert_view_highlands | strongest=leona_valley
+   negative_f_score_reason=DCV exceeds MF after lambda weighting; weakest protected group has low normalized influence.
+   modules: diffusion=ic | search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=256 | community=leiden | embedding=node2vec | clustering=none | ranking=xgboost | optimizer=hybrid_si_ea | debias=none
+   pipeline: fim_stack=node2vec_xgboost_community_siea | ranking_policy=professor_priority | mode=ml_guided_community_siea | method_type=ml_guided_hybrid | repair=True | swap_local_search=False
+   features: use_community_features=True | community_feature_mode=basic | allow_protected_features_in_ml=False
+   guidance: ml=0.4 | ris=0.5 | fair_ris=4.0 | ris_verified=True | fair_ris_verified=True | ris_score_nonzero=206 | fair_ris_score_nonzero=206 | weak_group=4.0 | community_diversity=0.8 | protected_group_coverage=4.0 | spread_proxy=0.2 | large_imbalance_active=True | score_normalization=per_group
+   candidate_pool_diagnostics: stratified=True | group_counts={'acton': 11, 'desert_view_highlands': 3, 'lake_los_angeles': 18, 'lancaster': 20, 'leona_valley': 2, 'littlerock': 2, 'northeast_antelope_valley': 7, 'northwest_antelope_valley': 5, 'northwest_palmdale': 5, 'palmdale': 20, 'quartz_hill': 15, 'southeast_antelope_valley': 8, 'sun_village': 15} | group_quota=20 | quota_shortfall={'acton': 9, 'desert_view_highlands': 17, 'lake_los_angeles': 2, 'lancaster': 0, 'leona_valley': 18, 'littlerock': 18, 'northeast_antelope_valley': 13, 'northwest_antelope_valley': 15, 'northwest_palmdale': 15, 'palmdale': 0, 'quartz_hill': 5, 'southeast_antelope_valley': 12, 'sun_village': 5}
+   optimizer_diagnostics: initial_seed_source=combined_candidate_score | repaired_seed_sets=17 | repair_attempts=51 | weak_group_repairs=51 | successful_swaps=4 | swap_attempts=0 | swap_accepted=0 | swap_rejected_fairness=0 | community_coverage={"0": 1, "1": 1, "12": 1, "7": 1, "8": 1} | community_coverage_ratio=0.2631578947368421 | protected_group_coverage={"acton": 1, "desert_view_highlands": 0, "lake_los_angeles": 0, "lancaster": 0, "leona_valley": 1, "littlerock": 0, "northeast_antelope_valley": 1, "northwest_antelope_valley": 0, "northwest_palmdale": 1, "palmdale": 0, "quartz_hill": 0, "southeast_antelope_valley": 1, "sun_village": 0}
+   caches: embedding=miss | community=miss | ris=miss | score=miss | fitness_hits=16 | swap_hits=0
+   artifacts: score_table=C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\ris_validation_graph_auto\runs\seed_42\budget_5\region\graph_spa_500_0\region\graph_spa_500_0_node2vec_xgboost_community_siea_combined_candidate_scores.csv | embeddings=C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\ris_validation_graph_auto\runs\seed_42\budget_5\region\graph_spa_500_0\embeddings\graph_spa_500_0_node2vec_embeddings.pkl | community_assignments=C:\Users\User\Desktop\VKU-Internship-2026\.test-artifacts\ris_validation_graph_auto\runs\seed_42\budget_5\region\graph_spa_500_0\region\graph_spa_500_0_node2vec_xgboost_community_siea_leiden_community_assignments.csv
+   notes=main_method=true; lightweight_quality_runtime=true; ml_guided_only=true; fair_ris_auto=true; communities=19; modularity=0.802180; embedding_cache=miss; target=label_score; backend=tabular; candidate_pool=131; validation_spearman=0.2179; validation_precision_at_budget=0.2000; history=graph_spa_500_0_node2vec_xgboost_community_siea_history.csv
+
+Recommendations
+------------------------------------------------------------------------
+best_interpretable_baseline=n/a
+best_practical_ml_default=n/a
+best_exploratory_fairness_heavy=n/a
+best_fairness_quality_method=node2vec_xgboost_community_siea
+best_scalable_method=n/a
+best_spread_method=n/a
+best_runtime_method=n/a
+final_professor_priority_recommendation=node2vec_xgboost_community_siea

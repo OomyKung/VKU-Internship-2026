@@ -191,8 +191,8 @@ def _greedy_rank_key(
         return (
             float(evaluation.f_score),
             float(evaluation.fairness.mf),
-            float(evaluation.total_spread_mean),
             -float(evaluation.fairness.dcv),
+            float(evaluation.total_spread_mean),
         )
     if method == "maximin_greedy":
         return (

@@ -306,6 +306,8 @@ class HybridOptimizerTestCase(unittest.TestCase):
                 total_spread=4.0,
                 include_soft_mf=True,
             ),
+            f_score=-0.20,
+            runtime_seconds=0.0,
             score=-0.20,
         )
         weaker_mf_better_f = CandidateEvaluation(
@@ -318,6 +320,8 @@ class HybridOptimizerTestCase(unittest.TestCase):
                 total_spread=6.5,
                 include_soft_mf=True,
             ),
+            f_score=0.10,
+            runtime_seconds=0.0,
             score=0.10,
         )
 

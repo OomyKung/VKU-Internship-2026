@@ -37,14 +37,28 @@ class HybridSIEAConfig:
     lambda_weight: float = 0.5
     random_seed: int = 42
     fitness_policy: str = "f_score"
-    fscore_weight: float = 3.0
+    fscore_weight: float = 4.0
     mf_weight: float = 2.0
-    dcv_weight: float = 2.0
+    dcv_weight: float = 2.5
+    group_coverage_weight: float = 1.0
+    scalability_weight: float = 0.5
     spread_weight: float = 0.5
     runtime_penalty_weight: float = 0.05
+    runtime_weight: float = 0.05
     fairness_tolerance_dcv: float = 0.005
     fairness_tolerance_fscore_drop: float = 0.001
-    use_fairness_first_swap_acceptance: bool = False
+    use_fairness_first_swap_acceptance: bool = True
+    swap_reject_spread_gain_if_fairness_collapses: bool = False
+    use_group_quota_repair: bool = True
+    min_seeds_per_protected_group: int = 1
+    quota_mode: str = "support_aware"
+    quota_min_group_support: int = 5
+    use_protected_group_quota_initialization: bool = False
+    small_group_seed_fraction: float = 0.10
+    initialization_quota_mode: str = "sqrt"
+    use_fairness_first_repair: bool = False
+    weak_group_repair_rounds: int = 0
+    majority_overconcentration_threshold: float = 0.60
     local_search_steps: int = 2
     disable_swarm_guidance: bool = False
     disable_crossover: bool = False
@@ -157,6 +171,18 @@ class HybridOptimizationResult:
     fitness_cache_hits: int = 0
     marginal_cache_hits: int = 0
     swap_cache_hits: int = 0
+    repair_attempts: int = 0
+    weak_group_repairs: int = 0
+    protected_group_seed_counts_before_repair: dict[str, int] | None = None
+    protected_group_seed_counts_after_repair: dict[str, int] | None = None
+    swap_attempts: int = 0
+    swap_accepted: int = 0
+    swap_rejected_fairness_degradation: int = 0
+    swap_accepted_fscore_improvement: int = 0
+    swap_accepted_mf_improvement: int = 0
+    swap_accepted_spread_fairness_preserved: int = 0
+    seed_quota_per_protected_group: dict[str, int] | None = None
+    initial_population_group_coverage_summary: dict[str, int] | None = None
 
 
 def _sort_key(value: Any) -> tuple[str, str]:
@@ -218,6 +244,19 @@ class HybridSIEAOptimizer:
         self.last_local_search_swap_evaluations = 0
         self.last_local_search_applied_count = 0
         self.repaired_seed_sets = 0
+        self.repair_attempts = 0
+        self.weak_group_repairs = 0
+        self.last_repair_group_counts_before: dict[str, int] = {}
+        self.last_repair_group_counts_after: dict[str, int] = {}
+        self.swap_attempts = 0
+        self.swap_accepted = 0
+        self.swap_rejected_fairness_degradation = 0
+        self.swap_accepted_fscore_improvement = 0
+        self.swap_accepted_mf_improvement = 0
+        self.swap_accepted_spread_fairness_preserved = 0
+        self.last_swap_acceptance_reason = ""
+        self.seed_quota_per_protected_group: dict[str, int] = {}
+        self.initial_population_group_coverage_summary: dict[str, int] = {}
 
         self._validate_inputs()
         if self.config.ml_guidance_mode in {"soft_bias", "two_tier"} and ml_node_scores is None:
@@ -270,7 +309,9 @@ class HybridSIEAOptimizer:
         valid_ml_modes = {"off", "hard_filter", "soft_bias", "two_tier"}
         valid_local_search_modes = {"default", "worst_group"}
         valid_optimization_modes = {"full", "balanced", "fast"}
-        valid_fitness_policies = {"f_score", "fairness_first"}
+        valid_fitness_policies = {"f_score", "fairness_first", "professor_priority"}
+        valid_quota_modes = {"none", "at_least_one", "proportional", "support_aware"}
+        valid_initialization_quota_modes = {"proportional", "sqrt", "uniform_min"}
         validate_diffusion_model(self.config.diffusion_model)
         if self.dataset.graph.number_of_nodes() == 0:
             raise ValueError("dataset.graph must contain at least one node.")
@@ -308,12 +349,29 @@ class HybridSIEAOptimizer:
             raise ValueError("lambda_weight must be between 0.0 and 1.0.")
         if self.config.fitness_policy not in valid_fitness_policies:
             raise ValueError(f"fitness_policy must be one of {sorted(valid_fitness_policies)}.")
+        if self.config.quota_mode not in valid_quota_modes:
+            raise ValueError(f"quota_mode must be one of {sorted(valid_quota_modes)}.")
+        if self.config.min_seeds_per_protected_group < 0:
+            raise ValueError("min_seeds_per_protected_group must be non-negative.")
+        if self.config.quota_min_group_support < 1:
+            raise ValueError("quota_min_group_support must be at least 1.")
+        if self.config.initialization_quota_mode not in valid_initialization_quota_modes:
+            raise ValueError(f"initialization_quota_mode must be one of {sorted(valid_initialization_quota_modes)}.")
+        if not 0.0 <= self.config.small_group_seed_fraction <= 1.0:
+            raise ValueError("small_group_seed_fraction must be between 0.0 and 1.0.")
+        if self.config.weak_group_repair_rounds < 0:
+            raise ValueError("weak_group_repair_rounds must be non-negative.")
+        if not 0.0 <= self.config.majority_overconcentration_threshold <= 1.0:
+            raise ValueError("majority_overconcentration_threshold must be between 0.0 and 1.0.")
         for field_name in (
             "fscore_weight",
             "mf_weight",
             "dcv_weight",
+            "group_coverage_weight",
+            "scalability_weight",
             "spread_weight",
             "runtime_penalty_weight",
+            "runtime_weight",
             "fairness_tolerance_dcv",
             "fairness_tolerance_fscore_drop",
         ):
@@ -725,15 +783,27 @@ class HybridSIEAOptimizer:
         while len(cache) > cache_limit:
             cache.popitem(last=False)
 
-    def _candidate_rank_key(self, evaluation: CandidateEvaluation) -> tuple[float, float, tuple[tuple[str, str], ...]]:
+    def _candidate_rank_key(self, evaluation: CandidateEvaluation) -> tuple[float, float, float, float, float, tuple[tuple[str, str], ...]]:
+        if self.config.fitness_policy in {"fairness_first", "professor_priority"}:
+            return (
+                evaluation.score,
+                evaluation.f_score,
+                evaluation.fairness.mf,
+                -evaluation.fairness.dcv,
+                evaluation.total_spread_mean,
+                self._seed_sort_key(evaluation.seed_set),
+            )
         return (
             evaluation.score,
             evaluation.total_spread_mean,
+            evaluation.f_score,
+            evaluation.fairness.mf,
+            -evaluation.fairness.dcv,
             self._seed_sort_key(evaluation.seed_set),
         )
 
     def _fitness_score(self, evaluation_result: Any) -> float:
-        if self.config.fitness_policy != "fairness_first":
+        if self.config.fitness_policy not in {"fairness_first", "professor_priority"}:
             return float(evaluation_result.f_score)
 
         node_count = max(1, int(self.dataset.graph.number_of_nodes()))
@@ -744,12 +814,36 @@ class HybridSIEAOptimizer:
             context="fairness-first normalized spread fitness",
         )
         normalized_runtime = min(1.0, max(0.0, float(evaluation_result.runtime_seconds)))
+        group_values = dict(getattr(evaluation_result.fairness, "normalized_group_spread", {}) or {})
+        if not group_values:
+            group_values = dict(getattr(evaluation_result.fairness, "group_spread", {}) or {})
+        fraction_groups_covered = safe_divide(
+            sum(1 for value in group_values.values() if float(value) > 0.0),
+            len(group_values),
+            default=0.0,
+            context="professor-priority group coverage fitness",
+        )
+        candidate_pool_size = len(getattr(self, "candidate_pool", ()) or ())
+        scalability_score = 1.0 - min(
+            1.0,
+            safe_divide(
+                candidate_pool_size,
+                node_count,
+                default=1.0,
+                context="professor-priority scalability fitness",
+            ),
+        )
+        group_coverage_weight = self.config.group_coverage_weight if self.config.fitness_policy == "professor_priority" else 0.0
+        scalability_weight = self.config.scalability_weight if self.config.fitness_policy == "professor_priority" else 0.0
+        runtime_weight = self.config.runtime_weight if self.config.fitness_policy == "professor_priority" else self.config.runtime_penalty_weight
         return float(
             self.config.fscore_weight * float(evaluation_result.f_score)
             + self.config.mf_weight * float(evaluation_result.fairness.mf)
             - self.config.dcv_weight * float(evaluation_result.fairness.dcv)
+            + group_coverage_weight * fraction_groups_covered
+            + scalability_weight * scalability_score
             + self.config.spread_weight * normalized_spread
-            - self.config.runtime_penalty_weight * normalized_runtime
+            - runtime_weight * normalized_runtime
         )
 
     def _mode_scale(self) -> float:
@@ -1657,7 +1751,7 @@ class HybridSIEAOptimizer:
         self,
         evaluation: CandidateEvaluation,
     ) -> tuple[float, ...] | tuple[float, float, tuple[tuple[str, str], ...]]:
-        if self.config.fitness_policy == "fairness_first":
+        if self.config.fitness_policy in {"fairness_first", "professor_priority"}:
             return (
                 evaluation.f_score,
                 evaluation.fairness.mf,
@@ -1679,26 +1773,39 @@ class HybridSIEAOptimizer:
             ),
         )
 
-    def _fairness_first_swap_is_acceptable(
+    def _fairness_first_swap_acceptance_reason(
         self,
         incumbent: CandidateEvaluation,
         candidate: CandidateEvaluation,
-    ) -> bool:
+    ) -> str | None:
         eps = 1e-12
         if candidate.f_score > incumbent.f_score + eps:
-            return True
+            return "fscore"
         if (
             candidate.fairness.mf > incumbent.fairness.mf + eps
             and candidate.fairness.dcv <= incumbent.fairness.dcv + self.config.fairness_tolerance_dcv
         ):
-            return True
+            return "mf"
         if (
             candidate.total_spread_mean > incumbent.total_spread_mean + eps
             and candidate.f_score >= incumbent.f_score - self.config.fairness_tolerance_fscore_drop
             and candidate.fairness.dcv <= incumbent.fairness.dcv + self.config.fairness_tolerance_dcv
         ):
-            return True
-        return False
+            if (
+                bool(self.config.swap_reject_spread_gain_if_fairness_collapses)
+                and float(candidate.f_score) < 0.0
+                and float(candidate.f_score) < float(incumbent.f_score)
+            ):
+                return None
+            return "spread"
+        return None
+
+    def _fairness_first_swap_is_acceptable(
+        self,
+        incumbent: CandidateEvaluation,
+        candidate: CandidateEvaluation,
+    ) -> bool:
+        return self._fairness_first_swap_acceptance_reason(incumbent, candidate) is not None
 
     def _is_local_search_improvement(
         self,
@@ -1706,7 +1813,9 @@ class HybridSIEAOptimizer:
         incumbent: CandidateEvaluation,
     ) -> bool:
         if self.config.use_fairness_first_swap_acceptance:
-            return self._fairness_first_swap_is_acceptable(incumbent, candidate)
+            reason = self._fairness_first_swap_acceptance_reason(incumbent, candidate)
+            self.last_swap_acceptance_reason = "" if reason is None else reason
+            return reason is not None
         return self._local_search_rank_key(candidate) > self._local_search_rank_key(incumbent)
 
     def _confirm_local_search_improvement(
@@ -2252,6 +2361,423 @@ class HybridSIEAOptimizer:
             prefilter_top_k=prefilter_top_k,
         )
 
+    def _quota_target_counts(self) -> dict[str, int]:
+        if (
+            not bool(self.config.use_group_quota_repair)
+            or self.config.quota_mode == "none"
+            or self.config.min_seeds_per_protected_group <= 0
+        ):
+            return {}
+
+        minimum = max(0, int(self.config.min_seeds_per_protected_group))
+        if minimum <= 0:
+            return {}
+        if self.config.quota_mode == "support_aware":
+            eligible_groups = [
+                group_name
+                for group_name in self.group_names
+                if int(self.protected_group_report.group_sizes[group_name]) >= int(self.config.quota_min_group_support)
+            ]
+        else:
+            eligible_groups = [
+                group_name
+                for group_name in self.group_names
+                if int(self.protected_group_report.group_sizes[group_name]) > 0
+            ]
+        if not eligible_groups:
+            return {}
+
+        if self.config.quota_mode in {"at_least_one", "support_aware"}:
+            ordered_groups = sorted(
+                eligible_groups,
+                key=lambda group_name: (
+                    int(self.protected_group_report.group_sizes[group_name]),
+                    _sort_key(group_name),
+                ),
+            )
+            max_groups = max(0, self.config.budget // minimum)
+            return {
+                group_name: minimum
+                for group_name in ordered_groups[:max_groups]
+            }
+
+        total_support = float(sum(int(self.protected_group_report.group_sizes[group_name]) for group_name in eligible_groups))
+        if total_support <= 0.0:
+            return {}
+        raw_targets = {
+            group_name: float(self.config.budget) * float(self.protected_group_report.group_sizes[group_name]) / total_support
+            for group_name in eligible_groups
+        }
+        targets = {
+            group_name: int(math.floor(raw_target))
+            for group_name, raw_target in raw_targets.items()
+        }
+        remaining = int(self.config.budget) - int(sum(targets.values()))
+        for group_name, _ in sorted(
+            raw_targets.items(),
+            key=lambda item: (-(item[1] - math.floor(item[1])), _sort_key(item[0])),
+        ):
+            if remaining <= 0:
+                break
+            targets[group_name] = targets.get(group_name, 0) + 1
+            remaining -= 1
+        for group_name in sorted(eligible_groups, key=lambda name: (targets.get(name, 0), _sort_key(name))):
+            if sum(targets.values()) >= self.config.budget:
+                break
+            targets[group_name] = max(targets.get(group_name, 0), minimum)
+        while sum(targets.values()) > self.config.budget:
+            reducible = [
+                group_name
+                for group_name, target in targets.items()
+                if target > 0
+            ]
+            if not reducible:
+                break
+            group_to_reduce = max(
+                reducible,
+                key=lambda group_name: (
+                    targets[group_name],
+                    int(self.protected_group_report.group_sizes[group_name]),
+                    _sort_key(group_name),
+                ),
+            )
+            targets[group_to_reduce] -= 1
+        return {group_name: target for group_name, target in targets.items() if target > 0}
+
+    def _initialization_quota_target_counts(self) -> dict[str, int]:
+        if not bool(self.config.use_protected_group_quota_initialization):
+            return {}
+        eligible_groups = [
+            group_name
+            for group_name in self.group_names
+            if int(self.protected_group_report.group_sizes[group_name]) > 0
+            and any(node_id in self.candidate_pool_set for node_id in self.protected_group_report.protected_groups.get(group_name, ()))
+        ]
+        if not eligible_groups:
+            return {}
+
+        budget = int(self.config.budget)
+        mode = str(self.config.initialization_quota_mode)
+        if mode == "uniform_min":
+            targets = {group_name: 0 for group_name in eligible_groups}
+            for group_name in sorted(
+                eligible_groups,
+                key=lambda name: (int(self.protected_group_report.group_sizes[name]), _sort_key(name)),
+            ):
+                if sum(targets.values()) >= budget:
+                    break
+                targets[group_name] = 1
+        else:
+            if mode == "sqrt":
+                weights = {
+                    group_name: math.sqrt(float(self.protected_group_report.group_sizes[group_name]))
+                    for group_name in eligible_groups
+                }
+            else:
+                weights = {
+                    group_name: float(self.protected_group_report.group_sizes[group_name])
+                    for group_name in eligible_groups
+                }
+            total_weight = sum(weights.values())
+            if total_weight <= 0.0:
+                return {}
+            raw_targets = {
+                group_name: float(budget) * weight / total_weight
+                for group_name, weight in weights.items()
+            }
+            targets = {
+                group_name: int(math.floor(raw_target))
+                for group_name, raw_target in raw_targets.items()
+            }
+            remaining = budget - sum(targets.values())
+            for group_name, _ in sorted(
+                raw_targets.items(),
+                key=lambda item: (-(item[1] - math.floor(item[1])), _sort_key(item[0])),
+            ):
+                if remaining <= 0:
+                    break
+                targets[group_name] = targets.get(group_name, 0) + 1
+                remaining -= 1
+
+        if budget >= len(eligible_groups):
+            for group_name in eligible_groups:
+                targets[group_name] = max(1, targets.get(group_name, 0))
+
+        if eligible_groups and self.config.small_group_seed_fraction > 0.0:
+            smallest_group = min(
+                eligible_groups,
+                key=lambda group_name: (int(self.protected_group_report.group_sizes[group_name]), _sort_key(group_name)),
+            )
+            min_small_group_quota = max(1, int(math.ceil(float(budget) * float(self.config.small_group_seed_fraction))))
+            min_small_group_quota = min(min_small_group_quota, budget)
+            targets[smallest_group] = max(targets.get(smallest_group, 0), min_small_group_quota)
+
+        while sum(targets.values()) > budget:
+            reducible = [
+                group_name
+                for group_name, target in targets.items()
+                if target > (1 if budget >= len(eligible_groups) else 0)
+            ]
+            if not reducible:
+                reducible = [group_name for group_name, target in targets.items() if target > 0]
+            if not reducible:
+                break
+            group_to_reduce = max(
+                reducible,
+                key=lambda group_name: (
+                    targets[group_name],
+                    int(self.protected_group_report.group_sizes[group_name]),
+                    _sort_key(group_name),
+                ),
+            )
+            targets[group_to_reduce] -= 1
+
+        return {group_name: int(target) for group_name, target in targets.items() if int(target) > 0}
+
+    def _quota_initial_seed_nodes(
+        self,
+        current_nodes: Sequence[Any],
+        use_ml_bias: bool,
+    ) -> list[Any]:
+        targets = self._initialization_quota_target_counts()
+        self.seed_quota_per_protected_group = {str(group): int(target) for group, target in targets.items()}
+        if not targets:
+            return []
+        seed_nodes = list(current_nodes)
+        for group_name, target in sorted(
+            targets.items(),
+            key=lambda item: (int(self.protected_group_report.group_sizes[item[0]]), _sort_key(item[0])),
+        ):
+            while len(seed_nodes) < self.config.budget and self._selected_group_counts(seed_nodes).get(group_name, 0) < int(target):
+                ranked_candidates = self._rank_quota_group_candidates(group_name, seed_nodes)
+                if not ranked_candidates:
+                    break
+                seed_nodes.append(ranked_candidates[0])
+        return seed_nodes
+
+    def _summarize_initial_population_coverage(self, population: Sequence[tuple[Any, ...]]) -> dict[str, int]:
+        summary = {str(group_name): 0 for group_name in self.group_names}
+        for seed_set in population:
+            group_counts = self._selected_group_counts(seed_set)
+            for group_name, count in group_counts.items():
+                if count > 0:
+                    summary[str(group_name)] = summary.get(str(group_name), 0) + 1
+        return summary
+
+    def _rank_quota_group_candidates(
+        self,
+        group_name: str,
+        current_nodes: Sequence[Any],
+    ) -> list[Any]:
+        used_nodes = set(current_nodes)
+        group_nodes = [
+            node_id
+            for node_id in self.protected_group_report.protected_groups.get(group_name, ())
+            if node_id in self.candidate_pool_set and node_id not in used_nodes
+        ]
+        if not group_nodes:
+            return []
+        group_counts = self._selected_group_counts(current_nodes)
+        community_counts = self._selected_community_counts(current_nodes)
+        weak_context = WeakGroupContext(
+            weak_groups=(group_name,),
+            zero_covered_groups=(group_name,) if group_counts.get(group_name, 0) <= 0 else (),
+        )
+        return self._rank_candidate_nodes(
+            group_nodes,
+            group_counts=group_counts,
+            community_counts=community_counts,
+            ml_bias_weight=self.config.ml_repair_bias_weight if self._ml_guidance_enabled() else 0.0,
+            primary_rate=self.config.ml_repair_primary_rate if self._uses_tuned_two_tier_guidance() else None,
+            reference_nodes=current_nodes,
+            weak_group_context=weak_context,
+            fairness_weight=max(1.0, float(self.config.repair_fairness_weight)),
+            zero_bonus_weight=max(0.5, float(self.config.zero_group_bonus_weight)),
+            bridge_weight=max(0.25, float(self.config.repair_bridge_weight)),
+            centrality_weight=self.config.repair_centrality_weight,
+            diversity_weight=self.config.repair_diversity_weight,
+            candidate_limit=self._candidate_pool_limit(len(group_nodes), stage="repair"),
+            prefilter_top_k=self._candidate_prefilter_limit(
+                len(group_nodes),
+                self._candidate_pool_limit(len(group_nodes), stage="repair"),
+                stage="repair",
+            ),
+        )
+
+    def _quota_removal_candidate(
+        self,
+        current_nodes: Sequence[Any],
+        target_group: str,
+        target_counts: dict[str, int],
+        deficit_groups: set[str],
+    ) -> Any | None:
+        group_counts = self._selected_group_counts(current_nodes)
+        replacement_order = self._rank_seed_nodes_for_replacement(
+            current_nodes,
+            ml_bias_weight=self.config.ml_repair_bias_weight if self._ml_guidance_enabled() else 0.0,
+            weak_group_context=WeakGroupContext(weak_groups=tuple(sorted(deficit_groups)), zero_covered_groups=()),
+        )
+        for node_id in replacement_order:
+            group_name = self.node_group_by_node[node_id]
+            if group_name == target_group or group_name in deficit_groups:
+                continue
+            protected_target = int(target_counts.get(group_name, 0))
+            if group_counts.get(group_name, 0) > max(protected_target, 0):
+                return node_id
+        for node_id in replacement_order:
+            if self.node_group_by_node[node_id] != target_group:
+                return node_id
+        return None
+
+    def _apply_group_quota_repair(self, cleaned: Sequence[Any]) -> list[Any]:
+        target_counts = self._quota_target_counts()
+        if not target_counts:
+            return list(cleaned)
+
+        repaired = list(cleaned[: self.config.budget])
+        failed_groups: set[str] = set()
+        max_attempts = max(1, self.config.budget * max(1, len(target_counts)))
+        for _ in range(max_attempts):
+            group_counts = self._selected_group_counts(repaired)
+            deficit_groups = {
+                group_name
+                for group_name, target in target_counts.items()
+                if group_counts.get(group_name, 0) < int(target) and group_name not in failed_groups
+            }
+            if not deficit_groups:
+                break
+            target_group = min(
+                deficit_groups,
+                key=lambda group_name: (
+                    group_counts.get(group_name, 0) / max(1, int(target_counts[group_name])),
+                    int(self.protected_group_report.group_sizes[group_name]),
+                    _sort_key(group_name),
+                ),
+            )
+            ranked_candidates = self._rank_quota_group_candidates(target_group, repaired)
+            if not ranked_candidates:
+                failed_groups.add(target_group)
+                continue
+            replacement = ranked_candidates[0]
+            if len(repaired) >= self.config.budget:
+                node_to_remove = self._quota_removal_candidate(
+                    repaired,
+                    target_group,
+                    target_counts,
+                    deficit_groups,
+                )
+                if node_to_remove is None:
+                    failed_groups.add(target_group)
+                    continue
+                repaired = [node_id for node_id in repaired if node_id != node_to_remove]
+            if replacement not in repaired:
+                repaired.append(replacement)
+        return repaired
+
+    def _majority_overconcentrated_group(self, current_nodes: Sequence[Any]) -> str | None:
+        if not current_nodes:
+            return None
+        group_counts = self._selected_group_counts(current_nodes)
+        group_name, count = max(
+            group_counts.items(),
+            key=lambda item: (item[1], int(self.protected_group_report.group_sizes[item[0]]), _sort_key(item[0])),
+        )
+        if safe_divide(
+            float(count),
+            float(max(1, len(current_nodes))),
+            default=0.0,
+            context="majority overconcentration repair ratio",
+        ) > float(self.config.majority_overconcentration_threshold):
+            return group_name
+        return None
+
+    def _weak_group_repair_targets(self, current_nodes: Sequence[Any]) -> list[str]:
+        group_counts = self._selected_group_counts(current_nodes)
+        target_counts = self._quota_target_counts()
+        deficit_groups = [
+            group_name
+            for group_name, target in target_counts.items()
+            if group_counts.get(group_name, 0) < int(target)
+        ]
+        if deficit_groups:
+            return sorted(
+                deficit_groups,
+                key=lambda group_name: (
+                    group_counts.get(group_name, 0) / max(1, int(target_counts[group_name])),
+                    int(self.protected_group_report.group_sizes[group_name]),
+                    _sort_key(group_name),
+                ),
+            )
+        return sorted(
+            self.group_names,
+            key=lambda group_name: (
+                safe_divide(
+                    float(group_counts.get(group_name, 0)),
+                    float(max(1, int(self.protected_group_report.group_sizes[group_name]))),
+                    default=0.0,
+                    context=f"weak-group repair normalized seed count for {group_name}",
+                ),
+                group_counts.get(group_name, 0),
+                int(self.protected_group_report.group_sizes[group_name]),
+                _sort_key(group_name),
+            ),
+        )
+
+    def _repair_removal_for_weak_group(
+        self,
+        current_nodes: Sequence[Any],
+        target_group: str,
+    ) -> Any | None:
+        majority_group = self._majority_overconcentrated_group(current_nodes)
+        group_counts = self._selected_group_counts(current_nodes)
+        replacement_order = self._rank_seed_nodes_for_replacement(
+            current_nodes,
+            ml_bias_weight=self.config.ml_repair_bias_weight if self._ml_guidance_enabled() else 0.0,
+            weak_group_context=WeakGroupContext(weak_groups=(target_group,), zero_covered_groups=()),
+        )
+        if majority_group is not None and majority_group != target_group:
+            for node_id in replacement_order:
+                if self.node_group_by_node[node_id] == majority_group and group_counts.get(majority_group, 0) > 1:
+                    return node_id
+        target_counts = self._quota_target_counts()
+        return self._quota_removal_candidate(
+            current_nodes,
+            target_group,
+            target_counts,
+            {target_group},
+        )
+
+    def _apply_fairness_first_repair(self, cleaned: Sequence[Any]) -> list[Any]:
+        if not bool(self.config.use_fairness_first_repair) or self.config.weak_group_repair_rounds <= 0:
+            return list(cleaned)
+        repaired = list(cleaned[: self.config.budget])
+        for _ in range(int(self.config.weak_group_repair_rounds)):
+            self.repair_attempts += 1
+            changed = False
+            for target_group in self._weak_group_repair_targets(repaired):
+                ranked_candidates = self._rank_quota_group_candidates(target_group, repaired)
+                if not ranked_candidates:
+                    continue
+                replacement = ranked_candidates[0]
+                if replacement in repaired:
+                    continue
+                if len(repaired) < self.config.budget:
+                    repaired.append(replacement)
+                    changed = True
+                else:
+                    node_to_remove = self._repair_removal_for_weak_group(repaired, target_group)
+                    if node_to_remove is None:
+                        continue
+                    repaired = [node_id for node_id in repaired if node_id != node_to_remove]
+                    repaired.append(replacement)
+                    changed = True
+                if changed:
+                    self.weak_group_repairs += 1
+                    break
+            if not changed:
+                break
+        return repaired
+
     def _repair_seed_set(
         self,
         proposed_nodes: Sequence[Any],
@@ -2267,7 +2793,15 @@ class HybridSIEAOptimizer:
             cleaned.append(node)
             used_nodes.add(node)
             if len(cleaned) == self.config.budget:
-                return self._validate_seed_set(tuple(sorted(cleaned, key=_sort_key)))
+                break
+
+        self.last_repair_group_counts_before = {
+            str(group_name): int(count)
+            for group_name, count in self._selected_group_counts(cleaned).items()
+        }
+        cleaned = self._apply_group_quota_repair(cleaned)
+        cleaned = self._apply_fairness_first_repair(cleaned)
+        used_nodes = set(cleaned)
 
         while len(cleaned) < self.config.budget:
             repair_candidate_limit = self._candidate_pool_limit(
@@ -2304,6 +2838,33 @@ class HybridSIEAOptimizer:
             used_nodes.add(replacement)
 
         if len(cleaned) < self.config.budget:
+            refill_context = (
+                self._weak_group_context_for_seed_set(cleaned)
+                if self._fairness_repair_active() or bool(self.config.use_group_quota_repair)
+                else None
+            )
+            ranked_refill = self._rank_external_candidates(
+                cleaned,
+                ml_bias_weight=self.config.ml_repair_bias_weight if self._ml_guidance_enabled() else 0.0,
+                primary_rate=self.config.ml_repair_primary_rate if self._uses_tuned_two_tier_guidance() else None,
+                node2vec_diversity_weight=self.config.node2vec_diversity_weight if use_node2vec_diversity else 0.0,
+                weak_group_context=refill_context,
+                fairness_weight=self.config.repair_fairness_weight,
+                zero_bonus_weight=self.config.zero_group_bonus_weight,
+                bridge_weight=self.config.repair_bridge_weight,
+                centrality_weight=self.config.repair_centrality_weight,
+                diversity_weight=self.config.repair_diversity_weight,
+                stage="repair",
+            )
+            for node in ranked_refill:
+                if node in used_nodes:
+                    continue
+                cleaned.append(node)
+                used_nodes.add(node)
+                if len(cleaned) == self.config.budget:
+                    break
+
+        if len(cleaned) < self.config.budget:
             for node in self.global_ranked_nodes:
                 if node in used_nodes:
                     continue
@@ -2312,6 +2873,10 @@ class HybridSIEAOptimizer:
                 if len(cleaned) == self.config.budget:
                     break
 
+        self.last_repair_group_counts_after = {
+            str(group_name): int(count)
+            for group_name, count in self._selected_group_counts(cleaned).items()
+        }
         return self._validate_seed_set(tuple(sorted(cleaned, key=_sort_key)))
 
     def _validate_seed_set(self, seed_set: tuple[Any, ...]) -> tuple[Any, ...]:
@@ -2338,6 +2903,13 @@ class HybridSIEAOptimizer:
             if use_ml_bias and self._uses_tuned_two_tier_guidance()
             else None
         )
+        quota_nodes = self._quota_initial_seed_nodes(seed_nodes, use_ml_bias=use_ml_bias)
+        for quota_node in quota_nodes:
+            if quota_node in self.candidate_pool_set and quota_node not in used_nodes:
+                seed_nodes.append(quota_node)
+                used_nodes.add(quota_node)
+            if len(seed_nodes) >= self.config.budget:
+                break
 
         while len(seed_nodes) < self.config.budget:
             node_id: Any | None = None
@@ -2370,7 +2942,10 @@ class HybridSIEAOptimizer:
         seen: set[tuple[Any, ...]] = set()
         retry_count = 0
 
-        strongest = self._validate_seed_set(tuple(self.global_ranked_nodes[: self.config.budget]))
+        strongest = self._repair_seed_set(
+            self.global_ranked_nodes[: self.config.budget],
+            use_node2vec_diversity=False,
+        )
         population.append(strongest)
         seen.add(strongest)
         if self._ml_guidance_enabled() and self.config.ml_initialization_bias > 0.0:
@@ -2395,6 +2970,7 @@ class HybridSIEAOptimizer:
             seen.add(candidate)
             retry_count = 0
 
+        self.initial_population_group_coverage_summary = self._summarize_initial_population_coverage(population)
         return population
 
     def _evaluate_seed_set(self, seed_set: tuple[Any, ...], screening: bool = False) -> CandidateEvaluation:
@@ -2581,12 +3157,22 @@ class HybridSIEAOptimizer:
                         if not was_cached:
                             self.last_local_search_swap_evaluations += 1
                         evaluated_trials += 1
+                        self.swap_attempts += 1
                         if self._is_local_search_improvement(evaluation, best_evaluation):
+                            self.swap_accepted += 1
+                            if self.last_swap_acceptance_reason == "fscore":
+                                self.swap_accepted_fscore_improvement += 1
+                            elif self.last_swap_acceptance_reason == "mf":
+                                self.swap_accepted_mf_improvement += 1
+                            elif self.last_swap_acceptance_reason == "spread":
+                                self.swap_accepted_spread_fairness_preserved += 1
                             best_candidate = candidate
                             best_evaluation = evaluation
                             screening_improvements.append((candidate, evaluation))
                             stale_trials = 0
                         else:
+                            if self.config.use_fairness_first_swap_acceptance:
+                                self.swap_rejected_fairness_degradation += 1
                             stale_trials += 1
                     if evaluated_trials >= max_trials or stale_trials >= failed_patience:
                         break
@@ -2707,7 +3293,15 @@ class HybridSIEAOptimizer:
                     if not was_cached:
                         self.last_local_search_swap_evaluations += 1
                     evaluated_trials += 1
+                    self.swap_attempts += 1
                     if self._is_local_search_improvement(evaluation, best_evaluation):
+                        self.swap_accepted += 1
+                        if self.last_swap_acceptance_reason == "fscore":
+                            self.swap_accepted_fscore_improvement += 1
+                        elif self.last_swap_acceptance_reason == "mf":
+                            self.swap_accepted_mf_improvement += 1
+                        elif self.last_swap_acceptance_reason == "spread":
+                            self.swap_accepted_spread_fairness_preserved += 1
                         best_candidate = evaluation.seed_set
                         best_evaluation = evaluation
                         screening_improvements.append((evaluation.seed_set, evaluation))
@@ -2716,6 +3310,8 @@ class HybridSIEAOptimizer:
                             accepted_first_improvement = True
                             break
                     else:
+                        if self.config.use_fairness_first_swap_acceptance:
+                            self.swap_rejected_fairness_degradation += 1
                         stale_trials += 1
                 if accepted_first_improvement:
                     break
@@ -2883,4 +3479,16 @@ class HybridSIEAOptimizer:
             fitness_cache_hits=int(self.fitness_cache_hits),
             marginal_cache_hits=int(self.marginal_cache_hits),
             swap_cache_hits=int(self.swap_cache_hits),
+            repair_attempts=int(self.repair_attempts),
+            weak_group_repairs=int(self.weak_group_repairs),
+            protected_group_seed_counts_before_repair=dict(self.last_repair_group_counts_before),
+            protected_group_seed_counts_after_repair=dict(self.last_repair_group_counts_after),
+            swap_attempts=int(self.swap_attempts),
+            swap_accepted=int(self.swap_accepted),
+            swap_rejected_fairness_degradation=int(self.swap_rejected_fairness_degradation),
+            swap_accepted_fscore_improvement=int(self.swap_accepted_fscore_improvement),
+            swap_accepted_mf_improvement=int(self.swap_accepted_mf_improvement),
+            swap_accepted_spread_fairness_preserved=int(self.swap_accepted_spread_fairness_preserved),
+            seed_quota_per_protected_group=dict(self.seed_quota_per_protected_group),
+            initial_population_group_coverage_summary=dict(self.initial_population_group_coverage_summary),
         )

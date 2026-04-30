@@ -1,0 +1,5 @@
+dataset,protected_attribute,budget,reference_stack_name,stack_name,delta_total_spread,delta_extra_spread,delta_mf,delta_dcv,delta_f_score,delta_runtime_seconds,delta_zero_covered_groups_count,delta_fraction_groups_covered,delta_scalability_pass
+graph_spa_500_0,region,4,graphsage_community_siea,graphsage_community_siea,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+graph_spa_500_0,region,4,graphsage_community_siea,node2vec_xgboost_community_siea,0.0,0.0,0.0,0.0,0.0,0.07512210000004416,0.0,0.0,0.0
+graph_spa_500_0,region,4,graphsage_community_siea,community_aware_fair_greedy,0.5,0.5,0.0,0.017236405861998372,-0.008618202930999186,-3.522219299999051,0.0,0.0,0.0
+graph_spa_500_0,region,4,graphsage_community_siea,gcn_community_siea,0.0,0.0,0.0,0.02836052836052838,-0.01418026418026419,-2.9249386999999842,0.0,0.0,0.0
