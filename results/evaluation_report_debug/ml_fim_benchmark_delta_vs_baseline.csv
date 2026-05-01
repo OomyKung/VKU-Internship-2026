@@ -1,0 +1,4 @@
+reference_stack_name,reference_kind,stack_name,delta_f_score,delta_mf,delta_dcv,delta_spread,delta_extra_spread,runtime_speedup_vs_baseline,dataset,protected_attribute,budget
+community_aware_fair_greedy,baseline,node2vec_xgboost_community_siea,-0.0658185284953979,-0.022186666666666667,0.10945039032412913,1.2833333333333314,1.2833333333333314,1.099488426790946,synth3,color,40
+community_aware_fair_greedy,baseline,graphsage_community_siea,-0.16775164785727226,-0.06924444444444444,0.26625885127010007,0.30333333333332746,0.30333333333332746,1.1197505937096222,synth3,color,40
+community_aware_fair_greedy,baseline,gcn_community_siea,-0.19850000139990465,-0.08183333333333333,0.315166669466476,-1.153333333333336,-1.153333333333336,1.2216966242338916,synth3,color,40

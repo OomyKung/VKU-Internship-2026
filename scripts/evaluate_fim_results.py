@@ -52,11 +52,26 @@ STANDARD_COLUMNS = [
     "clustering_method",
     "ranking_model",
     "optimizer_mode",
+    "graph_embedding_algorithm",
+    "ml_ranking_algorithm",
+    "community_detection_algorithm",
+    "clustering_algorithm",
+    "diffusion_model_name",
+    "search_time_spread_estimator",
+    "fair_ris_mode",
+    "fairness_influence_objective",
+    "fair_influence_optimizer",
+    "repair_strategy",
+    "local_refinement",
+    "final_evaluator",
+    "ranking_policy_name",
     "debias_mode",
     "variant_type",
     "key_enabled_modules",
     "notes",
     "skip_reason",
+    "search_estimator",
+    "final_estimator",
     "spread_estimator_search",
     "spread_estimator_final",
     "use_ris",
@@ -70,18 +85,63 @@ STANDARD_COLUMNS = [
     "ris_score_std",
     "fair_ris_score_nonzero_count",
     "fair_ris_score_std",
+    "ris_verified",
+    "fair_ris_verified",
     "ris_active_verified",
     "fair_ris_active_verified",
     "ris_verification_warnings",
+    "force_ris_for_all_stacks",
+    "require_ris",
     "total_spread",
     "extra_spread",
     "mf",
     "dcv",
     "f_score",
     "runtime_seconds",
+    "time_dataset_loading",
+    "time_preprocessing",
+    "time_community_detection",
+    "time_embedding",
+    "time_ris",
+    "time_candidate_scoring",
+    "time_optimizer",
+    "time_repair",
+    "time_local_search",
+    "time_final_mc",
+    "time_reporting",
+    "runtime_breakdown_json",
     "zero_covered_groups_count",
+    "zero_covered_groups",
     "fraction_groups_covered",
     "scalability_pass",
+    "seed_count",
+    "expected_seed_count",
+    "duplicate_seed_count",
+    "seed_group_counts",
+    "seed_community_counts",
+    "seed_communities_covered",
+    "largest_community_seed_fraction",
+    "smallest_group_seed_count",
+    "largest_group_seed_count",
+    "protected_group_influence_json",
+    "protected_group_normalized_influence_json",
+    "weakest_group",
+    "strongest_group",
+    "score_component_stats_json",
+    "constant_score_components",
+    "optimizer_diagnostics_json",
+    "diagnostics_json",
+    "repair_attempts",
+    "weak_group_repairs",
+    "duplicate_repairs",
+    "swap_attempts",
+    "successful_swaps",
+    "swap_rejected_fairness_degradation",
+    "rejected_fairness_drops",
+    "swap_accepted_fscore_improvement",
+    "swap_accepted_spread_fairness_preserved",
+    "best_generation",
+    "final_fitness",
     "source_file",
     "source_path",
 ]
@@ -268,6 +328,19 @@ def _column_alias_map() -> dict[str, str]:
         "ranking_mode": "ranking_model",
         "ranking": "ranking_model",
         "optimizer_mode": "optimizer_mode",
+        "graph_embedding_algorithm": "graph_embedding_algorithm",
+        "ml_ranking_algorithm": "ml_ranking_algorithm",
+        "community_detection_algorithm": "community_detection_algorithm",
+        "clustering_algorithm": "clustering_algorithm",
+        "diffusion_model_name": "diffusion_model_name",
+        "search_time_spread_estimator": "search_time_spread_estimator",
+        "fair_ris_mode": "fair_ris_mode",
+        "fairness_influence_objective": "fairness_influence_objective",
+        "fair_influence_optimizer": "fair_influence_optimizer",
+        "repair_strategy": "repair_strategy",
+        "local_refinement": "local_refinement",
+        "final_evaluator": "final_evaluator",
+        "ranking_policy_name": "ranking_policy_name",
         "debias_mode": "debias_mode",
         "bias_control": "debias_mode",
         "variant_type": "variant_type",
@@ -276,6 +349,8 @@ def _column_alias_map() -> dict[str, str]:
         "note": "notes",
         "skip_reason": "skip_reason",
         "skipped_reason": "skip_reason",
+        "search_estimator": "search_estimator",
+        "final_estimator": "final_estimator",
         "spread_estimator_search": "spread_estimator_search",
         "search_spread_estimator": "spread_estimator_search",
         "spread_estimator_final": "spread_estimator_final",
@@ -291,8 +366,30 @@ def _column_alias_map() -> dict[str, str]:
         "f_score_value": "f_score",
         "runtime_seconds": "runtime_seconds",
         "runtime": "runtime_seconds",
+        "time_dataset_loading": "time_dataset_loading",
+        "time_preprocessing": "time_preprocessing",
+        "time_community_detection": "time_community_detection",
+        "time_embedding": "time_embedding",
+        "time_ris": "time_ris",
+        "time_candidate_scoring": "time_candidate_scoring",
+        "time_optimizer": "time_optimizer",
+        "time_repair": "time_repair",
+        "time_local_search": "time_local_search",
+        "time_final_mc": "time_final_mc",
+        "time_reporting": "time_reporting",
+        "runtime_breakdown_json": "runtime_breakdown_json",
         "zero_covered_groups": "zero_covered_groups_count",
         "zero_covered_groups_count": "zero_covered_groups_count",
+        "seed_group_counts": "seed_group_counts",
+        "seed_community_counts": "seed_community_counts",
+        "protected_group_influence_json": "protected_group_influence_json",
+        "protected_group_normalized_influence_json": "protected_group_normalized_influence_json",
+        "weakest_group": "weakest_group",
+        "strongest_group": "strongest_group",
+        "score_component_stats_json": "score_component_stats_json",
+        "constant_score_components": "constant_score_components",
+        "optimizer_diagnostics_json": "optimizer_diagnostics_json",
+        "diagnostics_json": "diagnostics_json",
         "fraction_groups_covered": "fraction_groups_covered",
         "protected_fraction_groups_covered": "fraction_groups_covered",
         "scalability_pass": "scalability_pass",
@@ -527,11 +624,26 @@ def _parse_permutation_report(path: Path) -> pd.DataFrame:
             current_row["ranking_model"] = modules.get("ranking", pd.NA)
             current_row["optimizer_mode"] = modules.get("optimizer", pd.NA)
             current_row["debias_mode"] = modules.get("debias", pd.NA)
+            current_row["search_estimator"] = modules.get("search_estimator", pd.NA)
+            current_row["final_estimator"] = modules.get("final_estimator", pd.NA)
             current_row["spread_estimator_search"] = modules.get("search_estimator", pd.NA)
             current_row["spread_estimator_final"] = modules.get("final_estimator", pd.NA)
             current_row["fair_ris_enabled"] = modules.get("fair_ris", pd.NA)
             current_row["effective_ris_num_rr_sets"] = modules.get("ris_rr_sets", pd.NA)
             current_row["key_enabled_modules"] = stripped.split(":", 1)[1].strip()
+            continue
+        if stripped.startswith("RIS config:"):
+            ris_config = _parse_scalar_segments(stripped.split(":", 1)[1].strip())
+            current_row["search_estimator"] = ris_config.get("search_estimator", current_row.get("search_estimator", pd.NA))
+            current_row["final_estimator"] = ris_config.get("final_estimator", current_row.get("final_estimator", pd.NA))
+            current_row["spread_estimator_search"] = ris_config.get("search_estimator", current_row.get("spread_estimator_search", pd.NA))
+            current_row["spread_estimator_final"] = ris_config.get("final_estimator", current_row.get("spread_estimator_final", pd.NA))
+            current_row["fair_ris_enabled"] = ris_config.get("fair_ris", current_row.get("fair_ris_enabled", pd.NA))
+            current_row["effective_ris_num_rr_sets"] = ris_config.get("ris_rr_sets", current_row.get("effective_ris_num_rr_sets", pd.NA))
+            current_row["ris_verified"] = ris_config.get("ris_verified", pd.NA)
+            current_row["fair_ris_verified"] = ris_config.get("fair_ris_verified", pd.NA)
+            current_row["force_ris_for_all_stacks"] = ris_config.get("force_ris_for_all_stacks", pd.NA)
+            current_row["require_ris"] = ris_config.get("require_ris", pd.NA)
             continue
         if stripped.startswith("notes="):
             current_row["notes"] = stripped.split("=", 1)[1].strip()
@@ -563,6 +675,7 @@ def _parse_permutation_report(path: Path) -> pd.DataFrame:
         frame["budget"] = budget
     if final_estimator_fields:
         frame["spread_estimator_final"] = final_estimator_fields.get("final_estimator", "monte_carlo")
+        frame["final_estimator"] = final_estimator_fields.get("final_estimator", "monte_carlo")
         mc_runs_eval = final_estimator_fields.get("mc_runs_eval")
         if mc_runs_eval is not None:
             frame["mc_runs_eval"] = mc_runs_eval
@@ -1021,19 +1134,42 @@ def _method_note(
         notes.append("Fairness collapse warning: protected-group coverage below threshold")
     if pd.notna(row.get("spread_estimator_search")):
         ris_bits = [
-            f"search_estimator={row.get('spread_estimator_search')}",
-            f"final_estimator={row.get('spread_estimator_final', 'monte_carlo')}",
+            f"search_estimator={row.get('search_estimator', row.get('spread_estimator_search'))}",
+            f"final_estimator={row.get('final_estimator', row.get('spread_estimator_final', 'monte_carlo'))}",
         ]
         if pd.notna(row.get("fair_ris_enabled")):
             ris_bits.append(f"fair_ris={row.get('fair_ris_enabled')}")
         if pd.notna(row.get("effective_ris_num_rr_sets")):
             ris_bits.append(f"ris_rr_sets={row.get('effective_ris_num_rr_sets')}")
-        if pd.notna(row.get("ris_active_verified")):
-            ris_bits.append(f"ris_verified={row.get('ris_active_verified')}")
-        if pd.notna(row.get("fair_ris_active_verified")):
-            ris_bits.append(f"fair_ris_verified={row.get('fair_ris_active_verified')}")
+        if pd.notna(row.get("ris_verified", row.get("ris_active_verified"))):
+            ris_bits.append(f"ris_verified={row.get('ris_verified', row.get('ris_active_verified'))}")
+        if pd.notna(row.get("fair_ris_verified", row.get("fair_ris_active_verified"))):
+            ris_bits.append(f"fair_ris_verified={row.get('fair_ris_verified', row.get('fair_ris_active_verified'))}")
         notes.append("RIS config: " + " | ".join(str(part) for part in ris_bits))
-    ris_warning = str(row.get("ris_verification_warnings", "") or "").strip()
+    algorithm_fields = [
+        ("embedding", "graph_embedding_algorithm"),
+        ("ml_ranking", "ml_ranking_algorithm"),
+        ("community", "community_detection_algorithm"),
+        ("diffusion", "diffusion_model_name"),
+        ("search", "search_time_spread_estimator"),
+        ("optimizer", "fair_influence_optimizer"),
+        ("repair", "repair_strategy"),
+        ("local_refinement", "local_refinement"),
+        ("final", "final_evaluator"),
+        ("ranking_policy", "ranking_policy_name"),
+    ]
+    algorithm_bits = []
+    for label, column in algorithm_fields:
+        value = row.get(column, pd.NA)
+        if pd.isna(value):
+            continue
+        text = str(value).strip()
+        if text and text.lower() not in {"nan", "<na>"}:
+            algorithm_bits.append(f"{label}={text}")
+    if algorithm_bits:
+        notes.append("Algorithms: " + " | ".join(algorithm_bits))
+    ris_warning_value = row.get("ris_verification_warnings", "")
+    ris_warning = "" if pd.isna(ris_warning_value) else str(ris_warning_value).strip()
     if ris_warning and ris_warning != "<NA>":
         notes.append("RIS warning: " + ris_warning)
     if not notes:
@@ -1119,6 +1255,7 @@ def evaluate_result_frame(
                     method_notes={},
                     recommendations={
                         "best_overall_method": None,
+                        "best_ml_only_method": None,
                         "best_fairness_first_method": None,
                         "best_spread_first_method": None,
                         "best_runtime_first_method": None,
@@ -1210,15 +1347,20 @@ def evaluate_result_frame(
                 practical_name = _row_identity(fastest_row)
 
         baseline_rows = ranked[ranked.apply(_is_interpretable_baseline, axis=1)]
+        ml_only_rows = ranked[~ranked.apply(_is_interpretable_baseline, axis=1)]
         exploratory_rows = ranked[ranked.apply(_is_exploratory_comparator, axis=1)]
         baseline_row = baseline_rows.iloc[0] if not baseline_rows.empty else None
+        ml_only_row = ml_only_rows.iloc[0] if not ml_only_rows.empty else None
         exploratory_row = exploratory_rows.iloc[0] if not exploratory_rows.empty else None
         baseline_name = _row_identity(baseline_row)
+        ml_only_name = _row_identity(ml_only_row)
         exploratory_name = _row_identity(exploratory_row)
 
         insight_lines: list[str] = []
         if winner_name is not None:
             insight_lines.append(f"Overall winner: {winner_name}")
+        if ml_only_name is not None:
+            insight_lines.append(f"Best ML-only method: {ml_only_name}")
         if spread_name is not None:
             insight_lines.append(f"Best spread: {spread_name}")
         if fairness_name is not None:
@@ -1275,6 +1417,10 @@ def evaluate_result_frame(
             insight_lines.append(f"Best exploratory comparator: {exploratory_name}")
         if priority_ranking and winner_name is not None:
             insight_lines.append(f"Professor-priority recommendation: {winner_name}")
+        if priority_ranking and winner_name is not None and ml_only_name is not None and winner_name != ml_only_name:
+            insight_lines.append(
+                "Overall recommendation differs from ML-only recommendation because baseline rows are included."
+            )
 
         method_notes = {
             str(row["stack_name"]): _method_note(
@@ -1307,6 +1453,7 @@ def evaluate_result_frame(
         professor_priority_name = winner_name
         recommendations = {
             "best_overall_method": winner_name,
+            "best_ml_only_method": ml_only_name,
             "best_fairness_first_method": fairness_name,
             "best_spread_first_method": spread_name,
             "best_runtime_first_method": fastest_name,
@@ -1389,12 +1536,308 @@ def _format_ranked_table(frame: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
+def _numeric_value(value: object) -> float | None:
+    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(numeric):
+        return None
+    return float(numeric)
+
+
+def _baseline_reference_row(frame: pd.DataFrame) -> tuple[str | None, pd.Series | None, str]:
+    if frame.empty:
+        return None, None, "none"
+    baseline_rows = frame[frame["stack_name"].astype(str).eq("community_aware_fair_greedy")]
+    if baseline_rows.empty:
+        baseline_rows = frame[frame.apply(_is_interpretable_baseline, axis=1)]
+    if not baseline_rows.empty:
+        row = baseline_rows.iloc[0]
+        return str(row["stack_name"]), row, "baseline"
+    row = frame.iloc[0]
+    return str(row["stack_name"]), row, "rank_1_reference"
+
+
+def delta_vs_baseline_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return pd.DataFrame()
+    reference_name, reference_row, reference_kind = _baseline_reference_row(frame)
+    if reference_row is None:
+        return pd.DataFrame()
+    reference_values = {
+        "f_score": _numeric_value(reference_row.get("f_score")),
+        "mf": _numeric_value(reference_row.get("mf")),
+        "dcv": _numeric_value(reference_row.get("dcv")),
+        "total_spread": _numeric_value(reference_row.get("total_spread")),
+        "extra_spread": _numeric_value(reference_row.get("extra_spread")),
+        "runtime_seconds": _numeric_value(reference_row.get("runtime_seconds")),
+    }
+    rows: list[dict[str, object]] = []
+    for _, row in frame.iterrows():
+        method_name = str(row.get("stack_name"))
+        if method_name == reference_name:
+            continue
+        runtime = _numeric_value(row.get("runtime_seconds"))
+        ref_runtime = reference_values["runtime_seconds"]
+        rows.append(
+            {
+                "reference_stack_name": reference_name,
+                "reference_kind": reference_kind,
+                "stack_name": method_name,
+                "delta_f_score": (
+                    _numeric_value(row.get("f_score")) - reference_values["f_score"]
+                    if _numeric_value(row.get("f_score")) is not None and reference_values["f_score"] is not None
+                    else pd.NA
+                ),
+                "delta_mf": (
+                    _numeric_value(row.get("mf")) - reference_values["mf"]
+                    if _numeric_value(row.get("mf")) is not None and reference_values["mf"] is not None
+                    else pd.NA
+                ),
+                "delta_dcv": (
+                    _numeric_value(row.get("dcv")) - reference_values["dcv"]
+                    if _numeric_value(row.get("dcv")) is not None and reference_values["dcv"] is not None
+                    else pd.NA
+                ),
+                "delta_spread": (
+                    _numeric_value(row.get("total_spread")) - reference_values["total_spread"]
+                    if _numeric_value(row.get("total_spread")) is not None and reference_values["total_spread"] is not None
+                    else pd.NA
+                ),
+                "delta_extra_spread": (
+                    _numeric_value(row.get("extra_spread")) - reference_values["extra_spread"]
+                    if _numeric_value(row.get("extra_spread")) is not None and reference_values["extra_spread"] is not None
+                    else pd.NA
+                ),
+                "runtime_speedup_vs_baseline": (
+                    float(ref_runtime) / float(runtime)
+                    if runtime is not None and runtime > 0.0 and ref_runtime is not None
+                    else pd.NA
+                ),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _format_delta_vs_baseline(frame: pd.DataFrame) -> str:
+    delta_frame = delta_vs_baseline_frame(frame)
+    reference_name, _, reference_kind = _baseline_reference_row(frame)
+    title = f"Delta vs {reference_name or 'reference'}"
+    if reference_kind == "rank_1_reference":
+        title += " (rank 1 reference; baseline absent)"
+    lines = [title, "-" * 72]
+    if delta_frame.empty:
+        lines.append("No baseline deltas available.")
+        return "\n".join(lines)
+    lines.append(
+        f"{'Method':<30} {'dF-score':<9} {'dMF':<8} {'dDCV':<8} "
+        f"{'dSpread':<9} {'dExtra':<9} {'Speedup'}"
+    )
+    for _, row in delta_frame.iterrows():
+        speedup = _numeric_value(row.get("runtime_speedup_vs_baseline"))
+        speedup_text = f"{speedup:.2f}x" if speedup is not None else "n/a"
+        lines.append(
+            f"{_trim_text(row.get('stack_name'), 30):<30} "
+            f"{_format_float(row.get('delta_f_score')):<9} "
+            f"{_format_float(row.get('delta_mf')):<8} "
+            f"{_format_float(row.get('delta_dcv')):<8} "
+            f"{_format_float(row.get('delta_spread'), digits=3):<9} "
+            f"{_format_float(row.get('delta_extra_spread'), digits=3):<9} "
+            f"{speedup_text}"
+        )
+    return "\n".join(lines)
+
+
+def _metric_rank(frame: pd.DataFrame, stack_name: str, column: str, ascending: bool) -> str:
+    if column not in frame.columns or frame.empty:
+        return "n/a"
+    ranked = frame.copy()
+    ranked[column] = pd.to_numeric(ranked[column], errors="coerce")
+    ranked = ranked.sort_values(column, ascending=ascending, na_position="last").reset_index(drop=True)
+    matches = ranked.index[ranked["stack_name"].astype(str).eq(stack_name)].tolist()
+    return "n/a" if not matches else str(matches[0] + 1)
+
+
+def _decision_trace_payload(frame: pd.DataFrame) -> dict[str, object]:
+    if frame.empty:
+        return {
+            "winner": None,
+            "reason": "no successful methods",
+            "final_decision": "No successful methods were available.",
+        }
+    winner = frame.iloc[0]
+    second = frame.iloc[1] if len(frame) > 1 else None
+    winner_name = str(winner.get("stack_name"))
+    f_gap = (
+        _numeric_value(winner.get("f_score")) - _numeric_value(second.get("f_score"))
+        if second is not None and _numeric_value(winner.get("f_score")) is not None and _numeric_value(second.get("f_score")) is not None
+        else None
+    )
+    mf_gap = (
+        _numeric_value(winner.get("mf")) - _numeric_value(second.get("mf"))
+        if second is not None and _numeric_value(winner.get("mf")) is not None and _numeric_value(second.get("mf")) is not None
+        else None
+    )
+    dcv_gap = (
+        _numeric_value(winner.get("dcv")) - _numeric_value(second.get("dcv"))
+        if second is not None and _numeric_value(winner.get("dcv")) is not None and _numeric_value(second.get("dcv")) is not None
+        else None
+    )
+    fair_status = str(winner.get("fairness_gate_status", "")).strip().lower()
+    all_failed = "fairness_rejected" in frame.columns and bool(frame["fairness_rejected"].fillna(False).all())
+    if not all_failed and "fairness_gate_status" in frame.columns:
+        all_failed = not bool(frame["fairness_gate_status"].astype(str).str.lower().isin({"pass", "warn"}).any())
+    reason = "least-bad method; no method passed fairness gates" if all_failed else "highest valid F-score under professor-priority ordering"
+    final_decision = (
+        "No method passed fairness gates; selected row is least-bad only, not a strong default."
+        if all_failed
+        else "Selected by fairness quality before runtime."
+    )
+    return {
+        "winner": winner_name,
+        "reason": reason,
+        "f_score_gap_vs_second": f_gap,
+        "mf_gap_vs_second": mf_gap,
+        "dcv_gap_vs_second": dcv_gap,
+        "fairness_gate_status": fair_status or "n/a",
+        "scalability_status": winner.get("scalability_pass", pd.NA),
+        "spread_rank": _metric_rank(frame, winner_name, "total_spread", False),
+        "runtime_rank": _metric_rank(frame, winner_name, "runtime_seconds", True),
+        "final_decision": final_decision,
+    }
+
+
+def _format_decision_trace(frame: pd.DataFrame) -> str:
+    payload = _decision_trace_payload(frame)
+    lines = ["Professor-Priority Decision Trace", "-" * 72]
+    rows = [
+        ("Winner", payload.get("winner")),
+        ("Reason", payload.get("reason")),
+        ("F-score gap vs 2nd", payload.get("f_score_gap_vs_second")),
+        ("MF gap vs 2nd", payload.get("mf_gap_vs_second")),
+        ("DCV gap vs 2nd", payload.get("dcv_gap_vs_second")),
+        ("Fairness gate passed?", payload.get("fairness_gate_status")),
+        ("Scalability gate passed?", payload.get("scalability_status")),
+        ("Spread rank", payload.get("spread_rank")),
+        ("Runtime rank", payload.get("runtime_rank")),
+        ("Final decision", payload.get("final_decision")),
+    ]
+    for label, value in rows:
+        if isinstance(value, (bool, type(pd.NA))):
+            text = "Yes" if value is True else ("No" if value is False else "n/a")
+        else:
+            numeric = _numeric_value(value)
+            if numeric is not None and label.lower().endswith(("gap vs 2nd",)):
+                text = _format_float(numeric)
+            elif label in {"Scalability gate passed?"} and numeric is not None:
+                text = "Yes" if numeric > 0.0 else "No"
+            else:
+                try:
+                    text = str(value) if value is not None and not pd.isna(value) else "n/a"
+                except (TypeError, ValueError):
+                    text = str(value)
+        lines.append(f"{label:<30}: {text}")
+    return "\n".join(lines)
+
+
+def _collapse_explanation_records(frame: pd.DataFrame, thresholds: InsightThresholds) -> list[dict[str, object]]:
+    records: list[dict[str, object]] = []
+    if frame.empty:
+        return records
+    for _, row in frame.iterrows():
+        reasons: list[str] = []
+        f_score = _numeric_value(row.get("f_score"))
+        mf = _numeric_value(row.get("mf"))
+        dcv = _numeric_value(row.get("dcv"))
+        zero_groups = _numeric_value(row.get("zero_covered_groups_count"))
+        if f_score is not None and f_score < float(thresholds.min_f_score):
+            reasons.append("F-score below threshold")
+        if f_score is not None and f_score < 0.0:
+            reasons.append("F-score is negative")
+        if mf is not None and mf <= float(thresholds.mf_collapse_threshold):
+            reasons.append("MF near zero")
+        if dcv is not None and dcv >= float(thresholds.dcv_collapse_threshold):
+            reasons.append("DCV too high")
+        if zero_groups is not None and zero_groups > 0.0:
+            reasons.append("zero-covered protected groups")
+        gate_failures = str(row.get("fairness_gate_failures", "") or "").strip()
+        if gate_failures and gate_failures not in {"<NA>", "nan"}:
+            reasons.extend(part for part in gate_failures.split(";") if part)
+        if not reasons:
+            continue
+        imbalance = _numeric_value(row.get("group_imbalance_ratio"))
+        spread = _numeric_value(row.get("total_spread"))
+        likely_cause = "spread-heavy seed selection under-covered the weakest protected group"
+        recommended_fix = "increase Fair RIS / weak-group weights"
+        if imbalance is not None and imbalance >= 5.0:
+            recommended_fix += "; enable group-stratified candidate pool or per-group normalization"
+        if spread is not None and f_score is not None and f_score < 0.0:
+            recommended_fix += "; reduce spread_proxy/ml weights if fairness remains unstable"
+        records.append(
+            {
+                "method": row.get("stack_name"),
+                "reason": "; ".join(dict.fromkeys(reasons)),
+                "mf": mf,
+                "dcv": dcv,
+                "f_score": f_score,
+                "weakest_group": row.get("weakest_group", row.get("weakest_protected_group", "n/a")),
+                "likely_cause": likely_cause,
+                "recommended_fix": recommended_fix,
+            }
+        )
+    return records
+
+
+def _format_collapse_explanations(frame: pd.DataFrame, thresholds: InsightThresholds) -> str:
+    records = _collapse_explanation_records(frame, thresholds)
+    lines = ["Fairness Collapse Explanation", "-" * 72]
+    if not records:
+        lines.append("No fairness-collapse explanations were triggered.")
+        return "\n".join(lines)
+    for record in records:
+        lines.append(f"Method                      : {record['method']}")
+        lines.append(f"Reason                      : {record['reason']}")
+        lines.append(f"MF                          : {_format_float(record['mf'])}")
+        lines.append(f"DCV                         : {_format_float(record['dcv'])}")
+        lines.append(f"F-score                     : {_format_float(record['f_score'])}")
+        lines.append(f"Weakest Group               : {record['weakest_group']}")
+        lines.append(f"Likely Cause                : {record['likely_cause']}")
+        lines.append(f"Recommended Fix             : {record['recommended_fix']}")
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+def _format_final_recommendation(group: GroupEvaluation) -> str:
+    recommendations = group.recommendations
+    trace = _decision_trace_payload(group.ranked_frame)
+    choice = recommendations.get("final_professor_priority_recommendation") or trace.get("winner")
+    all_failed = str(trace.get("reason", "")).startswith("least-bad")
+    lines = ["Final Recommendation", "-" * 72]
+    lines.append(f"{'Best Fairness-Quality Method':<30}: {recommendations.get('best_fairness_quality_method') or 'n/a'}")
+    lines.append(f"{'Best Scalable Method':<30}: {recommendations.get('best_scalable_method') or 'n/a'}")
+    lines.append(f"{'Best Spread Method':<30}: {recommendations.get('best_spread_method') or 'n/a'}")
+    lines.append(f"{'Best Runtime Method':<30}: {recommendations.get('best_runtime_method') or 'n/a'}")
+    lines.append(f"{'Best Interpretable Baseline':<30}: {recommendations.get('best_interpretable_baseline') or 'n/a'}")
+    lines.append(f"{'Professor-Priority Choice':<30}: {'least-bad method only' if all_failed else (choice or 'n/a')}")
+    lines.append(
+        f"{'Decision Summary':<30}: "
+        + (
+            "no method passed fairness gates; do not claim as final default."
+            if all_failed
+            else str(trace.get("final_decision", "selected by professor-priority ranking."))
+        )
+    )
+    return "\n".join(lines)
+
+
 def build_evaluation_report(
     result: EvaluationResult,
     *,
     input_paths: Sequence[str | Path],
     rank_by: str,
     report_name: str,
+    thresholds: InsightThresholds = InsightThresholds(),
+    print_delta_vs_baseline: bool = True,
+    print_decision_trace: bool = True,
+    print_collapse_explanations: bool = True,
 ) -> str:
     """Render a compact human-readable evaluation report."""
 
@@ -1453,10 +1896,19 @@ def build_evaluation_report(
         lines.append("")
         lines.append(_format_ranked_table(group.ranked_frame))
         lines.append("")
+        if print_delta_vs_baseline:
+            lines.append(_format_delta_vs_baseline(group.ranked_frame))
+            lines.append("")
+        if print_decision_trace:
+            lines.append(_format_decision_trace(group.ranked_frame))
+            lines.append("")
         lines.append("Instant Insights")
         for line in group.insight_lines:
             lines.append(f"- {line}")
         lines.append("")
+        if print_collapse_explanations:
+            lines.append(_format_collapse_explanations(group.ranked_frame, thresholds))
+            lines.append("")
         lines.append("Per-Method Notes")
         if group.method_notes:
             for stack_name, note in group.method_notes.items():
@@ -1481,24 +1933,35 @@ def build_evaluation_report(
         for key, value in group.recommendations.items():
             lines.append(f"- {key}={value or 'n/a'}")
         lines.append("")
+        lines.append(_format_final_recommendation(group))
+        lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
 
 
 def _json_ready_value(value: object) -> object:
-    if pd.isna(value):
-        return None
     if isinstance(value, Path):
         return str(value)
+    if isinstance(value, dict):
+        return {str(key): _json_ready_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_ready_value(item) for item in value]
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
     return value
 
 
-def build_json_summary(result: EvaluationResult) -> dict[str, object]:
+def build_json_summary(result: EvaluationResult, *, thresholds: InsightThresholds = InsightThresholds()) -> dict[str, object]:
     """Build a compact JSON-ready summary for downstream automation."""
 
     groups: list[dict[str, object]] = []
     for group in result.group_results:
         top_rows = group.ranked_frame.head(3) if not group.ranked_frame.empty else pd.DataFrame()
+        delta_frame = delta_vs_baseline_frame(group.ranked_frame)
+        collapse_records = _collapse_explanation_records(group.ranked_frame, thresholds)
         groups.append(
             {
                 "context": {key: _json_ready_value(value) for key, value in group.context.items()},
@@ -1508,6 +1971,22 @@ def build_json_summary(result: EvaluationResult) -> dict[str, object]:
                 "insight_lines": list(group.insight_lines),
                 "warnings": list(group.warnings),
                 "recommendations": {key: _json_ready_value(value) for key, value in group.recommendations.items()},
+                "decision_trace": {
+                    key: _json_ready_value(value)
+                    for key, value in _decision_trace_payload(group.ranked_frame).items()
+                },
+                "collapse_explanations": [
+                    {key: _json_ready_value(value) for key, value in record.items()}
+                    for record in collapse_records
+                ],
+                "delta_vs_baseline": [
+                    {key: _json_ready_value(value) for key, value in row.items()}
+                    for row in delta_frame.to_dict(orient="records")
+                ],
+                "diagnostic_rows": [
+                    {key: _json_ready_value(value) for key, value in row.items()}
+                    for row in group.ranked_frame.to_dict(orient="records")
+                ],
                 "top_rows": [
                     {key: _json_ready_value(value) for key, value in row.items()}
                     for row in top_rows.to_dict(orient="records")

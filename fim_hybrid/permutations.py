@@ -178,6 +178,7 @@ class FIMPermutationRunConfig:
     ris_num_rr_sets: int = 128
     use_ris: bool = False
     use_fair_ris: bool = False
+    force_ris_for_all_stacks: bool = False
     require_ris: bool = False
     ris_mode: str = "weak_group_weighted"
     ris_reuse_rr_sets: bool = True
@@ -263,6 +264,8 @@ class FIMPermutationRunConfig:
     swap_reject_spread_gain_if_fairness_collapses: bool = False
     min_budget_node_ratio_warning: float = 0.02
     min_seeds_per_group_warning: int = 5
+    imbalance_ratio_warning_threshold: float = 5.0
+    warn_if_communities_exceed_budget: bool = True
     scalability_mode: str = "auto"
     max_candidate_pool_size: int = 500
     candidate_pool_fraction: float = 0.30
@@ -273,6 +276,19 @@ class FIMPermutationRunConfig:
     community_balance_enabled: bool = True
     protected_group_balance_enabled: bool = True
     repair_mode: str = "balanced"
+    print_experiment_header: bool = True
+    print_budget_check: bool = True
+    print_stack_summary: bool = True
+    print_runtime_breakdown: bool = True
+    print_seed_diagnostics: bool = True
+    print_group_influence: bool = True
+    print_score_diagnostics: bool = True
+    print_optimizer_diagnostics: bool = True
+    print_delta_vs_baseline: bool = True
+    print_decision_trace: bool = True
+    print_collapse_explanations: bool = True
+    print_raw_diagnostics: bool = False
+    debug_diagnostics: bool = False
 
 
 @dataclass(slots=True)
@@ -562,10 +578,25 @@ def permutation_summary_columns() -> list[str]:
         "ranking_model",
         "optimizer_mode",
         "method_type",
+        "graph_embedding_algorithm",
+        "ml_ranking_algorithm",
+        "community_detection_algorithm",
+        "clustering_algorithm",
+        "diffusion_model_name",
+        "search_time_spread_estimator",
+        "fair_ris_mode",
+        "fairness_influence_objective",
+        "fair_influence_optimizer",
+        "repair_strategy",
+        "local_refinement",
+        "final_evaluator",
+        "ranking_policy_name",
         "repair_enabled",
         "swap_local_search_enabled",
         "debias_mode",
         "fairness_objective",
+        "search_estimator",
+        "final_estimator",
         "spread_estimator_search",
         "spread_estimator_final",
         "search_spread_estimator",
@@ -585,6 +616,18 @@ def permutation_summary_columns() -> list[str]:
         "runtime_seconds",
         "search_runtime_seconds",
         "final_eval_runtime_seconds",
+        "time_dataset_loading",
+        "time_preprocessing",
+        "time_community_detection",
+        "time_embedding",
+        "time_ris",
+        "time_candidate_scoring",
+        "time_optimizer",
+        "time_repair",
+        "time_local_search",
+        "time_final_mc",
+        "time_reporting",
+        "runtime_breakdown_json",
         "scalability_mode",
         "scalability_pass",
         "candidate_pool_size",
@@ -599,21 +642,39 @@ def permutation_summary_columns() -> list[str]:
         "ris_score_std",
         "fair_ris_score_nonzero_count",
         "fair_ris_score_std",
+        "ris_verified",
+        "fair_ris_verified",
         "ris_active_verified",
         "fair_ris_active_verified",
         "ris_verification_warnings",
+        "force_ris_for_all_stacks",
+        "require_ris",
         "zero_covered_groups_count",
         "fraction_groups_covered",
+        "zero_covered_groups",
         "fairness_gate_status",
         "fairness_gate_failures",
         "protected_group_coverage_summary",
         "protected_group_counts",
+        "seed_count",
+        "expected_seed_count",
+        "duplicate_seed_count",
+        "seed_group_counts",
+        "seed_community_counts",
+        "seed_communities_covered",
+        "largest_community_seed_fraction",
+        "smallest_group_seed_count",
+        "largest_group_seed_count",
         "group_imbalance_ratio",
         "budget_per_group_estimate",
         "group_influence_distribution",
         "normalized_group_influence_distribution",
+        "protected_group_influence_json",
+        "protected_group_normalized_influence_json",
         "weakest_protected_group",
         "strongest_protected_group",
+        "weakest_group",
+        "strongest_group",
         "negative_f_score_reason",
         "adaptive_fairness_multiplier",
         "large_imbalance_fairness_active",
@@ -628,16 +689,23 @@ def permutation_summary_columns() -> list[str]:
         "initial_population_group_coverage_summary",
         "repair_attempts",
         "weak_group_repairs",
+        "duplicate_repairs",
         "protected_group_seed_counts_before_repair",
         "protected_group_seed_counts_after_repair",
         "swap_attempts",
         "swap_accepted",
         "swap_rejected_fairness_degradation",
+        "rejected_fairness_drops",
         "swap_accepted_fscore_improvement",
         "swap_accepted_mf_improvement",
         "swap_accepted_spread_fairness_preserved",
+        "best_generation",
+        "final_fitness",
+        "optimizer_diagnostics_json",
         "mc_runs_search",
         "mc_runs_eval",
+        "population_size",
+        "generations",
         "key_enabled_modules",
         "use_community_features",
         "community_feature_mode",
@@ -674,7 +742,10 @@ def permutation_summary_columns() -> list[str]:
         "community_assignments_path",
         "community_sizes_path",
         "diagnostics_path",
+        "diagnostics_json",
         "candidate_score_components_constant",
+        "score_component_stats_json",
+        "constant_score_components",
         "notes",
         "skip_reason",
         "skipped_reason",
@@ -1028,15 +1099,25 @@ def _budget_adequacy_warnings(
     community_result: CommunityDetectionResult | None = None,
 ) -> list[str]:
     warnings: list[str] = []
-    if not _large_imbalance_fairness_active(dataset, protected_group_report, config):
-        return warnings
     num_groups = max(1, len([size for size in protected_group_report.group_sizes.values() if int(size) > 0]))
     node_count = max(1, int(dataset.graph.number_of_nodes()))
+    imbalance = _protected_group_imbalance(protected_group_report)
+    positive_sizes = [int(size) for size in protected_group_report.group_sizes.values() if int(size) > 0]
     if int(config.budget) < int(num_groups) * int(config.min_seeds_per_group_warning):
         warnings.append("budget below protected-group seed warning threshold")
     if float(config.budget) / float(node_count) < float(config.min_budget_node_ratio_warning):
         warnings.append("budget/node ratio below warning threshold")
-    if community_result is not None and int(community_result.stats.num_communities) > int(config.budget):
+    if int(config.budget) < int(num_groups):
+        warnings.append("protected groups exceed budget")
+    if positive_sizes and min(positive_sizes) < int(config.min_seeds_per_group_warning):
+        warnings.append("smallest protected group is very small")
+    if float(imbalance["imbalance_ratio"]) >= float(config.imbalance_ratio_warning_threshold):
+        warnings.append("protected-group imbalance ratio above warning threshold")
+    if (
+        bool(config.warn_if_communities_exceed_budget)
+        and community_result is not None
+        and int(community_result.stats.num_communities) > int(config.budget)
+    ):
         warnings.append("number of communities exceeds budget")
     return warnings
 
@@ -1187,6 +1268,44 @@ def _is_constant_score_component(score_frame: pd.DataFrame, column_name: str) ->
     return float(numeric_values.max()) <= float(numeric_values.min())
 
 
+def _is_missing_value(value: object) -> bool:
+    if value is None:
+        return True
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _json_ready_mapping(mapping: Mapping[object, object] | None) -> dict[str, object]:
+    if not mapping:
+        return {}
+    ready: dict[str, object] = {}
+    for key, value in mapping.items():
+        if _is_missing_value(value):
+            ready[str(key)] = None
+        elif isinstance(value, (int, float, str, bool)):
+            ready[str(key)] = value
+        else:
+            ready[str(key)] = str(value)
+    return ready
+
+
+def _compact_json(value: object) -> str:
+    if _is_missing_value(value):
+        return ""
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped or stripped == "<NA>":
+            return ""
+        return stripped
+    if isinstance(value, Mapping):
+        return json.dumps(_json_ready_mapping(value), sort_keys=True)
+    if isinstance(value, (list, tuple, set)):
+        return json.dumps(list(value), sort_keys=True, default=str)
+    return json.dumps(value, sort_keys=True, default=str)
+
+
 def _score_component_diagnostics(score_frame: pd.DataFrame | None) -> dict[str, object]:
     component_flags = {
         column_name: constant
@@ -1194,9 +1313,40 @@ def _score_component_diagnostics(score_frame: pd.DataFrame | None) -> dict[str, 
         if (constant := _is_constant_score_component(score_frame, column_name)) is not None
     }
     all_constant = None if not component_flags else bool(all(component_flags.values()))
+    component_stats: dict[str, dict[str, float | bool | int]] = {}
+    if score_frame is not None and not score_frame.empty:
+        for column_name in _SCORE_COMPONENT_COLUMNS:
+            if column_name not in score_frame.columns:
+                continue
+            values = pd.to_numeric(score_frame[column_name], errors="coerce").dropna()
+            if values.empty:
+                component_stats[column_name] = {
+                    "count": 0,
+                    "mean": 0.0,
+                    "std": 0.0,
+                    "min": 0.0,
+                    "max": 0.0,
+                    "constant": True,
+                }
+                continue
+            component_stats[column_name] = {
+                "count": int(values.count()),
+                "mean": float(values.mean()),
+                "std": float(values.std(ddof=0)) if len(values) > 1 else 0.0,
+                "min": float(values.min()),
+                "max": float(values.max()),
+                "constant": bool(float(values.max()) <= float(values.min())),
+            }
+    constant_components = [
+        component_name
+        for component_name, is_constant in component_flags.items()
+        if bool(is_constant)
+    ]
     return {
         "all_candidate_score_components_constant": all_constant,
         "constant_components": component_flags,
+        "score_component_stats_json": json.dumps(component_stats, sort_keys=True),
+        "constant_score_components": json.dumps(constant_components, sort_keys=True),
     }
 
 
@@ -1238,14 +1388,27 @@ def _verify_ris_score_table(
     ris_stats = _score_column_stats(score_frame, "ris_score")
     fair_stats = _score_column_stats(score_frame, "fair_ris_score")
     search_estimator = _canonical_search_estimator(spec.spread_estimator_search)
+    final_estimator = str(spec.spread_estimator_final or "").strip().lower()
     ris_requested = _spec_uses_ris(spec)
     ris_required = bool(config.require_ris) or ris_requested
     fair_requested = _fair_ris_enabled(spec)
     warnings: list[str] = []
     hard_failures: list[str] = []
 
+    if final_estimator != "monte_carlo":
+        message = f"spread_estimator_final is {final_estimator or 'unset'}; final evaluation must remain monte_carlo."
+        warnings.append(message)
+        hard_failures.append(message)
     if ris_required and search_estimator == "monte_carlo":
         message = "spread_estimator_search is monte_carlo; RIS is not active."
+        warnings.append(message)
+        hard_failures.append(message)
+    if ris_required and search_estimator not in {"ris", "fairness_aware_ris"}:
+        message = f"spread_estimator_search is {search_estimator}; expected ris or fairness_aware_ris."
+        warnings.append(message)
+        hard_failures.append(message)
+    if fair_requested and search_estimator != "fairness_aware_ris":
+        message = f"Fair RIS requested but spread_estimator_search is {search_estimator}."
         warnings.append(message)
         hard_failures.append(message)
     if ris_required and not bool(ris_stats["present"]):
@@ -1298,6 +1461,8 @@ def _verify_ris_score_table(
         "ris_score_std": float(ris_stats["std"]),
         "fair_ris_score_nonzero_count": int(fair_stats["nonzero_count"]),
         "fair_ris_score_std": float(fair_stats["std"]),
+        "ris_verified": ris_active_verified,
+        "fair_ris_verified": fair_ris_active_verified,
         "ris_active_verified": ris_active_verified,
         "fair_ris_active_verified": fair_ris_active_verified,
         "ris_verification_warnings": " ".join(dict.fromkeys(warnings)),
@@ -1350,10 +1515,17 @@ def _diagnostics_payload(
         "ris_num_rr_sets": int(config.ris_num_rr_sets),
         "effective_ris_num_rr_sets": _effective_ris_rr_sets(dataset, config, protected_group_report),
         "ris_reuse_rr_sets": bool(config.ris_reuse_rr_sets),
+        "force_ris_for_all_stacks": bool(config.force_ris_for_all_stacks),
+        "require_ris": bool(config.require_ris),
         "budget_adequacy_warning": _budget_adequacy_warning_text(dataset, protected_group_report, config, community_result),
         "num_communities": int(community_result.stats.num_communities) if community_result is not None else None,
         "smallest_community_size": int(min(community_sizes)) if community_sizes else None,
         "largest_community_size": int(max(community_sizes)) if community_sizes else None,
+        "time_community_detection": (
+            float(community_result.runtime_seconds)
+            if community_result is not None and hasattr(community_result, "runtime_seconds")
+            else None
+        ),
         "score_table_path": score_table_path,
     }
     payload.update(_score_component_diagnostics(score_frame))
@@ -1373,13 +1545,13 @@ def _diagnostics_path(
     return output_dir / f"{dataset.name}_{spec.name}_diagnostics.json"
 
 
-def _print_diagnostics(payload: Mapping[str, object]) -> None:
+def _format_raw_diagnostics_line(payload: Mapping[str, object]) -> str:
     constant_components = payload.get("constant_components", {})
     if isinstance(constant_components, Mapping) and constant_components:
         score_constant_text = json.dumps(dict(constant_components), sort_keys=True)
     else:
         score_constant_text = "n/a"
-    print(
+    return (
         "Benchmark diagnostics | "
         f"stack={payload.get('stack_name')} | "
         f"dataset={payload.get('dataset')} | "
@@ -1395,6 +1567,8 @@ def _print_diagnostics(payload: Mapping[str, object]) -> None:
         f"fair_ris={payload.get('fair_ris_enabled')} | "
         f"ris_mode={payload.get('ris_mode')} | "
         f"ris_rr_sets={payload.get('effective_ris_num_rr_sets')} | "
+        f"force_ris={payload.get('force_ris_for_all_stacks')} | "
+        f"require_ris={payload.get('require_ris')} | "
         f"score_normalization={payload.get('score_normalization')} | "
         f"adaptive_fairness_multiplier={payload.get('adaptive_fairness_multiplier')} | "
         f"communities={payload.get('num_communities')} | "
@@ -1403,9 +1577,64 @@ def _print_diagnostics(payload: Mapping[str, object]) -> None:
         f"all_candidate_score_components_constant={payload.get('all_candidate_score_components_constant')} | "
         f"constant_components={score_constant_text}"
     )
+
+
+def _print_diagnostics_warning(payload: Mapping[str, object]) -> None:
     warning = str(payload.get("budget_adequacy_warning", "") or "").strip()
     if warning:
         print(warning)
+
+
+def _print_diagnostics(payload: Mapping[str, object]) -> None:
+    print(_format_raw_diagnostics_line(payload))
+    _print_diagnostics_warning(payload)
+
+
+def _readable_diagnostics_covered_by_sections(config: FIMPermutationRunConfig) -> bool:
+    return any(
+        bool(value)
+        for value in (
+            config.print_experiment_header,
+            config.print_budget_check,
+            config.print_stack_summary,
+            config.print_score_diagnostics,
+            config.print_group_influence,
+            config.print_optimizer_diagnostics,
+        )
+    )
+
+
+def _print_diagnostics_summary(payload: Mapping[str, object]) -> None:
+    group_counts = _parse_json_mapping(payload.get("protected_group_counts", {}))
+    constant_components = _parse_json_sequence(payload.get("constant_score_components", []))
+    print("Benchmark Diagnostics Summary")
+    print("-" * 60)
+    print(f"{'Stack':<30}: {_format_diagnostic_value(payload.get('stack_name'))}")
+    print(f"{'Dataset':<30}: {_format_diagnostic_value(payload.get('dataset'))}")
+    print(f"{'Protected Attribute':<30}: {_format_diagnostic_value(payload.get('protected_attribute'))}")
+    print(f"{'Budget':<30}: {_format_diagnostic_value(payload.get('budget'))}")
+    print(f"{'Nodes / Edges':<30}: {_format_diagnostic_value(payload.get('num_nodes'))} / {_format_diagnostic_value(payload.get('num_edges'))}")
+    if group_counts and len(group_counts) <= 8:
+        print("Protected Groups:")
+        for group_name in sorted(group_counts):
+            print(f"  - {group_name}: {group_counts[group_name]}")
+    elif group_counts:
+        print(f"{'Protected Groups':<30}: {len(group_counts)} groups; full diagnostics saved to JSON report")
+    else:
+        print(f"{'Protected Groups':<30}: n/a")
+    print(f"{'Imbalance Ratio':<30}: {_format_diagnostic_value(payload.get('imbalance_ratio'))}")
+    print(f"{'Communities':<30}: {_format_diagnostic_value(payload.get('num_communities'))}")
+    print(f"{'Smallest / Largest Comm.':<30}: {_format_diagnostic_value(payload.get('smallest_community_size'))} / {_format_diagnostic_value(payload.get('largest_community_size'))}")
+    print(f"{'Search Estimator':<30}: {_format_diagnostic_value(payload.get('spread_estimator_search'))}")
+    print(f"{'Final Estimator':<30}: {_format_diagnostic_value(payload.get('spread_estimator_final'))}")
+    print(f"{'Fair RIS':<30}: {_format_diagnostic_value(payload.get('fair_ris_enabled'))}")
+    print(f"{'RIS RR Sets':<30}: {_format_diagnostic_value(payload.get('effective_ris_num_rr_sets'))}")
+    print(f"{'Score Normalization':<30}: {_format_diagnostic_value(payload.get('score_normalization'))}")
+    print(f"{'Constant Score Components':<30}: {constant_components if constant_components else 'None'}")
+    if payload.get("diagnostics_path"):
+        print(f"{'Full Diagnostics':<30}: saved to JSON report")
+    print("")
+    _print_diagnostics_warning(payload)
 
 
 def _emit_stack_diagnostics(
@@ -1435,14 +1664,25 @@ def _emit_stack_diagnostics(
     )
     if path is not None:
         path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    _print_diagnostics(payload)
+        payload["diagnostics_path"] = str(path)
+    diagnostics_json = json.dumps(payload, sort_keys=True, default=str)
+    if bool(config.print_raw_diagnostics) or bool(config.debug_diagnostics):
+        _print_diagnostics(payload)
+    elif _readable_diagnostics_covered_by_sections(config):
+        _print_diagnostics_warning(payload)
+    else:
+        _print_diagnostics_summary(payload)
     return {
         "diagnostics_path": "" if path is None else str(path),
+        "diagnostics_json": diagnostics_json,
         "candidate_score_components_constant": payload["all_candidate_score_components_constant"],
         "large_imbalance_fairness_active": payload["large_imbalance_fairness_active"],
         "large_imbalance_fairness_mode": payload["large_imbalance_fairness_mode"],
         "score_normalization": payload["score_normalization"],
         "budget_adequacy_warning": payload["budget_adequacy_warning"],
+        "time_community_detection": payload.get("time_community_detection", pd.NA),
+        "score_component_stats_json": payload.get("score_component_stats_json", ""),
+        "constant_score_components": payload.get("constant_score_components", "[]"),
     }
 
 
@@ -1771,6 +2011,721 @@ def _ris_config_mode(config: FIMPermutationRunConfig) -> str:
     return "global" if mode == "standard" else mode
 
 
+_METHOD_TYPE_NAMES = {
+    "non_ml_baseline": "Non-ML baseline",
+    "weak_baseline": "Weak ML baseline",
+    "ml_guided_hybrid": "ML-guided hybrid",
+    "ml_guided": "ML-guided",
+}
+_EMBEDDING_NAMES = {
+    "": "None",
+    "none": "None",
+    "graphsage": "GraphSAGE",
+    "gcn": "Graph Convolutional Network",
+    "node2vec": "Node2Vec",
+    "deepwalk": "DeepWalk",
+    "line": "LINE",
+    "graphcl": "GraphCL",
+    "dgi": "Deep Graph Infomax",
+    "vgae": "Variational Graph Autoencoder",
+}
+_COMMUNITY_NAMES = {
+    "": "None",
+    "none": "None",
+    "leiden": "Leiden",
+    "louvain": "Louvain",
+    "multilevel": "Multilevel Modularity",
+    "infomap": "Infomap",
+    "walktrap": "Walktrap",
+}
+_CLUSTERING_NAMES = {
+    "": "None",
+    "none": "None",
+    "false": "Disabled",
+    "kmeans": "K-Means",
+    "spectral": "Spectral Clustering",
+    "agglomerative": "Agglomerative Clustering",
+    "gmm": "Gaussian Mixture Model",
+}
+_DIFFUSION_NAMES = {
+    "ic": "Independent Cascade",
+    "independent_cascade": "Independent Cascade",
+    "lt": "Linear Threshold",
+    "wc": "Weighted Cascade",
+}
+_SEARCH_ESTIMATOR_NAMES = {
+    "monte_carlo": "Monte Carlo",
+    "ris": "Reverse Influence Sampling",
+    "fairness_aware_ris": "Fair Reverse Influence Sampling / Fair RIS",
+    "fair_ris": "Fair Reverse Influence Sampling / Fair RIS",
+}
+_RANKING_MODEL_NAMES = {
+    "": "None",
+    "none": "None",
+    "graphsage": "GraphSAGE node scorer",
+    "graphsage_plus_fair_ris": "GraphSAGE + Fair RIS scoring",
+    "gcn": "GCN node scorer",
+    "gcn_plus_fair_ris": "GCN + Fair RIS scoring",
+    "node2vec": "Node2Vec node scorer",
+    "xgboost": "XGBoost node scorer",
+    "logistic_regression": "Logistic regression node scorer",
+    "random_forest": "Random forest node scorer",
+    "mlp": "MLP node scorer",
+    "fairness_weighted_greedy": "Fairness-weighted greedy score",
+    "maximin_greedy": "Maximin greedy score",
+    "structural_community_score": "Structural community score",
+}
+_OPTIMIZER_NAMES = {
+    "": "None",
+    "none": "None",
+    "hybrid_si_ea": "Swarm Intelligence + Evolutionary Algorithm",
+    "local_search": "Local Search",
+    "greedy": "Greedy",
+    "fairness_weighted_greedy": "Fairness-Weighted Greedy",
+    "maximin_greedy": "Maximin Greedy",
+}
+_REPAIR_NAMES = {
+    "": "None",
+    "none": "None",
+    "false": "Disabled",
+    "off": "Disabled",
+    "basic": "Standard repair",
+    "standard": "Standard repair",
+    "balanced": "Balanced repair",
+    "fairness_first": "Fairness-first repair",
+    "group_quota": "Group quota repair",
+}
+_LOCAL_REFINEMENT_NAMES = {
+    "": "None",
+    "none": "None",
+    "false": "Disabled",
+    "off": "Disabled",
+    "swap_local_search": "Swap Local Search",
+    "local_search": "Local Search",
+}
+_FINAL_EVALUATOR_NAMES = {
+    "monte_carlo": "Monte Carlo simulation",
+}
+_RANKING_POLICY_NAMES = {
+    "fim_default": "FIM default ranking",
+    "fairness_first": "Fairness-first ranking",
+    "fairness_first_priority": "Fairness-first ranking",
+    PROFESSOR_PRIORITY: "Professor-priority ranking",
+    "spread_first": "Spread-first ranking",
+    "runtime_first": "Runtime-first ranking",
+}
+_OBJECTIVE_NAMES = {
+    "f_score": "F-score fairness / influence objective",
+    "default": "Default fairness / influence objective",
+    "maximin": "Maximin fairness objective",
+    PROFESSOR_PRIORITY: "Professor-priority objective",
+    "fairness_first": "Fairness-first objective",
+}
+
+
+def _readable_name(value: object, mapping: Mapping[str, str]) -> str:
+    text = "" if value is None else str(value).strip()
+    key = text.lower()
+    if key in mapping:
+        return mapping[key]
+    return text or "None"
+
+
+def _safe_display_value(value: object) -> str:
+    if value is None:
+        return "None"
+    try:
+        if pd.isna(value):
+            return "None"
+    except (TypeError, ValueError):
+        pass
+    text = str(value).strip()
+    return text if text else "None"
+
+
+def _ml_ranking_algorithm_name(spec: FIMPermutationSpec) -> str:
+    model = str(spec.ranking_model or "none").strip().lower()
+    if _method_type(spec) == "non_ml_baseline" and str(spec.embedding_method).strip().lower() in {"", "none"}:
+        return "None"
+    if model == "graphsage" and _fair_ris_enabled(spec):
+        return "GraphSAGE + Fair RIS scoring"
+    if model == "gcn" and _fair_ris_enabled(spec):
+        return "GCN + Fair RIS scoring"
+    return _readable_name(model, _RANKING_MODEL_NAMES)
+
+
+def _search_estimator_algorithm_name(spec: FIMPermutationSpec) -> str:
+    if _fair_ris_enabled(spec):
+        return _SEARCH_ESTIMATOR_NAMES["fairness_aware_ris"]
+    if _spec_uses_ris(spec):
+        return _SEARCH_ESTIMATOR_NAMES["ris"]
+    return _readable_name(_canonical_search_estimator(spec.spread_estimator_search), _SEARCH_ESTIMATOR_NAMES)
+
+
+def _fair_influence_optimizer_name(spec: FIMPermutationSpec, config: FIMPermutationRunConfig) -> str:
+    if spec.runner_kind == "community_aware_fair_greedy":
+        return "Fairness-weighted greedy + local search" if int(config.local_search_steps) > 0 else "Fairness-weighted greedy"
+    return _readable_name(spec.optimizer_mode, _OPTIMIZER_NAMES)
+
+
+def _repair_strategy_name(spec: FIMPermutationSpec, config: FIMPermutationRunConfig) -> str:
+    repair_enabled = spec.optimizer_mode in {"hybrid_si_ea", "local_search"} or bool(config.use_group_quota_repair)
+    if not repair_enabled:
+        return "None"
+    if bool(config.use_fairness_first_repair) or _fairness_first_enabled(spec, config):
+        return _REPAIR_NAMES["fairness_first"]
+    if bool(config.use_group_quota_repair):
+        return _REPAIR_NAMES["group_quota"]
+    repair_mode = str(config.repair_mode or "").strip().lower()
+    if repair_mode:
+        return _readable_name(repair_mode, _REPAIR_NAMES)
+    return "Enabled"
+
+
+def _local_refinement_name(spec: FIMPermutationSpec, config: FIMPermutationRunConfig) -> str:
+    if int(config.local_search_steps) <= 0:
+        return "Disabled"
+    if spec.optimizer_mode in {"hybrid_si_ea", "local_search"}:
+        return _LOCAL_REFINEMENT_NAMES["swap_local_search"]
+    return _LOCAL_REFINEMENT_NAMES["local_search"]
+
+
+def _clustering_algorithm_name(spec: FIMPermutationSpec, clustering_input_mode: str) -> str:
+    base = _readable_name(spec.clustering_method, _CLUSTERING_NAMES)
+    if str(spec.clustering_method or "").strip().lower() in {"", "none", "false", "off"}:
+        return base
+    configured_input = str(spec.clustering_input_mode or "").strip().lower()
+    resolved_input = str(clustering_input_mode or configured_input or "none").strip().lower()
+    if configured_input == "auto" and resolved_input and resolved_input != "auto":
+        return f"{base} ({resolved_input}, auto)"
+    return base
+
+
+def _candidate_pool_strategy_name(
+    dataset: LoadedDataset | None,
+    protected_group_report: ProtectedGroupReport | None,
+    config: FIMPermutationRunConfig,
+) -> str:
+    auto_suffix = " (auto)" if config.use_group_stratified_candidate_pool is None else ""
+    if dataset is not None and protected_group_report is not None:
+        stratified = _effective_group_stratified_candidate_pool(dataset, protected_group_report, config)
+        base = "Group-stratified candidate pool" if stratified else "Standard candidate pool"
+    elif config.use_group_stratified_candidate_pool is None:
+        base = "Auto"
+    else:
+        base = "Group-stratified candidate pool" if bool(config.use_group_stratified_candidate_pool) else "Standard candidate pool"
+    return (
+        f"{base}{auto_suffix} "
+        f"(fraction={float(config.candidate_pool_fraction):.2f}, max={int(config.max_candidate_pool_size)})"
+    )
+
+
+def _score_normalization_name(
+    dataset: LoadedDataset | None,
+    protected_group_report: ProtectedGroupReport | None,
+    config: FIMPermutationRunConfig,
+) -> str:
+    configured = str(config.score_normalization).strip().lower()
+    effective = _effective_score_normalization(dataset, protected_group_report, config)
+    if configured != effective:
+        return f"{effective} (auto from {configured})"
+    return effective
+
+
+def _score_weights_summary(
+    spec: FIMPermutationSpec,
+    config: FIMPermutationRunConfig,
+    protected_group_report: ProtectedGroupReport | None,
+    dataset: LoadedDataset | None,
+) -> str:
+    weights = _resolved_candidate_score_weights(spec, config, protected_group_report, dataset)
+    keys = (
+        ("ml", "ml_score_weight"),
+        ("ris", "ris_score_weight"),
+        ("fair_ris", "fair_ris_score_weight"),
+        ("weak_group", "weak_group_bonus_weight"),
+        ("coverage", "protected_group_coverage_weight"),
+        ("diversity", "community_diversity_weight"),
+    )
+    return ", ".join(f"{label}={float(weights[key]):.3g}" for label, key in keys)
+
+
+def stack_algorithm_summary_fields(
+    stack_name: str | FIMPermutationSpec,
+    config: FIMPermutationRunConfig,
+    resolved_modules: Mapping[str, object] | None = None,
+    *,
+    dataset: LoadedDataset | None = None,
+    protected_group_report: ProtectedGroupReport | None = None,
+    clustering_input_mode: str | None = None,
+) -> dict[str, object]:
+    """Return human-readable algorithm composition for a resolved stack config."""
+
+    spec = _resolve_fim_permutation_spec(stack_name)
+    resolved_modules = dict(resolved_modules or {})
+    resolved_clustering_input = str(
+        resolved_modules.get(
+            "clustering_input_mode",
+            "none"
+            if str(spec.clustering_method or "").strip().lower() in {"", "none"}
+            else clustering_input_mode or spec.clustering_input_mode,
+        )
+    )
+    ranking_policy = _effective_ranking_policy(spec, config)
+    fair_ris_mode = _reported_ris_mode(config) if _spec_uses_ris(spec) else "None"
+    return {
+        "fim_stack": spec.name,
+        "method_type_name": _readable_name(_method_type(spec), _METHOD_TYPE_NAMES),
+        "graph_embedding_algorithm": _readable_name(spec.embedding_method, _EMBEDDING_NAMES),
+        "ml_ranking_algorithm": _ml_ranking_algorithm_name(spec),
+        "community_detection_algorithm": _readable_name(spec.community_method, _COMMUNITY_NAMES),
+        "clustering_algorithm": _clustering_algorithm_name(spec, resolved_clustering_input),
+        "diffusion_model_name": _readable_name(spec.diffusion_model, _DIFFUSION_NAMES),
+        "search_time_spread_estimator": _search_estimator_algorithm_name(spec),
+        "fair_ris_mode": fair_ris_mode,
+        "fair_ris_enabled": _fair_ris_enabled(spec),
+        "fairness_influence_objective": _readable_name(spec.fairness_objective, _OBJECTIVE_NAMES),
+        "fair_influence_optimizer": _fair_influence_optimizer_name(spec, config),
+        "repair_strategy": _repair_strategy_name(spec, config),
+        "local_refinement": _local_refinement_name(spec, config),
+        "final_evaluator": _readable_name(spec.spread_estimator_final, _FINAL_EVALUATOR_NAMES),
+        "ranking_policy_name": _readable_name(ranking_policy, _RANKING_POLICY_NAMES),
+        "scalability_mode_name": str(config.scalability_mode),
+        "candidate_pool_strategy": _candidate_pool_strategy_name(dataset, protected_group_report, config),
+        "score_normalization_name": _score_normalization_name(dataset, protected_group_report, config),
+        "protected_attribute_usage_in_ml": "Allowed" if bool(config.allow_protected_features_in_ml) else "Disabled",
+        "large_imbalance_fairness_mode_name": str(config.large_imbalance_fairness_mode),
+        "score_weights_summary": _score_weights_summary(spec, config, protected_group_report, dataset),
+        "budget": int(config.budget),
+        "dataset": _safe_display_value(dataset.name if dataset is not None else resolved_modules.get("dataset")),
+        "protected_attribute": _safe_display_value(
+            protected_group_report.protected_attribute
+            if protected_group_report is not None
+            else config.protected_attribute
+        ),
+    }
+
+
+def _algorithm_composition_fields(
+    spec: FIMPermutationSpec,
+    config: FIMPermutationRunConfig,
+    dataset: LoadedDataset | None,
+    protected_group_report: ProtectedGroupReport | None,
+    clustering_input_mode: str | None = None,
+) -> dict[str, object]:
+    fields = stack_algorithm_summary_fields(
+        spec,
+        config,
+        dataset=dataset,
+        protected_group_report=protected_group_report,
+        clustering_input_mode=clustering_input_mode,
+    )
+    return {
+        "graph_embedding_algorithm": fields["graph_embedding_algorithm"],
+        "ml_ranking_algorithm": fields["ml_ranking_algorithm"],
+        "community_detection_algorithm": fields["community_detection_algorithm"],
+        "clustering_algorithm": fields["clustering_algorithm"],
+        "diffusion_model_name": fields["diffusion_model_name"],
+        "search_time_spread_estimator": fields["search_time_spread_estimator"],
+        "fair_ris_mode": fields["fair_ris_mode"],
+        "fairness_influence_objective": fields["fairness_influence_objective"],
+        "fair_influence_optimizer": fields["fair_influence_optimizer"],
+        "repair_strategy": fields["repair_strategy"],
+        "local_refinement": fields["local_refinement"],
+        "final_evaluator": fields["final_evaluator"],
+        "ranking_policy_name": fields["ranking_policy_name"],
+    }
+
+
+def print_stack_algorithm_summary(
+    stack_name: str | FIMPermutationSpec,
+    config: FIMPermutationRunConfig,
+    resolved_modules: Mapping[str, object] | None = None,
+    *,
+    dataset: LoadedDataset | None = None,
+    protected_group_report: ProtectedGroupReport | None = None,
+    clustering_input_mode: str | None = None,
+) -> None:
+    """Print a compact pre-run algorithm composition summary for one FIM stack."""
+
+    fields = stack_algorithm_summary_fields(
+        stack_name,
+        config,
+        resolved_modules=resolved_modules,
+        dataset=dataset,
+        protected_group_report=protected_group_report,
+        clustering_input_mode=clustering_input_mode,
+    )
+    rows = [
+        ("Method Type", "method_type_name"),
+        ("Graph Embedding", "graph_embedding_algorithm"),
+        ("ML Ranking Model", "ml_ranking_algorithm"),
+        ("Community Detection", "community_detection_algorithm"),
+        ("Clustering", "clustering_algorithm"),
+        ("Diffusion Model", "diffusion_model_name"),
+        ("Search-time Spread Estimator", "search_time_spread_estimator"),
+        ("RIS Mode", "fair_ris_mode"),
+        ("Fair RIS Enabled", "fair_ris_enabled"),
+        ("Fairness / Influence Objective", "fairness_influence_objective"),
+        ("Fair Influence Optimizer", "fair_influence_optimizer"),
+        ("Repair Strategy", "repair_strategy"),
+        ("Local Refinement", "local_refinement"),
+        ("Final Evaluator", "final_evaluator"),
+        ("Ranking Policy", "ranking_policy_name"),
+        ("Scalability Mode", "scalability_mode_name"),
+        ("Candidate Pool Strategy", "candidate_pool_strategy"),
+        ("Score Normalization", "score_normalization_name"),
+        ("Protected Attribute Usage in ML", "protected_attribute_usage_in_ml"),
+        ("Large Imbalance Fairness Mode", "large_imbalance_fairness_mode_name"),
+        ("Score Weights", "score_weights_summary"),
+        ("Budget", "budget"),
+        ("Dataset", "dataset"),
+        ("Protected Attribute", "protected_attribute"),
+    ]
+    print("=" * 60)
+    print(f"Running FIM Stack: {fields['fim_stack']}")
+    print("=" * 60)
+    for label, key in rows:
+        print(f"{label:<32}: {fields[key]}")
+    print("=" * 60)
+
+
+def _safe_numeric(value: object) -> float | None:
+    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(numeric):
+        return None
+    return float(numeric)
+
+
+def _safe_int_value(value: object) -> int | None:
+    numeric = _safe_numeric(value)
+    if numeric is None:
+        return None
+    return int(numeric)
+
+
+def _format_diagnostic_value(value: object) -> str:
+    if _is_missing_value(value):
+        return "n/a"
+    text = str(value).strip()
+    return text if text and text != "<NA>" else "n/a"
+
+
+def _format_seconds(value: object) -> str:
+    numeric = _safe_numeric(value)
+    if numeric is None:
+        return "n/a"
+    return f"{numeric:.2f}s"
+
+
+def _format_percent(value: object) -> str:
+    numeric = _safe_numeric(value)
+    if numeric is None:
+        return "n/a"
+    return f"{100.0 * numeric:.2f}%"
+
+
+def _parse_json_sequence(value: object) -> list[object]:
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    if _is_missing_value(value):
+        return []
+    text = str(value).strip()
+    if not text or text == "<NA>":
+        return []
+    try:
+        parsed = json.loads(text)
+    except Exception:  # noqa: BLE001 - diagnostics are best effort.
+        return []
+    return list(parsed) if isinstance(parsed, list) else []
+
+
+def _parse_json_mapping(value: object) -> dict[str, object]:
+    if isinstance(value, Mapping):
+        return {str(key): item for key, item in value.items()}
+    if _is_missing_value(value):
+        return {}
+    text = str(value).strip()
+    if not text or text == "<NA>":
+        return {}
+    try:
+        parsed = json.loads(text)
+    except Exception:  # noqa: BLE001 - diagnostics are best effort.
+        return {}
+    if isinstance(parsed, Mapping):
+        return {str(key): item for key, item in parsed.items()}
+    return {}
+
+
+def _format_compact_mapping(value: object) -> str:
+    mapping = _parse_json_mapping(value)
+    if not mapping:
+        return "n/a"
+    return "{" + ", ".join(f"{key}:{mapping[key]}" for key in sorted(mapping)) + "}"
+
+
+def _format_table_number(value: object, digits: int = 4) -> str:
+    numeric = _safe_numeric(value)
+    if numeric is None:
+        return _format_diagnostic_value(value)
+    return f"{numeric:.{digits}f}"
+
+
+def _first_resolved_spec(permutations: Iterable[str | FIMPermutationSpec]) -> FIMPermutationSpec | None:
+    for value in permutations:
+        try:
+            return _resolve_fim_permutation_spec(value)
+        except Exception:
+            continue
+    return None
+
+
+def _shared_spec_value(
+    specs: Sequence[FIMPermutationSpec],
+    getter: Callable[[FIMPermutationSpec], object],
+    fallback: str = "mixed",
+) -> object:
+    values = [getter(spec) for spec in specs]
+    if not values:
+        return "n/a"
+    first = values[0]
+    if all(str(value) == str(first) for value in values):
+        return first
+    return fallback
+
+
+def print_experiment_setup_header(
+    dataset: LoadedDataset,
+    protected_group_report: ProtectedGroupReport,
+    config: FIMPermutationRunConfig,
+    permutations: Iterable[str | FIMPermutationSpec],
+    *,
+    dataset_loading_seconds: float | None = None,
+    preprocessing_seconds: float | None = None,
+) -> None:
+    specs = [
+        _resolve_fim_permutation_spec(value)
+        for value in permutations
+    ]
+    first_spec = specs[0] if specs else None
+    diffusion = (
+        _readable_name(_shared_spec_value(specs, lambda spec: spec.diffusion_model), _DIFFUSION_NAMES)
+        if first_spec is not None
+        else "n/a"
+    )
+    search = (
+        _search_estimator_algorithm_name(first_spec)
+        if first_spec is not None and _shared_spec_value(specs, lambda spec: _canonical_search_estimator(spec.spread_estimator_search)) != "mixed"
+        else "mixed"
+    )
+    node_count = max(1, int(dataset.graph.number_of_nodes()))
+    budget_ratio = float(config.budget) / float(node_count)
+    print("Experiment Setup")
+    print("-" * 60)
+    print(f"{'Dataset':<30}: {dataset.name}")
+    print(f"{'Nodes / Edges':<30}: {dataset.graph.number_of_nodes()} / {dataset.graph.number_of_edges()}")
+    print(f"{'Protected Attribute':<30}: {protected_group_report.protected_attribute}")
+    print(f"{'Protected Groups':<30}: {len(protected_group_report.group_sizes)}")
+    print(f"{'Group Counts':<30}: {_format_compact_mapping(protected_group_report.group_sizes)}")
+    print(f"{'Imbalance Ratio':<30}: {_protected_group_imbalance(protected_group_report)['imbalance_ratio']:.2f}")
+    print(f"{'Budget':<30}: {int(config.budget)}")
+    print(f"{'Budget / Nodes':<30}: {100.0 * budget_ratio:.2f}%")
+    print(f"{'Communities':<30}: computed per stack")
+    print(f"{'Ranking Policy':<30}: {_effective_ranking_policy(first_spec, config) if first_spec is not None else config.ranking_policy}")
+    print(f"{'Diffusion Model':<30}: {diffusion}")
+    print(f"{'Search Estimator':<30}: {search}")
+    print(f"{'Final Evaluator':<30}: Monte Carlo")
+    print(f"{'MC Runs Search':<30}: {int(config.mc_runs_search)}")
+    print(f"{'MC Runs Eval':<30}: {int(config.mc_runs_eval)}")
+    print(f"{'Random Seed':<30}: {int(config.random_seed)}")
+    print(f"{'Output Directory':<30}: {_format_diagnostic_value(config.output_dir)}")
+    print(f"{'Dataset Loading Time':<30}: {_format_seconds(dataset_loading_seconds)}")
+    print(f"{'Preprocessing Time':<30}: {_format_seconds(preprocessing_seconds)}")
+    print("")
+
+
+def print_budget_adequacy_check(
+    dataset: LoadedDataset,
+    protected_group_report: ProtectedGroupReport,
+    config: FIMPermutationRunConfig,
+    *,
+    community_count: int | None = None,
+) -> None:
+    node_count = max(1, int(dataset.graph.number_of_nodes()))
+    budget_ratio = float(config.budget) / float(node_count)
+    group_sizes = [int(size) for size in protected_group_report.group_sizes.values() if int(size) > 0]
+    imbalance = _protected_group_imbalance(protected_group_report)
+    warnings = _budget_adequacy_warnings(dataset, protected_group_report, config, None)
+    if community_count is not None and bool(config.warn_if_communities_exceed_budget) and int(community_count) > int(config.budget):
+        warnings.append("number of communities exceeds budget")
+    print("Budget Adequacy Check")
+    print("-" * 60)
+    print(f"{'Budget / Nodes':<30}: {100.0 * budget_ratio:.2f}%")
+    communities_text = (
+        "Yes" if community_count is not None and int(community_count) > int(config.budget)
+        else ("No" if community_count is not None else "computed per stack")
+    )
+    print(f"{'Communities > Budget?':<30}: {communities_text}")
+    print(f"{'Protected Groups > Budget?':<30}: {'Yes' if len(group_sizes) > int(config.budget) else 'No'}")
+    print(f"{'Smallest Group Size':<30}: {min(group_sizes) if group_sizes else 'n/a'}")
+    print(f"{'Largest Group Size':<30}: {max(group_sizes) if group_sizes else 'n/a'}")
+    print(f"{'Imbalance Ratio':<30}: {float(imbalance['imbalance_ratio']):.2f}")
+    print(f"{'Warning':<30}: {'; '.join(dict.fromkeys(warnings)) if warnings else 'n/a'}")
+    print("")
+
+
+def _runtime_breakdown_from_row(row: Mapping[str, object]) -> dict[str, object]:
+    return {
+        "Dataset Loading": row.get("time_dataset_loading", pd.NA),
+        "Preprocessing": row.get("time_preprocessing", pd.NA),
+        "Community Detection": row.get("time_community_detection", pd.NA),
+        "Embedding Generation": row.get("time_embedding", pd.NA),
+        "RIS / RR-set Generation": row.get("time_ris", pd.NA),
+        "Candidate Scoring": row.get("time_candidate_scoring", pd.NA),
+        "SI+EA Optimization": row.get("time_optimizer", pd.NA),
+        "Repair": row.get("time_repair", pd.NA),
+        "Swap Local Search": row.get("time_local_search", pd.NA),
+        "Final MC Evaluation": row.get("time_final_mc", row.get("final_eval_runtime_seconds", pd.NA)),
+        "Reporting": row.get("time_reporting", pd.NA),
+        "Total Runtime": row.get("runtime_seconds", pd.NA),
+    }
+
+
+def print_runtime_breakdown(row: Mapping[str, object]) -> None:
+    print("Runtime Breakdown")
+    print("-" * 60)
+    for label, value in _runtime_breakdown_from_row(row).items():
+        print(f"{label:<30}: {_format_seconds(value)}")
+    print("")
+
+
+def print_final_seed_set_diagnostics(row: Mapping[str, object]) -> None:
+    seed_set = _parse_json_sequence(row.get("seed_set", []))
+    seed_group_counts = _parse_json_mapping(row.get("seed_group_counts", row.get("final_protected_group_coverage", {})))
+    community_counts = _parse_json_mapping(row.get("seed_community_counts", row.get("final_seed_count_per_community", {})))
+    duplicate_count = len(seed_set) - len(set(str(value) for value in seed_set)) if seed_set else _safe_int_value(row.get("duplicate_seed_count")) or 0
+    covered_communities = sum(1 for value in community_counts.values() if (_safe_numeric(value) or 0.0) > 0.0)
+    largest_community = max((_safe_numeric(value) or 0.0 for value in community_counts.values()), default=0.0)
+    expected = _safe_int_value(row.get("budget")) or _safe_int_value(row.get("expected_seed_count")) or 0
+    group_values = [int(_safe_numeric(value) or 0) for value in seed_group_counts.values()]
+    print("Final Seed Set Diagnostics")
+    print("-" * 60)
+    print(f"{'Seed Count':<30}: {len(seed_set) if seed_set else _format_diagnostic_value(row.get('seed_count'))} / {expected or 'n/a'}")
+    print(f"{'Duplicate Seeds':<30}: {duplicate_count}")
+    print(f"{'Seed Groups':<30}: {_format_compact_mapping(seed_group_counts)}")
+    print(f"{'Seed Communities Covered':<30}: {covered_communities if community_counts else _format_diagnostic_value(row.get('seed_communities_covered'))} / {_format_diagnostic_value(row.get('num_communities'))}")
+    largest_pct = f"{100.0 * largest_community / max(1, expected):.1f}%" if community_counts and expected else "n/a"
+    print(f"{'Largest Community Seed %':<30}: {largest_pct}")
+    print(f"{'Smallest Group Seed Count':<30}: {min(group_values) if group_values else 'n/a'}")
+    print(f"{'Largest Group Seed Count':<30}: {max(group_values) if group_values else 'n/a'}")
+    print("")
+
+
+def print_protected_group_influence(row: Mapping[str, object]) -> None:
+    group_sizes = _parse_json_mapping(row.get("protected_group_counts", {}))
+    seed_counts = _parse_json_mapping(row.get("seed_group_counts", row.get("final_protected_group_coverage", {})))
+    influence = _parse_json_mapping(row.get("protected_group_influence_json", row.get("group_influence_distribution", {})))
+    normalized = _parse_json_mapping(row.get("protected_group_normalized_influence_json", row.get("normalized_group_influence_distribution", {})))
+    groups = sorted(set(group_sizes) | set(seed_counts) | set(influence) | set(normalized))
+    print("Protected Group Influence")
+    print("-" * 60)
+    print(f"{'Group':<10}{'Size':<10}{'Seed Count':<14}{'Influence':<18}{'Normalized Influence'}")
+    if groups:
+        for group_name in groups:
+            print(
+                f"{group_name:<10}"
+                f"{_format_diagnostic_value(group_sizes.get(group_name)):<10}"
+                f"{_format_diagnostic_value(seed_counts.get(group_name)):<14}"
+                f"{_format_table_number(influence.get(group_name)):<18}"
+                f"{_format_table_number(normalized.get(group_name))}"
+            )
+    else:
+        print("n/a")
+    print("")
+    print(f"{'Weakest Group':<30}: {_format_diagnostic_value(row.get('weakest_group', row.get('weakest_protected_group')))}")
+    print(f"{'Strongest Group':<30}: {_format_diagnostic_value(row.get('strongest_group', row.get('strongest_protected_group')))}")
+    print(f"{'MF':<30}: {_format_diagnostic_value(row.get('mf'))}")
+    print(f"{'DCV':<30}: {_format_diagnostic_value(row.get('dcv'))}")
+    print(f"{'F-score':<30}: {_format_diagnostic_value(row.get('f_score'))}")
+    print("")
+
+
+def print_candidate_score_diagnostics(row: Mapping[str, object]) -> None:
+    stats = _parse_json_mapping(row.get("score_component_stats_json", {}))
+    constants = _parse_json_sequence(row.get("constant_score_components", []))
+    print("Candidate Score Diagnostics")
+    print("-" * 60)
+    print(f"{'Score Normalization':<30}: {_format_diagnostic_value(row.get('score_normalization'))}")
+    print(f"{'Candidate Pool Size':<30}: {_format_diagnostic_value(row.get('candidate_pool_size'))}")
+    print(f"{'Group-stratified Pool':<30}: {_format_diagnostic_value(row.get('group_stratified_candidate_pool'))}")
+    for column_name, label in (
+        ("ml_score", "ML Score"),
+        ("ris_score", "RIS Score"),
+        ("fair_ris_score", "Fair RIS Score"),
+        ("fairness_bonus", "Fairness Bonus"),
+        ("weak_group_bonus", "Weak Group Bonus"),
+        ("protected_group_coverage_bonus", "Coverage Bonus"),
+        ("community_diversity_bonus", "Community Bonus"),
+        ("spread_proxy_score", "Spread Proxy Score"),
+        ("combined_score", "Combined Score"),
+    ):
+        stat = stats.get(column_name, {}) if isinstance(stats.get(column_name), Mapping) else {}
+        print(
+            f"{label + ' Std':<30}: "
+            f"{_format_diagnostic_value(stat.get('std') if stat else pd.NA)}"
+        )
+    print(f"{'Any Constant Components?':<30}: {'Yes' if constants else 'No'}")
+    print(f"{'Constant Components':<30}: {constants if constants else 'None'}")
+    print(f"{'RIS Active Verified':<30}: {_format_diagnostic_value(row.get('ris_active_verified', row.get('ris_verified')))}")
+    print(f"{'Fair RIS Active Verified':<30}: {_format_diagnostic_value(row.get('fair_ris_active_verified', row.get('fair_ris_verified')))}")
+    print("")
+
+
+def print_optimizer_diagnostics(row: Mapping[str, object]) -> None:
+    print("Optimizer Diagnostics")
+    print("-" * 60)
+    rows = [
+        ("Initial Population Size", row.get("population_size", pd.NA)),
+        ("Generations", row.get("generations", pd.NA)),
+        ("Candidate Pool Size", row.get("candidate_pool_size", pd.NA)),
+        ("Repair Attempts", row.get("repair_attempts", pd.NA)),
+        ("Weak-group Repairs", row.get("weak_group_repairs", pd.NA)),
+        ("Duplicate Repairs", row.get("duplicate_repairs", pd.NA)),
+        ("Swap Attempts", row.get("swap_attempts", pd.NA)),
+        ("Successful Swaps", row.get("successful_swaps", row.get("swap_accepted", pd.NA))),
+        ("Rejected Fairness Drops", row.get("rejected_fairness_drops", row.get("swap_rejected_fairness_degradation", pd.NA))),
+        ("Accepted F-score Swaps", row.get("swap_accepted_fscore_improvement", pd.NA)),
+        ("Accepted Spread-safe Swaps", row.get("swap_accepted_spread_fairness_preserved", pd.NA)),
+        ("Best Generation", row.get("best_generation", pd.NA)),
+        ("Final Fitness", row.get("final_fitness", pd.NA)),
+    ]
+    for label, value in rows:
+        print(f"{label:<30}: {_format_diagnostic_value(value)}")
+    print("")
+
+
+def print_stack_result_diagnostics(frame: pd.DataFrame, config: FIMPermutationRunConfig) -> None:
+    for _, row in frame.iterrows():
+        status = str(row.get("status", "")).strip().lower()
+        if status != "ok":
+            print("Method Failure")
+            print("-" * 60)
+            print(f"{'Method':<30}: {_format_diagnostic_value(row.get('stack_name'))}")
+            print(f"{'Reason':<30}: {_format_diagnostic_value(row.get('skip_reason', row.get('skipped_reason')))}")
+            print("")
+            continue
+        if bool(config.print_runtime_breakdown):
+            print_runtime_breakdown(row)
+        if bool(config.print_seed_diagnostics):
+            print_final_seed_set_diagnostics(row)
+        if bool(config.print_group_influence):
+            print_protected_group_influence(row)
+        if bool(config.print_score_diagnostics):
+            print_candidate_score_diagnostics(row)
+        if bool(config.print_optimizer_diagnostics):
+            print_optimizer_diagnostics(row)
+
+
 def _key_enabled_modules(spec: FIMPermutationSpec, clustering_input_mode: str) -> str:
     parts = [
         f"diffusion={spec.diffusion_model}",
@@ -1857,6 +2812,8 @@ def _result_row(
         "swap_local_search_enabled": int(config.local_search_steps) > 0,
         "debias_mode": spec.debias_mode,
         "fairness_objective": spec.fairness_objective,
+        "search_estimator": _canonical_search_estimator(spec.spread_estimator_search),
+        "final_estimator": spec.spread_estimator_final,
         "spread_estimator_search": _canonical_search_estimator(spec.spread_estimator_search),
         "spread_estimator_final": spec.spread_estimator_final,
         "search_spread_estimator": (
@@ -1870,6 +2827,18 @@ def _result_row(
         "variant_type": _FIM_VARIANT_TYPES[spec.variant_family],
         "runtime_seconds": float(search_runtime_seconds + evaluation.runtime_seconds),
         "search_runtime_seconds": float(search_runtime_seconds),
+        "time_dataset_loading": pd.NA,
+        "time_preprocessing": pd.NA,
+        "time_community_detection": pd.NA,
+        "time_embedding": pd.NA,
+        "time_ris": pd.NA,
+        "time_candidate_scoring": pd.NA,
+        "time_optimizer": pd.NA,
+        "time_repair": pd.NA,
+        "time_local_search": pd.NA,
+        "time_final_mc": float(evaluation.runtime_seconds),
+        "time_reporting": pd.NA,
+        "runtime_breakdown_json": "",
         "scalability_mode": str(config.scalability_mode),
         "scalability_pass": pd.NA,
         "candidate_pool_size": pd.NA,
@@ -1884,11 +2853,17 @@ def _result_row(
         "ris_score_std": 0.0,
         "fair_ris_score_nonzero_count": 0,
         "fair_ris_score_std": 0.0,
+        "ris_verified": False,
+        "fair_ris_verified": False,
         "ris_active_verified": False,
         "fair_ris_active_verified": False,
         "ris_verification_warnings": "",
+        "force_ris_for_all_stacks": bool(config.force_ris_for_all_stacks),
+        "require_ris": bool(config.require_ris),
         "mc_runs_search": int(config.mc_runs_search),
         "mc_runs_eval": int(config.mc_runs_eval),
+        "population_size": int(config.population_size),
+        "generations": int(config.generations),
         "key_enabled_modules": _key_enabled_modules(spec, resolved_clustering_input_mode),
         "use_community_features": bool(config.use_community_features_for_ml),
         "community_feature_mode": str(config.community_feature_mode),
@@ -1960,8 +2935,18 @@ def _result_row(
         "skip_reason": skip_reason,
         "skipped_reason": skip_reason,
     }
+    row.update(
+        _algorithm_composition_fields(
+            spec,
+            config,
+            dataset,
+            protected_group_report,
+            resolved_clustering_input_mode,
+        )
+    )
     row.update(_spread_dict(evaluation, int(config.budget)))
     row.update(_fairness_coverage_fields(evaluation))
+    row.update(_seed_diagnostic_fields(evaluation, protected_group_report, config))
     if extra_fields:
         row.update(dict(extra_fields))
     candidate_pool_raw = pd.to_numeric(pd.Series([row.get("candidate_pool_size", pd.NA)]), errors="coerce").iloc[0]
@@ -1973,7 +2958,7 @@ def _result_row(
     gate_failures = fairness_gate_failures(row, professor_priority_config_from_object(config))
     row["fairness_gate_status"] = "warn" if gate_failures and bool(config.warn_only_fairness_gates) else ("fail" if gate_failures else "pass")
     row["fairness_gate_failures"] = ";".join(gate_failures)
-    return row
+    return _finalize_diagnostic_row(row)
 
 
 def _skipped_row(
@@ -2007,6 +2992,8 @@ def _skipped_row(
             "method_type": _method_type(spec),
             "debias_mode": spec.debias_mode,
             "fairness_objective": spec.fairness_objective,
+            "search_estimator": _canonical_search_estimator(spec.spread_estimator_search),
+            "final_estimator": spec.spread_estimator_final,
             "spread_estimator_search": _canonical_search_estimator(spec.spread_estimator_search),
             "spread_estimator_final": spec.spread_estimator_final,
             "search_spread_estimator": (
@@ -2030,9 +3017,13 @@ def _skipped_row(
             "ris_score_std": 0.0,
             "fair_ris_score_nonzero_count": 0,
             "fair_ris_score_std": 0.0,
+            "ris_verified": False,
+            "fair_ris_verified": False,
             "ris_active_verified": False,
             "fair_ris_active_verified": False,
             "ris_verification_warnings": "",
+            "force_ris_for_all_stacks": bool(config.force_ris_for_all_stacks),
+            "require_ris": bool(config.require_ris),
             "fairness_gate_status": "fail",
             "fairness_gate_failures": "status",
             "protected_group_counts": dict(protected_group_report.group_sizes),
@@ -2054,6 +3045,15 @@ def _skipped_row(
             "skip_reason": skip_reason,
             "skipped_reason": skip_reason,
         }
+    )
+    row.update(
+        _algorithm_composition_fields(
+            spec,
+            config,
+            dataset,
+            protected_group_report,
+            spec.clustering_input_mode,
+        )
     )
     return row
 
@@ -2395,6 +3395,101 @@ def _fairness_coverage_fields(evaluation: SeedSetEvaluation) -> dict[str, object
     }
 
 
+def _seed_diagnostic_fields(
+    evaluation: SeedSetEvaluation,
+    protected_group_report: ProtectedGroupReport,
+    config: FIMPermutationRunConfig,
+) -> dict[str, object]:
+    seed_list = list(evaluation.seed_set)
+    duplicate_count = len(seed_list) - len(set(seed_list))
+    seed_group_counts = _seed_protected_group_coverage(seed_list, protected_group_report)
+    seed_group_mapping = _parse_json_mapping(seed_group_counts)
+    group_seed_values = [int(_safe_numeric(value) or 0) for value in seed_group_mapping.values()]
+    group_spread = dict(evaluation.fairness.group_spread)
+    normalized_group_spread = dict(evaluation.fairness.normalized_group_spread)
+    weakest = ""
+    strongest = ""
+    if normalized_group_spread:
+        weakest = str(min(normalized_group_spread, key=lambda group_name: (float(normalized_group_spread[group_name]), _sort_key(group_name))))
+        strongest = str(max(normalized_group_spread, key=lambda group_name: (float(normalized_group_spread[group_name]), _sort_key(group_name))))
+    return {
+        "seed_count": int(len(seed_list)),
+        "expected_seed_count": int(config.budget),
+        "duplicate_seed_count": int(duplicate_count),
+        "seed_group_counts": seed_group_counts,
+        "smallest_group_seed_count": min(group_seed_values) if group_seed_values else pd.NA,
+        "largest_group_seed_count": max(group_seed_values) if group_seed_values else pd.NA,
+        "protected_group_influence_json": json.dumps(_json_ready_mapping(group_spread), sort_keys=True),
+        "protected_group_normalized_influence_json": json.dumps(_json_ready_mapping(normalized_group_spread), sort_keys=True),
+        "weakest_group": weakest,
+        "strongest_group": strongest,
+    }
+
+
+def _row_runtime_breakdown_json(row: Mapping[str, object]) -> str:
+    payload = {
+        label.lower().replace(" / ", "_").replace(" ", "_").replace("+", "")
+        : (None if _is_missing_value(value) else float(value))
+        for label, value in _runtime_breakdown_from_row(row).items()
+    }
+    return json.dumps(payload, sort_keys=True)
+
+
+def _optimizer_diagnostics_json(row: Mapping[str, object]) -> str:
+    payload = {
+        "initial_population_size": row.get("population_size", pd.NA),
+        "generations": row.get("generations", pd.NA),
+        "candidate_pool_size": row.get("candidate_pool_size", pd.NA),
+        "repair_attempts": row.get("repair_attempts", pd.NA),
+        "weak_group_repairs": row.get("weak_group_repairs", pd.NA),
+        "duplicate_repairs": row.get("duplicate_repairs", pd.NA),
+        "swap_attempts": row.get("swap_attempts", pd.NA),
+        "successful_swaps": row.get("successful_swaps", row.get("swap_accepted", pd.NA)),
+        "rejected_fairness_drops": row.get("rejected_fairness_drops", row.get("swap_rejected_fairness_degradation", pd.NA)),
+        "accepted_fscore_swaps": row.get("swap_accepted_fscore_improvement", pd.NA),
+        "accepted_spread_safe_swaps": row.get("swap_accepted_spread_fairness_preserved", pd.NA),
+        "best_generation": row.get("best_generation", pd.NA),
+        "final_fitness": row.get("final_fitness", pd.NA),
+    }
+    return json.dumps(
+        {
+            key: (None if _is_missing_value(value) else value)
+            for key, value in payload.items()
+        },
+        sort_keys=True,
+        default=str,
+    )
+
+
+def _finalize_diagnostic_row(row: dict[str, object]) -> dict[str, object]:
+    row["time_final_mc"] = row.get("time_final_mc", row.get("final_eval_runtime_seconds", pd.NA))
+    row["time_optimizer"] = row.get("time_optimizer", pd.NA)
+    if _is_missing_value(row.get("time_optimizer")) and str(row.get("optimizer_mode", "")).strip().lower() == "hybrid_si_ea":
+        row["time_optimizer"] = row.get("search_runtime_seconds", pd.NA)
+    row["zero_covered_groups"] = row.get("zero_covered_groups_count", pd.NA)
+    row["weakest_group"] = row.get("weakest_group", row.get("weakest_protected_group", pd.NA))
+    row["strongest_group"] = row.get("strongest_group", row.get("strongest_protected_group", pd.NA))
+    if _is_missing_value(row.get("seed_community_counts")):
+        row["seed_community_counts"] = row.get("final_seed_count_per_community", pd.NA)
+    community_counts = _parse_json_mapping(row.get("seed_community_counts", {}))
+    if community_counts:
+        positive = [float(_safe_numeric(value) or 0.0) for value in community_counts.values()]
+        row["seed_communities_covered"] = int(sum(1 for value in positive if value > 0.0))
+        seed_count = max(1, int(_safe_numeric(row.get("seed_count")) or _safe_numeric(row.get("budget")) or 1))
+        row["largest_community_seed_fraction"] = float(max(positive, default=0.0) / float(seed_count))
+    else:
+        row["seed_communities_covered"] = row.get("seed_communities_covered", pd.NA)
+        row["largest_community_seed_fraction"] = row.get("largest_community_seed_fraction", pd.NA)
+    row["rejected_fairness_drops"] = row.get(
+        "rejected_fairness_drops",
+        row.get("swap_rejected_fairness_degradation", pd.NA),
+    )
+    row["duplicate_repairs"] = row.get("duplicate_repairs", pd.NA)
+    row["runtime_breakdown_json"] = _row_runtime_breakdown_json(row)
+    row["optimizer_diagnostics_json"] = _optimizer_diagnostics_json(row)
+    return row
+
+
 def _optimizer_diagnostics_fields(
     optimization_result,
     protected_group_report: ProtectedGroupReport,
@@ -2408,6 +3503,15 @@ def _optimizer_diagnostics_fields(
         optimization_result.best_seed_set,
         protected_group_report,
     )
+    history = getattr(optimization_result, "history", pd.DataFrame())
+    best_generation: object = pd.NA
+    if isinstance(history, pd.DataFrame) and not history.empty:
+        score_column = "best_score" if "best_score" in history.columns else None
+        generation_column = "generation" if "generation" in history.columns else None
+        if score_column is not None and generation_column is not None:
+            best_index = pd.to_numeric(history[score_column], errors="coerce").idxmax()
+            if best_index in history.index:
+                best_generation = history.at[best_index, generation_column]
     return {
         "repaired_seed_sets": int(getattr(optimization_result, "repaired_seed_sets", 0)),
         "successful_swaps": int(getattr(optimization_result, "successful_swaps", 0)),
@@ -2430,6 +3534,8 @@ def _optimizer_diagnostics_fields(
         "swap_accepted_fscore_improvement": int(getattr(optimization_result, "swap_accepted_fscore_improvement", 0)),
         "swap_accepted_mf_improvement": int(getattr(optimization_result, "swap_accepted_mf_improvement", 0)),
         "swap_accepted_spread_fairness_preserved": int(getattr(optimization_result, "swap_accepted_spread_fairness_preserved", 0)),
+        "best_generation": best_generation,
+        "final_fitness": float(getattr(optimization_result, "best_score", 0.0)),
         "seed_quota_per_protected_group": getattr(optimization_result, "seed_quota_per_protected_group", {}) or {},
         "initial_population_group_coverage_summary": getattr(optimization_result, "initial_population_group_coverage_summary", {}) or {},
     }
@@ -2459,6 +3565,13 @@ def _build_shared_stack_inputs(
     spec: FIMPermutationSpec,
     config: FIMPermutationRunConfig,
 ) -> dict[str, Any]:
+    timing_fields: dict[str, object] = {
+        "time_preprocessing": pd.NA,
+        "time_community_detection": pd.NA,
+        "time_embedding": pd.NA,
+        "time_ris": pd.NA,
+        "time_candidate_scoring": pd.NA,
+    }
     embedding_config = dict(spec.embedding_config)
     if spec.embedding_method not in {"", "none", "off"}:
         embedding_config.setdefault("embedding_dim", int(config.embedding_dim))
@@ -2467,7 +3580,10 @@ def _build_shared_stack_inputs(
         if spec.embedding_method == "graphcl":
             embedding_config.setdefault("projection_dim", int(config.embedding_dim))
 
+    phase_start = perf_counter()
     community_result = _community_result(dataset, spec, config)
+    timing_fields["time_community_detection"] = float(perf_counter() - phase_start)
+    phase_start = perf_counter()
     embedding_artifact = prepare_embedding_frame(
         dataset=dataset,
         method_name=spec.embedding_method,
@@ -2476,6 +3592,7 @@ def _build_shared_stack_inputs(
         method_config=embedding_config,
         allow_cache=bool(config.use_embedding_cache),
     )
+    timing_fields["time_embedding"] = float(perf_counter() - phase_start)
     clustering_artifact = prepare_optional_clustering(
         dataset=dataset,
         method_name=spec.clustering_method,
@@ -2485,6 +3602,7 @@ def _build_shared_stack_inputs(
         output_dir=config.output_dir,
         random_seed=int(config.random_seed),
     )
+    phase_start = perf_counter()
     base_feature_frame = build_ranking_feature_frame(
         dataset=dataset,
         protected_group_report=protected_group_report,
@@ -2492,10 +3610,12 @@ def _build_shared_stack_inputs(
         embedding_frame=embedding_artifact.embedding_frame,
         clustering_result=clustering_artifact.clustering_result,
     )
+    timing_fields["time_preprocessing"] = float(perf_counter() - phase_start)
     ris_artifact = None
     ris_cache_status = "disabled"
     effective_rr_sets = _effective_ris_rr_sets(dataset, config, protected_group_report)
     if _spec_uses_ris(spec):
+        phase_start = perf_counter()
         _emit_ris_rr_set_adjustment_warning(spec=spec, config=config, effective_rr_sets=effective_rr_sets)
         cache_path = _ris_cache_path(
             config.output_dir,
@@ -2534,6 +3654,8 @@ def _build_shared_stack_inputs(
                     pd.to_pickle(ris_artifact, cache_path)
                 except Exception:
                     ris_cache_status = "miss_unwritten"
+        timing_fields["time_ris"] = float(perf_counter() - phase_start)
+    phase_start = perf_counter()
     feature_frame = build_ranking_feature_frame(
         dataset=dataset,
         protected_group_report=protected_group_report,
@@ -2645,6 +3767,7 @@ def _build_shared_stack_inputs(
         config=config,
         score_frame=score_frame,
     )
+    timing_fields["time_candidate_scoring"] = float(perf_counter() - phase_start)
     community_paths = _write_community_artifacts(
         dataset=dataset,
         protected_group_report=protected_group_report,
@@ -2682,6 +3805,7 @@ def _build_shared_stack_inputs(
         "candidate_pool_diagnostics": candidate_pool_diagnostics,
         "diagnostics_fields": diagnostics_fields,
         "ris_verification_fields": ris_verification_fields,
+        "timing_fields": timing_fields,
     }
 
 
@@ -2721,6 +3845,7 @@ def _shared_stack_reporting_fields(
 ) -> dict[str, object]:
     candidate_pool_diagnostics = dict(shared.get("candidate_pool_diagnostics", {}) or {})
     ris_verification_fields = dict(shared.get("ris_verification_fields", {}) or {})
+    timing_fields = dict(shared.get("timing_fields", {}) or {})
     return {
         "candidate_pool_size": shared.get("candidate_pool_size", pd.NA),
         "candidate_pool_group_counts": candidate_pool_diagnostics.get("candidate_pool_group_counts", pd.NA),
@@ -2734,6 +3859,7 @@ def _shared_stack_reporting_fields(
         "community_cache_status": shared.get("community_cache_status", ""),
         "ris_cache_status": shared.get("ris_cache_status", ""),
         "score_cache_status": shared.get("score_cache_status", ""),
+        **timing_fields,
         **ris_verification_fields,
     }
 
@@ -2745,7 +3871,11 @@ def _run_community_aware_fair_greedy(
     config: FIMPermutationRunConfig,
 ) -> pd.DataFrame:
     start = perf_counter()
+    phase_start = perf_counter()
     community_result = _community_result(dataset, spec, config)
+    time_community_detection = float(perf_counter() - phase_start)
+    scoring_start = perf_counter()
+    time_ris: object = pd.NA
     greedy_candidate_nodes = None
     greedy_candidate_scores = None
     score_frame = None
@@ -2778,14 +3908,30 @@ def _run_community_aware_fair_greedy(
                 reuse_rr_sets=bool(config.ris_reuse_rr_sets),
             ),
         )
+        time_ris = float(getattr(ris_artifact.ris_result, "runtime_seconds", perf_counter() - scoring_start))
         score_weights = _resolved_candidate_score_weights(spec, config, protected_group_report, dataset)
+        structural_scores = compute_structural_node_scores(feature_frame)
+        fairness_bonus_scores = _feature_score_map(feature_frame, "fraction_neighbors_in_undercovered_groups")
+        diversity_bonus_scores = _feature_score_map(feature_frame, "neighboring_communities")
+        protected_group_coverage_scores = _protected_group_coverage_bonus_scores(feature_frame, protected_group_report)
         score_frame = _combined_guidance_score_frame(
             spec,
-            {},
+            structural_scores,
             ris_artifact.global_scores,
             ris_artifact.fair_scores if _fair_ris_enabled(spec) else None,
+            ml_score_weight=0.0,
             ris_score_weight=score_weights["ris_score_weight"],
             fair_ris_score_weight=score_weights["fair_ris_score_weight"],
+            fairness_bonus_scores=fairness_bonus_scores,
+            weak_group_bonus_scores=fairness_bonus_scores,
+            diversity_bonus_scores=diversity_bonus_scores,
+            protected_group_coverage_scores=protected_group_coverage_scores,
+            spread_proxy_scores=structural_scores,
+            fairness_bonus_weight=float(config.fairness_bonus_weight),
+            weak_group_bonus_weight=score_weights["weak_group_bonus_weight"],
+            diversity_bonus_weight=score_weights["community_diversity_weight"],
+            protected_group_coverage_weight=score_weights["protected_group_coverage_weight"],
+            spread_proxy_weight=score_weights["spread_proxy_weight"],
             protected_group_report=protected_group_report,
             score_normalization=_effective_score_normalization(dataset, protected_group_report, config),
         )
@@ -2881,6 +4027,7 @@ def _run_community_aware_fair_greedy(
                 key=lambda node_id: (-float(greedy_candidate_scores[node_id]), _sort_key(node_id)),
             )[:target_size]
         candidate_pool_note = f"; baseline_candidate_pool={len(greedy_candidate_nodes)}"
+    time_candidate_scoring = float(perf_counter() - scoring_start) if score_frame is not None else pd.NA
     diagnostics_fields = _emit_stack_diagnostics(
         dataset=dataset,
         protected_group_report=protected_group_report,
@@ -2942,6 +4089,8 @@ def _run_community_aware_fair_greedy(
         if _rank_search_evaluation(objective_mode, greedy_eval) >= _rank_search_evaluation(objective_mode, initial_eval)
         else initial_seed_set
     )
+    local_search_start = perf_counter()
+    local_search_start = perf_counter()
     refined_seed_set, _ = _swap_local_search(
         dataset=dataset,
         protected_group_report=protected_group_report,
@@ -2950,6 +4099,7 @@ def _run_community_aware_fair_greedy(
         config=config,
         objective_mode=objective_mode,
     )
+    time_local_search = float(perf_counter() - local_search_start)
     search_runtime = perf_counter() - start
     final_eval = _final_evaluate(dataset, protected_group_report, refined_seed_set, spec.diffusion_model, config)
     quality = compute_community_quality_metrics(dataset.graph, community_result)
@@ -2997,6 +4147,11 @@ def _run_community_aware_fair_greedy(
                     "community_modularity": quality.modularity,
                     "score_table_path": score_table_path,
                     "community_cache_status": community_result.metadata.get("community_cache_status", "disabled"),
+                    "time_community_detection": time_community_detection,
+                    "time_ris": time_ris,
+                    "time_candidate_scoring": time_candidate_scoring,
+                    "time_local_search": time_local_search,
+                    "time_optimizer": float(max(0.0, search_runtime - time_community_detection - (0.0 if pd.isna(time_candidate_scoring) else float(time_candidate_scoring)) - time_local_search)),
                     "community_assignments_path": community_paths["community_assignments_path"],
                     "community_sizes_path": community_paths["community_sizes_path"],
                     **ris_verification_fields,
@@ -3091,6 +4246,8 @@ def _run_experiment_runner_gnn_ris_stack(
             "optimizer_mode": spec.optimizer_mode,
             "debias_mode": spec.debias_mode,
             "fairness_objective": spec.fairness_objective,
+            "search_estimator": _canonical_search_estimator(spec.spread_estimator_search),
+            "final_estimator": spec.spread_estimator_final,
             "spread_estimator_search": _canonical_search_estimator(spec.spread_estimator_search),
             "spread_estimator_final": spec.spread_estimator_final,
             "search_spread_estimator": "ris_guidance",
@@ -3108,12 +4265,17 @@ def _run_experiment_runner_gnn_ris_stack(
             "ris_score_std": pd.NA,
             "fair_ris_score_nonzero_count": pd.NA,
             "fair_ris_score_std": pd.NA,
+            "ris_verified": bool(_spec_uses_ris(spec)),
+            "fair_ris_verified": bool(_fair_ris_enabled(spec)),
             "ris_active_verified": bool(_spec_uses_ris(spec)),
             "fair_ris_active_verified": bool(_fair_ris_enabled(spec)),
             "ris_verification_warnings": "Delegated runner does not expose combined candidate score table.",
+            "force_ris_for_all_stacks": bool(config.force_ris_for_all_stacks),
+            "require_ris": bool(config.require_ris),
             "candidate_pool_size": pd.NA,
             "scalability_pass": True,
             "key_enabled_modules": _key_enabled_modules(spec, "none"),
+            **_algorithm_composition_fields(spec, config, dataset, protected_group_report, "none"),
             "MF": float(row["mf"]),
             "DCV": float(row["dcv"]),
             "F-score": float(row["f_score"]),
@@ -3223,6 +4385,7 @@ def _run_ranked_maximin_stack(
         config=config,
         objective_mode="maximin",
     )
+    time_local_search = float(perf_counter() - local_search_start)
     search_runtime = perf_counter() - start
     final_eval = _final_evaluate(dataset, protected_group_report, refined_seed_set, spec.diffusion_model, config)
     quality = compute_community_quality_metrics(dataset.graph, shared["community_result"])
@@ -3246,6 +4409,7 @@ def _run_ranked_maximin_stack(
                 extra_fields={
                     **shared.get("diagnostics_fields", {}),
                     **_shared_stack_reporting_fields(shared, quality),
+                    "time_local_search": time_local_search,
                     "final_community_coverage": _seed_community_coverage(refined_seed_set, shared["community_result"]),
                     "final_seed_count_per_community": _seed_community_coverage(refined_seed_set, shared["community_result"]),
                     "community_coverage_ratio": _seed_community_coverage_ratio(refined_seed_set, shared["community_result"]),
@@ -3371,7 +4535,9 @@ def _run_ranked_hybrid_stack(
         node_scores=structural_scores,
         ml_node_scores=shared["combined_guidance_scores"],
     )
+    optimizer_start = perf_counter()
     optimization_result = optimizer.optimize()
+    time_optimizer = float(perf_counter() - optimizer_start)
     history_path = _optimizer_history_path(
         config.output_dir,
         dataset.name,
@@ -3421,6 +4587,7 @@ def _run_ranked_hybrid_stack(
                         protected_group_report,
                         shared["community_result"],
                     ),
+                    "time_optimizer": time_optimizer,
                     "score_table_path": shared.get("score_table_path", ""),
                     "embeddings_cache_path": _embedding_artifact_path(shared.get("embedding_artifact")),
                     "community_assignments_path": shared.get("community_assignments_path", ""),
@@ -3451,12 +4618,33 @@ def _run_no_ml_hybrid_stack(
     diversity_bonus_scores = _feature_score_map(feature_frame, "neighboring_communities")
     protected_group_coverage_scores = _protected_group_coverage_bonus_scores(feature_frame, protected_group_report)
     score_weights = _resolved_candidate_score_weights(spec, config, protected_group_report, dataset)
+    ris_artifact = None
+    effective_rr_sets = _effective_ris_rr_sets(dataset, config, protected_group_report)
+    if _spec_uses_ris(spec):
+        _emit_ris_rr_set_adjustment_warning(spec=spec, config=config, effective_rr_sets=effective_rr_sets)
+        ris_artifact = prepare_ris_guidance(
+            dataset=dataset,
+            protected_group_report=protected_group_report,
+            propagation_probability=float(config.propagation_probability),
+            feature_frame=feature_frame,
+            output_dir=config.output_dir,
+            protected_attribute=protected_group_report.protected_attribute,
+            stack_name=spec.name,
+            config=RISConfig(
+                num_rr_sets=effective_rr_sets,
+                random_seed=int(config.random_seed),
+                mode=_ris_config_mode(config),
+                reuse_rr_sets=bool(config.ris_reuse_rr_sets),
+            ),
+        )
     score_frame = _combined_guidance_score_frame(
         spec,
         structural_scores,
-        None,
-        None,
+        None if ris_artifact is None else ris_artifact.global_scores,
+        None if ris_artifact is None or not _fair_ris_enabled(spec) else ris_artifact.fair_scores,
         ml_score_weight=score_weights["ml_score_weight"],
+        ris_score_weight=score_weights["ris_score_weight"],
+        fair_ris_score_weight=score_weights["fair_ris_score_weight"],
         fairness_bonus_scores=fairness_bonus_scores,
         weak_group_bonus_scores=fairness_bonus_scores,
         diversity_bonus_scores=diversity_bonus_scores,
@@ -3525,7 +4713,9 @@ def _run_no_ml_hybrid_stack(
         node_scores=structural_scores,
         ml_node_scores=combined_scores,
     )
+    optimizer_start = perf_counter()
     optimization_result = optimizer.optimize()
+    time_optimizer = float(perf_counter() - optimizer_start)
     search_runtime = perf_counter() - start
     final_eval = _final_evaluate(
         dataset,
@@ -3555,11 +4745,13 @@ def _run_no_ml_hybrid_stack(
                     "candidate_pool_group_quota": candidate_pool_diagnostics.get("candidate_pool_group_quota", pd.NA),
                     "candidate_pool_group_quota_shortfall": candidate_pool_diagnostics.get("candidate_pool_group_quota_shortfall", pd.NA),
                     "group_stratified_candidate_pool": candidate_pool_diagnostics.get("group_stratified_candidate_pool", pd.NA),
+                    "effective_ris_num_rr_sets": effective_rr_sets,
                     **_optimizer_diagnostics_fields(
                         optimization_result,
                         protected_group_report,
                         community_result,
                     ),
+                    "time_optimizer": time_optimizer,
                     "num_communities": quality.num_communities,
                     "community_modularity": quality.modularity,
                     "community_cache_status": community_result.metadata.get("community_cache_status", "disabled"),
@@ -3887,7 +5079,32 @@ def format_fim_permutation_report(frame: pd.DataFrame, config: FIMPermutationRun
                 f"weakest={row.get('weakest_protected_group')} | "
                 f"strongest={row.get('strongest_protected_group')}"
             )
-            negative_reason = str(row.get("negative_f_score_reason", "") or "").strip()
+            lines.append(
+                "   "
+                f"runtime_breakdown: dataset={row.get('time_dataset_loading')} | "
+                f"community={row.get('time_community_detection')} | "
+                f"embedding={row.get('time_embedding')} | "
+                f"ris={row.get('time_ris')} | "
+                f"candidate_scoring={row.get('time_candidate_scoring')} | "
+                f"optimizer={row.get('time_optimizer')} | "
+                f"local_search={row.get('time_local_search')} | "
+                f"final_mc={row.get('time_final_mc')}"
+            )
+            lines.append(
+                "   "
+                f"seed_diagnostics: seed_count={row.get('seed_count')}/{row.get('expected_seed_count')} | "
+                f"duplicates={row.get('duplicate_seed_count')} | "
+                f"seed_groups={row.get('seed_group_counts')} | "
+                f"seed_communities={row.get('seed_community_counts')} | "
+                f"communities_covered={row.get('seed_communities_covered')}"
+            )
+            lines.append(
+                "   "
+                f"score_diagnostics: component_stats={row.get('score_component_stats_json')} | "
+                f"constant_components={row.get('constant_score_components')}"
+            )
+            negative_reason_value = row.get("negative_f_score_reason", "")
+            negative_reason = "" if pd.isna(negative_reason_value) else str(negative_reason_value).strip()
             if negative_reason and negative_reason != "<NA>":
                 lines.append(f"   negative_f_score_reason={negative_reason}")
         else:
@@ -3895,8 +5112,8 @@ def format_fim_permutation_report(frame: pd.DataFrame, config: FIMPermutationRun
         lines.append(
             "   "
             f"modules: diffusion={row.get('diffusion_model')} | "
-            f"search_estimator={row.get('spread_estimator_search')} | "
-            f"final_estimator={row.get('spread_estimator_final')} | "
+            f"search_estimator={row.get('search_estimator', row.get('spread_estimator_search'))} | "
+            f"final_estimator={row.get('final_estimator', row.get('spread_estimator_final'))} | "
             f"fair_ris={row.get('fair_ris_enabled')} | "
             f"ris_rr_sets={row.get('effective_ris_num_rr_sets')} | "
             f"community={row.get('community_method')} | "
@@ -3905,6 +5122,20 @@ def format_fim_permutation_report(frame: pd.DataFrame, config: FIMPermutationRun
             f"ranking={row.get('ranking_model')} | "
             f"optimizer={row.get('optimizer_mode')} | "
             f"debias={row.get('debias_mode')}"
+        )
+        lines.append(
+            "   "
+            f"algorithms: embedding={row.get('graph_embedding_algorithm')} | "
+            f"ml_ranking={row.get('ml_ranking_algorithm')} | "
+            f"community={row.get('community_detection_algorithm')} | "
+            f"clustering={row.get('clustering_algorithm')} | "
+            f"diffusion={row.get('diffusion_model_name')} | "
+            f"search={row.get('search_time_spread_estimator')} | "
+            f"optimizer={row.get('fair_influence_optimizer')} | "
+            f"repair={row.get('repair_strategy')} | "
+            f"local_refinement={row.get('local_refinement')} | "
+            f"final={row.get('final_evaluator')} | "
+            f"ranking_policy={row.get('ranking_policy_name')}"
         )
         if "pipeline_mode" in row.index and str(row.get("pipeline_mode", "")).strip():
             lines.append(
@@ -3927,8 +5158,8 @@ def format_fim_permutation_report(frame: pd.DataFrame, config: FIMPermutationRun
                 f"guidance: ml={row.get('ml_score_weight')} | "
                 f"ris={row.get('ris_score_weight')} | "
                 f"fair_ris={row.get('fair_ris_score_weight')} | "
-                f"ris_verified={row.get('ris_active_verified')} | "
-                f"fair_ris_verified={row.get('fair_ris_active_verified')} | "
+                f"ris_verified={row.get('ris_verified', row.get('ris_active_verified'))} | "
+                f"fair_ris_verified={row.get('fair_ris_verified', row.get('fair_ris_active_verified'))} | "
                 f"ris_score_nonzero={row.get('ris_score_nonzero_count')} | "
                 f"fair_ris_score_nonzero={row.get('fair_ris_score_nonzero_count')} | "
                 f"weak_group={row.get('weak_group_bonus_weight')} | "
@@ -3937,6 +5168,17 @@ def format_fim_permutation_report(frame: pd.DataFrame, config: FIMPermutationRun
                 f"spread_proxy={row.get('spread_proxy_weight')} | "
                 f"large_imbalance_active={row.get('large_imbalance_fairness_active')} | "
                 f"score_normalization={row.get('score_normalization')}"
+            )
+            lines.append(
+                "   "
+                f"RIS config: search_estimator={row.get('search_estimator', row.get('spread_estimator_search'))} | "
+                f"final_estimator={row.get('final_estimator', row.get('spread_estimator_final', 'monte_carlo'))} | "
+                f"fair_ris={row.get('fair_ris_enabled')} | "
+                f"ris_rr_sets={row.get('effective_ris_num_rr_sets')} | "
+                f"ris_verified={row.get('ris_verified', row.get('ris_active_verified'))} | "
+                f"fair_ris_verified={row.get('fair_ris_verified', row.get('fair_ris_active_verified'))} | "
+                f"force_ris_for_all_stacks={row.get('force_ris_for_all_stacks')} | "
+                f"require_ris={row.get('require_ris')}"
             )
             lines.append(
                 "   "
@@ -4004,11 +5246,32 @@ def format_fim_permutation_report(frame: pd.DataFrame, config: FIMPermutationRun
     return "\n".join(lines).rstrip()
 
 
+def _enrich_frame_runtime_fields(
+    frame: pd.DataFrame,
+    *,
+    dataset_loading_seconds: float | None,
+    preprocessing_seconds: float | None,
+) -> pd.DataFrame:
+    records: list[dict[str, object]] = []
+    for row in frame.to_dict(orient="records"):
+        if _is_missing_value(row.get("time_dataset_loading")) and dataset_loading_seconds is not None:
+            row["time_dataset_loading"] = float(dataset_loading_seconds)
+        if _is_missing_value(row.get("time_preprocessing")) and preprocessing_seconds is not None:
+            row["time_preprocessing"] = float(preprocessing_seconds)
+        if str(row.get("status", "")).strip().lower() == "ok":
+            row = _finalize_diagnostic_row(row)
+        records.append(row)
+    return pd.DataFrame(records)
+
+
 def run_fim_permutation_benchmark(
     dataset: LoadedDataset,
     protected_group_report: ProtectedGroupReport,
     config: FIMPermutationRunConfig,
     permutations: Iterable[str | FIMPermutationSpec] | None = None,
+    *,
+    dataset_loading_seconds: float | None = None,
+    preprocessing_seconds: float | None = None,
 ) -> FIMPermutationBenchmarkResult:
     """Run named FIM stacks with shared final Monte Carlo evaluation."""
 
@@ -4016,12 +5279,31 @@ def run_fim_permutation_benchmark(
     rows: list[dict[str, object]] = []
     results_by_permutation: dict[str, pd.DataFrame] = {}
 
+    if bool(config.print_experiment_header):
+        print_experiment_setup_header(
+            dataset,
+            protected_group_report,
+            config,
+            requested,
+            dataset_loading_seconds=dataset_loading_seconds,
+            preprocessing_seconds=preprocessing_seconds,
+        )
+    if bool(config.print_budget_check):
+        print_budget_adequacy_check(dataset, protected_group_report, config)
+
     for requested_value in requested:
         spec = _resolve_fim_permutation_spec(requested_value)
         if spec.spread_estimator_final != "monte_carlo":
             raise ValueError("All permutation specs must use spread_estimator_final='monte_carlo'.")
         runner = _RUNNERS[spec.runner_kind]
         try:
+            if bool(config.print_stack_summary):
+                print_stack_algorithm_summary(
+                    spec,
+                    config,
+                    dataset=dataset,
+                    protected_group_report=protected_group_report,
+                )
             frame = runner(dataset, protected_group_report, spec, config)
         except Exception as exc:  # noqa: BLE001 - benchmark rows should skip cleanly.
             if config.debug_errors:
@@ -4045,6 +5327,12 @@ def run_fim_permutation_benchmark(
                     )
                 ]
             )
+        frame = _enrich_frame_runtime_fields(
+            frame,
+            dataset_loading_seconds=dataset_loading_seconds,
+            preprocessing_seconds=preprocessing_seconds,
+        )
+        print_stack_result_diagnostics(frame, config)
         results_by_permutation[spec.name] = frame.copy()
         rows.extend(frame.to_dict(orient="records"))
 
@@ -4073,14 +5361,20 @@ def run_fim_permutation_benchmark_from_config(
 ) -> FIMPermutationBenchmarkResult:
     """Load a dataset and run the named permutation benchmark."""
 
+    load_start = perf_counter()
     dataset = load_dataset(dataset_config)
+    dataset_loading_seconds = float(perf_counter() - load_start)
     node_count = dataset.graph.number_of_nodes()
     if int(config.budget) > int(node_count):
         raise ValueError(f"Budget {config.budget} exceeds graph node count {node_count} for dataset '{dataset.name}'.")
+    preprocessing_start = perf_counter()
     protected_group_report = verify_protected_groups(dataset, config.protected_attribute)
+    preprocessing_seconds = float(perf_counter() - preprocessing_start)
     return run_fim_permutation_benchmark(
         dataset=dataset,
         protected_group_report=protected_group_report,
         config=config,
         permutations=permutations,
+        dataset_loading_seconds=dataset_loading_seconds,
+        preprocessing_seconds=preprocessing_seconds,
     )

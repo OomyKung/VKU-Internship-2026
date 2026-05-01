@@ -34,6 +34,7 @@ from scripts.evaluate_fim_results import (  # noqa: E402
     InsightThresholds,
     build_evaluation_report,
     build_json_summary,
+    delta_vs_baseline_frame,
     evaluate_result_frame,
 )
 from scripts.run_experiment import build_dataset_config  # noqa: E402
@@ -84,6 +85,7 @@ class MLFIMBenchmarkResult:
     comparison_csv_path: Path | None = None
     normalized_csv_path: Path | None = None
     ranked_csv_path: Path | None = None
+    delta_vs_baseline_csv_path: Path | None = None
     report_path: Path | None = None
     json_path: Path | None = None
 
@@ -199,6 +201,52 @@ def _configure_specs_ris(
         )
         for spec in specs
     ]
+
+
+def _effective_requested_search_estimator(
+    *,
+    spread_estimator_search: object,
+    use_ris: bool,
+    use_fair_ris: bool,
+    force_ris_for_all_stacks: bool,
+) -> str:
+    search = _normalize_spread_estimator_search(spread_estimator_search)
+    if bool(force_ris_for_all_stacks):
+        if search == "monte_carlo":
+            raise ValueError(
+                "--force-ris-for-all-stacks conflicts with --spread-estimator-search monte_carlo. "
+                "Use ris or fairness_aware_ris."
+            )
+        if bool(use_fair_ris) or search == "fairness_aware_ris":
+            return "fairness_aware_ris"
+        if bool(use_ris) or search == "ris":
+            return "ris"
+        return "fairness_aware_ris"
+    if bool(use_fair_ris):
+        return "fairness_aware_ris"
+    if bool(use_ris):
+        return "ris"
+    return search
+
+
+def _validate_ris_forced_specs(
+    specs: Sequence[FIMPermutationSpec],
+    *,
+    force_ris_for_all_stacks: bool,
+) -> None:
+    if not bool(force_ris_for_all_stacks):
+        return
+    invalid = [
+        spec.name
+        for spec in specs
+        if _normalize_spread_estimator_search(spec.spread_estimator_search) not in {"ris", "fairness_aware_ris"}
+        or not bool(spec.use_ris_guidance)
+    ]
+    if invalid:
+        raise ValueError(
+            "--force-ris-for-all-stacks was requested, but these stacks are not configured for RIS search: "
+            + ", ".join(invalid)
+        )
 
 
 def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
@@ -537,9 +585,16 @@ def resolve_ml_benchmark_specs(
     include_weak_ml_baselines: bool = False,
     use_ris: bool = False,
     use_fair_ris: bool = False,
+    force_ris_for_all_stacks: bool = False,
 ) -> list[FIMPermutationSpec]:
     registry = _named_ml_stack_registry()
     requested_tokens = [str(value).strip().lower() for value in (ml_stacks or ["strong_ml"]) if str(value).strip()]
+    effective_search_request = _effective_requested_search_estimator(
+        spread_estimator_search=spread_estimator_search,
+        use_ris=use_ris,
+        use_fair_ris=use_fair_ris,
+        force_ris_for_all_stacks=force_ris_for_all_stacks,
+    )
 
     selected_names: list[str]
     if "all_available" in requested_tokens:
@@ -562,7 +617,7 @@ def resolve_ml_benchmark_specs(
     if include_baseline and "community_aware_fair_greedy" not in selected_names_set:
         selected_specs.insert(0, registry["community_aware_fair_greedy"])
 
-    search_filter = _normalize_spread_estimator_search(spread_estimator_search)
+    search_filter = _normalize_spread_estimator_search(effective_search_request)
     final_filter = str(spread_estimator_final).strip().lower()
     filtered_specs = _apply_stack_filters(
         selected_specs,
@@ -576,12 +631,14 @@ def resolve_ml_benchmark_specs(
     )
 
     if filtered_specs:
-        return _configure_specs_ris(
+        configured_specs = _configure_specs_ris(
             filtered_specs,
             spread_estimator_search=search_filter,
             use_ris=use_ris,
             use_fair_ris=use_fair_ris,
         )
+        _validate_ris_forced_specs(configured_specs, force_ris_for_all_stacks=force_ris_for_all_stacks)
+        return configured_specs
 
     if not embedding_methods:
         raise ValueError(
@@ -612,12 +669,14 @@ def resolve_ml_benchmark_specs(
             )
     if include_baseline:
         generated_specs.insert(0, registry["community_aware_fair_greedy"])
-    return _configure_specs_ris(
+    configured_specs = _configure_specs_ris(
         generated_specs,
         spread_estimator_search=search_filter,
         use_ris=use_ris,
         use_fair_ris=use_fair_ris,
     )
+    _validate_ris_forced_specs(configured_specs, force_ris_for_all_stacks=force_ris_for_all_stacks)
+    return configured_specs
 
 
 def _is_baseline_row(row: pd.Series) -> bool:
@@ -654,6 +713,8 @@ def build_ml_benchmark_insights(
     )
     if ranked.empty:
         return ["No successful benchmark rows were available for ML insight generation."], {
+            "best_overall_method": None,
+            "best_ml_only_method": None,
             "best_current_overall_ml_stack": None,
             "best_fairness_first_ml_stack": None,
             "best_spread_first_ml_stack": None,
@@ -728,6 +789,8 @@ def build_ml_benchmark_insights(
     spread_ranked = _rank_ml_subset(ml_ranked, ["total_spread", "extra_spread", "mf", "dcv", "runtime_seconds"], [False, False, False, True, True])
     runtime_ranked = _rank_ml_subset(ml_ranked, ["runtime_seconds", "f_score", "mf", "dcv", "total_spread"], [True, False, False, True, False])
 
+    overall_ranked = rank_frame_professor_priority(ranked.copy(), policy_config)
+    best_overall_method = None if overall_ranked.empty else str(overall_ranked.iloc[0]["stack_name"])
     best_overall_ml = None if ml_ranked.empty else str(ml_ranked.iloc[0]["stack_name"])
 
     baseline_ranked = rank_frame_professor_priority(baseline_ranked, policy_config)
@@ -785,6 +848,8 @@ def build_ml_benchmark_insights(
     ]
 
     lines = [
+        f"Best overall method: {best_overall_method or 'n/a'}",
+        f"Best ML-only method: {best_overall_ml or 'n/a'}",
         f"Best current overall ML stack: {best_overall_ml or 'n/a'}",
         f"Best fairness-first ML stack: {best_fairness_ml or 'n/a'}",
         f"Best spread-first ML stack: {best_spread_ml or 'n/a'}",
@@ -811,8 +876,14 @@ def build_ml_benchmark_insights(
             lines.append(f"Least-bad ML method under professor priority: {best_fairness_ml} (warning: fairness gates failed).")
     if skipped_summaries:
         lines.append("Skipped stacks: " + "; ".join(skipped_summaries))
+    if best_overall_method is not None and best_overall_ml is not None and best_overall_method != best_overall_ml:
+        lines.append(
+            "Overall recommendation differs from ML-only recommendation because baseline rows are included."
+        )
 
     recommendations = {
+        "best_overall_method": best_overall_method,
+        "best_ml_only_method": best_overall_ml,
         "best_current_overall_ml_stack": best_overall_ml,
         "best_fairness_first_ml_stack": best_fairness_ml,
         "best_spread_first_ml_stack": best_spread_ml,
@@ -823,7 +894,7 @@ def build_ml_benchmark_insights(
         "best_scalable_method": best_scalable_ml,
         "best_spread_method": best_spread_ml,
         "best_runtime_method": best_fast_ml,
-        "final_professor_priority_recommendation": best_fairness_ml,
+        "final_professor_priority_recommendation": best_overall_method,
         "stacks_needing_more_work": ", ".join(underperformers) if underperformers else None,
     }
     return lines, recommendations
@@ -853,6 +924,7 @@ def run_ml_fim_benchmark(
     insight_thresholds: InsightThresholds,
     ranking_policy: str = "fim_default",
     save_json: bool = False,
+    baseline_inclusion_status: str = "unspecified",
 ) -> MLFIMBenchmarkResult:
     ranking_policy = normalize_ranking_policy(ranking_policy)
     raw_frames: list[pd.DataFrame] = []
@@ -883,6 +955,7 @@ def run_ml_fim_benchmark(
                 raw_frames.append(frame)
 
     raw_comparison_frame = pd.concat(raw_frames, ignore_index=True)
+    reporting_start = pd.Timestamp.now()
     evaluation_result = evaluate_result_frame(
         raw_comparison_frame,
         rank_by=ranking_policy,
@@ -894,6 +967,10 @@ def run_ml_fim_benchmark(
         input_paths=["ml_fim_benchmark"],
         rank_by=ranking_policy,
         report_name=report_name,
+        thresholds=insight_thresholds,
+        print_delta_vs_baseline=bool(base_run_config.print_delta_vs_baseline),
+        print_decision_trace=bool(base_run_config.print_decision_trace),
+        print_collapse_explanations=bool(base_run_config.print_collapse_explanations),
     ).rstrip()
     insight_lines, ml_recommendations = build_ml_benchmark_insights(
         evaluation_result,
@@ -902,29 +979,46 @@ def run_ml_fim_benchmark(
     )
     report_text = (
         base_report
+        + f"\n\nBaseline inclusion: {baseline_inclusion_status}\n"
         + "\n\nML Benchmark Insights\n"
         + "\n".join(f"- {line}" for line in insight_lines)
         + "\n\nML Benchmark Recommendation\n"
         + "\n".join(f"- {key}={value or 'n/a'}" for key, value in ml_recommendations.items())
         + "\n"
     )
+    reporting_seconds = (pd.Timestamp.now() - reporting_start).total_seconds()
+    raw_comparison_frame["time_reporting"] = float(reporting_seconds)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     comparison_csv_path = output_dir / f"{report_name}_comparison.csv"
     normalized_csv_path = output_dir / f"{report_name}_normalized.csv"
     ranked_csv_path = output_dir / f"{report_name}_ranked.csv"
+    delta_vs_baseline_csv_path = output_dir / f"{report_name}_delta_vs_baseline.csv"
     report_path = output_dir / f"{report_name}_report.txt"
     raw_comparison_frame.to_csv(comparison_csv_path, index=False)
     evaluation_result.normalized_frame.to_csv(normalized_csv_path, index=False)
     evaluation_result.ranked_frame.to_csv(ranked_csv_path, index=False)
+    delta_frames: list[pd.DataFrame] = []
+    for group in evaluation_result.group_results:
+        delta_frame = delta_vs_baseline_frame(group.ranked_frame)
+        for key, value in group.context.items():
+            delta_frame[key] = value
+        if not delta_frame.empty:
+            delta_frames.append(delta_frame)
+    if delta_frames:
+        pd.concat(delta_frames, ignore_index=True).to_csv(delta_vs_baseline_csv_path, index=False)
+    else:
+        pd.DataFrame().to_csv(delta_vs_baseline_csv_path, index=False)
     report_path.write_text(report_text, encoding="utf-8")
 
     json_path = None
     if save_json:
         json_path = output_dir / f"{report_name}_summary.json"
-        payload = build_json_summary(evaluation_result)
+        payload = build_json_summary(evaluation_result, thresholds=insight_thresholds)
         payload["ml_benchmark_insights"] = insight_lines
         payload["ml_benchmark_recommendation"] = ml_recommendations
+        payload["baseline_inclusion"] = baseline_inclusion_status
+        payload["reporting_runtime_seconds"] = float(reporting_seconds)
         json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     return MLFIMBenchmarkResult(
@@ -934,6 +1028,7 @@ def run_ml_fim_benchmark(
         comparison_csv_path=comparison_csv_path,
         normalized_csv_path=normalized_csv_path,
         ranked_csv_path=ranked_csv_path,
+        delta_vs_baseline_csv_path=delta_vs_baseline_csv_path,
         report_path=report_path,
         json_path=json_path,
     )
@@ -1021,6 +1116,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--embedding-dim", type=int, default=64)
     parser.add_argument("--use-ris", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--use-fair-ris", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--force-ris-for-all-stacks", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--require-ris", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument(
         "--ris-mode",
@@ -1099,6 +1195,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--adaptive-ris-rr-sets", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--swap-reject-spread-gain-if-fairness-collapses", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--min-budget-node-ratio-warning", type=float, default=0.02)
+    parser.add_argument("--imbalance-ratio-warning-threshold", type=float, default=5.0)
+    parser.add_argument("--warn-if-communities-exceed-budget", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--min-seeds-per-group-warning", type=int, default=5)
     parser.add_argument("--embedding-cache", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--community-cache", action=argparse.BooleanOptionalAction, default=True)
@@ -1137,10 +1235,44 @@ def parse_args() -> argparse.Namespace:
         help="Re-raise the first benchmark stack exception after optional debug traceback output.",
     )
     parser.add_argument(
-        "--include-baseline",
+        "--print-raw-diagnostics",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Print the old raw one-line benchmark diagnostics for debugging.",
+    )
+    parser.add_argument(
+        "--debug-diagnostics",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Print detailed debug diagnostics, including raw internal diagnostics.",
+    )
+    parser.add_argument(
+        "--print-stack-summary",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Include the non-ML community-aware baseline in the benchmark.",
+        help="Print resolved algorithm/module composition before each FIM stack starts.",
+    )
+    parser.add_argument("--print-experiment-header", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--print-budget-check", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--print-runtime-breakdown", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--print-seed-diagnostics", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--print-group-influence", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--print-score-diagnostics", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--print-optimizer-diagnostics", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--print-delta-vs-baseline", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--print-decision-trace", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--print-collapse-explanations", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--verbose-evaluation-report",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable all detailed terminal/report diagnostics.",
+    )
+    parser.add_argument(
+        "--include-baseline",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Include the non-ML community-aware baseline in the benchmark. Use --no-include-baseline to disable auto-inclusion.",
     )
     parser.add_argument(
         "--include-weak-ml-baselines",
@@ -1166,10 +1298,38 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if bool(args.debug_diagnostics):
+        args.print_raw_diagnostics = True
+    if bool(args.verbose_evaluation_report):
+        for flag_name in (
+            "print_experiment_header",
+            "print_budget_check",
+            "print_stack_summary",
+            "print_runtime_breakdown",
+            "print_seed_diagnostics",
+            "print_group_influence",
+            "print_score_diagnostics",
+            "print_optimizer_diagnostics",
+            "print_delta_vs_baseline",
+            "print_decision_trace",
+            "print_collapse_explanations",
+        ):
+            setattr(args, flag_name, True)
     dataset_config = build_dataset_config(args)
+    if args.include_baseline is None:
+        include_baseline = True
+        baseline_inclusion_status = "auto-included"
+        print("Baseline auto-included by default.")
+    elif bool(args.include_baseline):
+        include_baseline = True
+        baseline_inclusion_status = "explicit"
+    else:
+        include_baseline = False
+        baseline_inclusion_status = "disabled"
+    print(f"Baseline inclusion: {baseline_inclusion_status}.")
     specs = resolve_ml_benchmark_specs(
         ml_stacks=args.ml_stacks,
-        include_baseline=bool(args.include_baseline),
+        include_baseline=include_baseline,
         embedding_methods=args.embedding_methods,
         ranking_models=args.ranking_models,
         community_method=args.community_method,
@@ -1180,6 +1340,7 @@ def main() -> None:
         include_weak_ml_baselines=bool(args.include_weak_ml_baselines),
         use_ris=bool(args.use_ris),
         use_fair_ris=bool(args.use_fair_ris),
+        force_ris_for_all_stacks=bool(args.force_ris_for_all_stacks),
     )
     output_dir = _resolve_repo_path(args.output_dir)
     if output_dir is None:
@@ -1223,6 +1384,7 @@ def main() -> None:
         ris_num_rr_sets=int(args.ris_num_rr_sets),
         use_ris=bool(args.use_ris),
         use_fair_ris=bool(args.use_fair_ris),
+        force_ris_for_all_stacks=bool(args.force_ris_for_all_stacks),
         require_ris=bool(args.require_ris),
         ris_mode=str(args.ris_mode),
         ris_reuse_rr_sets=bool(args.ris_reuse_rr_sets),
@@ -1293,6 +1455,8 @@ def main() -> None:
         majority_overconcentration_threshold=float(args.majority_overconcentration_threshold),
         swap_reject_spread_gain_if_fairness_collapses=bool(args.swap_reject_spread_gain_if_fairness_collapses),
         min_budget_node_ratio_warning=float(args.min_budget_node_ratio_warning),
+        imbalance_ratio_warning_threshold=float(args.imbalance_ratio_warning_threshold),
+        warn_if_communities_exceed_budget=bool(args.warn_if_communities_exceed_budget),
         min_seeds_per_group_warning=int(args.min_seeds_per_group_warning),
         scalability_mode=str(args.scalability_mode),
         max_candidate_pool_size=int(args.max_candidate_pool_size),
@@ -1300,6 +1464,19 @@ def main() -> None:
         adaptive_ris_rr_sets=bool(args.adaptive_ris_rr_sets),
         community_cache=bool(args.community_cache),
         ris_cache=bool(args.ris_cache),
+        print_experiment_header=bool(args.print_experiment_header),
+        print_budget_check=bool(args.print_budget_check),
+        print_stack_summary=bool(args.print_stack_summary),
+        print_runtime_breakdown=bool(args.print_runtime_breakdown),
+        print_seed_diagnostics=bool(args.print_seed_diagnostics),
+        print_group_influence=bool(args.print_group_influence),
+        print_score_diagnostics=bool(args.print_score_diagnostics),
+        print_optimizer_diagnostics=bool(args.print_optimizer_diagnostics),
+        print_delta_vs_baseline=bool(args.print_delta_vs_baseline),
+        print_decision_trace=bool(args.print_decision_trace),
+        print_collapse_explanations=bool(args.print_collapse_explanations),
+        print_raw_diagnostics=bool(args.print_raw_diagnostics),
+        debug_diagnostics=bool(args.debug_diagnostics),
         spread_proxy_weight=spread_proxy_weight,
     )
     insight_thresholds = InsightThresholds(
@@ -1324,6 +1501,7 @@ def main() -> None:
         insight_thresholds=insight_thresholds,
         ranking_policy=ranking_policy,
         save_json=bool(args.save_json),
+        baseline_inclusion_status=baseline_inclusion_status,
     )
     print(result.report_text.rstrip())
     if result.comparison_csv_path is not None:
@@ -1331,6 +1509,7 @@ def main() -> None:
         print(f"Saved comparison CSV: {result.comparison_csv_path}")
         print(f"Saved normalized CSV: {result.normalized_csv_path}")
         print(f"Saved ranked CSV: {result.ranked_csv_path}")
+        print(f"Saved delta-vs-baseline CSV: {result.delta_vs_baseline_csv_path}")
         print(f"Saved report: {result.report_path}")
         if result.json_path is not None:
             print(f"Saved JSON summary: {result.json_path}")

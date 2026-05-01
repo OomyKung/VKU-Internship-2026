@@ -1,0 +1,127 @@
+FIM Result Evaluation
+====================================================================================================
+Report: ml_fim_benchmark
+Inputs: ml_fim_benchmark
+Rows loaded: 4
+Ranking mode: professor_priority
+
+Global Warnings
+------------------------------------------------------------------------
+- 1 method(s) were placed after fairness-collapse filters.
+
+Group 1: dataset=synth2 | protected_attribute=color | budget=40
+------------------------------------------------------------------------
+Rows: 4 methods | ranking=professor_priority | aggregated_runs=no
+
+Rank  Method                         F-score   MF      DCV     Spread   Extra   Runtime
+1     gcn_community_siea             0.0397   0.0871  0.0077  44.240   4.240   28.763s
+2     node2vec_xgboost_community_... 0.0397   0.0868  0.0074  44.070   4.070   28.234s
+3     community_aware_fair_greedy    0.0381   0.0854  0.0092  43.490   3.490   51.131s
+4     graphsage_community_siea       -0.1792  0.0212  0.3795  43.937   3.937   29.538s
+
+Delta vs community_aware_fair_greedy
+------------------------------------------------------------------------
+Method                         dF-score  dMF      dDCV     dSpread   dExtra    Speedup
+gcn_community_siea             0.0016    0.0017   -0.0015  0.750     0.750     1.78x
+node2vec_xgboost_community_... 0.0016    0.0015   -0.0018  0.580     0.580     1.81x
+graphsage_community_siea       -0.2172   -0.0642  0.3703   0.447     0.447     1.73x
+
+Professor-Priority Decision Trace
+------------------------------------------------------------------------
+Winner                        : gcn_community_siea
+Reason                        : highest valid F-score under professor-priority ordering
+F-score gap vs 2nd            : 0.0000
+MF gap vs 2nd                 : 0.0003
+DCV gap vs 2nd                : 0.0003
+Fairness gate passed?         : pass
+Scalability gate passed?      : Yes
+Spread rank                   : 1
+Runtime rank                  : 2
+Final decision                : Selected by fairness quality before runtime.
+
+Instant Insights
+- Overall winner: gcn_community_siea
+- Best ML-only method: gcn_community_siea
+- Best spread: gcn_community_siea
+- Best fairness profile: gcn_community_siea
+- Fastest method: node2vec_xgboost_community_siea
+- Result closeness: close overall result; top f_score gap is 0.0000
+- Warning: graphsage_community_siea shows a fairness collapse signal.
+- Best practical choice: gcn_community_siea
+- Best interpretable baseline: community_aware_fair_greedy
+- Professor-priority recommendation: gcn_community_siea
+
+Fairness Collapse Explanation
+------------------------------------------------------------------------
+Method                      : graphsage_community_siea
+Reason                      : F-score below threshold; F-score is negative; DCV too high; min_f_score; max_dcv
+MF                          : 0.0212
+DCV                         : 0.3795
+F-score                     : -0.1792
+Weakest Group               : 0
+Likely Cause                : spread-heavy seed selection under-covered the weakest protected group
+Recommended Fix             : increase Fair RIS / weak-group weights; reduce spread_proxy/ml weights if fairness remains unstable
+
+Per-Method Notes
+- gcn_community_siea: Best overall fairness-adjusted result; RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=128 | ris_verified=True | fair_ris_verified=True; Algorithms: embedding=Graph Convolutional Network | ml_ranking=GCN + Fair RIS scoring | community=Leiden | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=Swarm Intelligence + Evolutionary Algorithm | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+- node2vec_xgboost_community_siea: Fastest evaluated method; RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=128 | ris_verified=True | fair_ris_verified=True; Algorithms: embedding=Node2Vec | ml_ranking=XGBoost node scorer | community=Leiden | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=Swarm Intelligence + Evolutionary Algorithm | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+- community_aware_fair_greedy: Best interpretable baseline; RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=128 | ris_verified=True | fair_ris_verified=True; Algorithms: embedding=None | ml_ranking=None | community=Leiden | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=Fairness-weighted greedy + local search | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+- graphsage_community_siea: Fairness collapse warning: DCV extremely high; F-score below fairness threshold; not recommended as default; RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=128 | ris_verified=True | fair_ris_verified=True; Algorithms: embedding=GraphSAGE | ml_ranking=GraphSAGE + Fair RIS scoring | community=Leiden | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=Swarm Intelligence + Evolutionary Algorithm | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+
+Warnings
+- 1 method(s) were placed after fairness-collapse filters.
+
+Recommendation
+- best_overall_method=gcn_community_siea
+- best_ml_only_method=gcn_community_siea
+- best_fairness_first_method=gcn_community_siea
+- best_spread_first_method=gcn_community_siea
+- best_runtime_first_method=node2vec_xgboost_community_siea
+- best_interpretable_baseline=community_aware_fair_greedy
+- best_exploratory_comparator=n/a
+- best_practical_choice=gcn_community_siea
+- best_fairness_quality_method=gcn_community_siea
+- best_scalable_method=gcn_community_siea
+- best_spread_method=gcn_community_siea
+- best_runtime_method=node2vec_xgboost_community_siea
+- final_professor_priority_recommendation=gcn_community_siea
+
+Final Recommendation
+------------------------------------------------------------------------
+Best Fairness-Quality Method  : gcn_community_siea
+Best Scalable Method          : gcn_community_siea
+Best Spread Method            : gcn_community_siea
+Best Runtime Method           : node2vec_xgboost_community_siea
+Best Interpretable Baseline   : community_aware_fair_greedy
+Professor-Priority Choice     : gcn_community_siea
+Decision Summary              : Selected by fairness quality before runtime.
+
+Baseline inclusion: explicit
+
+
+ML Benchmark Insights
+- Best overall method: gcn_community_siea
+- Best ML-only method: gcn_community_siea
+- Best current overall ML stack: gcn_community_siea
+- Best fairness-first ML stack: gcn_community_siea
+- Best spread-first ML stack: gcn_community_siea
+- Best fast ML stack: node2vec_xgboost_community_siea
+- Best interpretable baseline: community_aware_fair_greedy
+- Strongest practical default: gcn_community_siea
+- Close result; top two ML F-scores differ by 0.0000.
+
+ML Benchmark Recommendation
+- best_overall_method=gcn_community_siea
+- best_ml_only_method=gcn_community_siea
+- best_current_overall_ml_stack=gcn_community_siea
+- best_fairness_first_ml_stack=gcn_community_siea
+- best_spread_first_ml_stack=gcn_community_siea
+- best_fast_ml_stack=node2vec_xgboost_community_siea
+- best_interpretable_baseline=community_aware_fair_greedy
+- strongest_practical_default=gcn_community_siea
+- best_fairness_quality_method=gcn_community_siea
+- best_scalable_method=gcn_community_siea
+- best_spread_method=gcn_community_siea
+- best_runtime_method=node2vec_xgboost_community_siea
+- final_professor_priority_recommendation=gcn_community_siea
+- stacks_needing_more_work=n/a

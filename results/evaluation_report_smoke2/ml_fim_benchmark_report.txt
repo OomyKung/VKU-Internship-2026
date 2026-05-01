@@ -1,0 +1,119 @@
+FIM Result Evaluation
+====================================================================================================
+Report: ml_fim_benchmark
+Inputs: ml_fim_benchmark
+Rows loaded: 1
+Ranking mode: professor_priority
+
+Global Warnings
+------------------------------------------------------------------------
+- 1 method(s) were placed after fairness-collapse filters.
+- No method passed professor-priority fairness gates; showing the least-bad method by F-score, MF, DCV, scalability, spread, extra spread, then runtime.
+- No method passed professor-priority fairness gates; recommending the least-bad method with warning.
+
+Group 1: dataset=synth3 | protected_attribute=color | budget=2
+------------------------------------------------------------------------
+Rows: 1 methods | ranking=professor_priority | aggregated_runs=no
+
+Rank  Method                         F-score   MF      DCV     Spread   Extra   Runtime
+1     community_aware_fair_greedy    -0.1944  0.0000  0.3889  2.000    0.000   0.257s
+
+Delta vs community_aware_fair_greedy
+------------------------------------------------------------------------
+No baseline deltas available.
+
+Professor-Priority Decision Trace
+------------------------------------------------------------------------
+Winner                        : community_aware_fair_greedy
+Reason                        : least-bad method; no method passed fairness gates
+F-score gap vs 2nd            : n/a
+MF gap vs 2nd                 : n/a
+DCV gap vs 2nd                : n/a
+Fairness gate passed?         : fail
+Scalability gate passed?      : Yes
+Spread rank                   : 1
+Runtime rank                  : 1
+Final decision                : No method passed fairness gates; selected row is least-bad only, not a strong default.
+
+Instant Insights
+- Overall winner: community_aware_fair_greedy
+- Best spread: community_aware_fair_greedy
+- Best fairness profile: community_aware_fair_greedy
+- Fastest method: community_aware_fair_greedy
+- Warning: community_aware_fair_greedy shows a fairness collapse signal.
+- Best practical choice: community_aware_fair_greedy
+- Best interpretable baseline: community_aware_fair_greedy
+- Professor-priority recommendation: community_aware_fair_greedy
+
+Fairness Collapse Explanation
+------------------------------------------------------------------------
+Method                      : community_aware_fair_greedy
+Reason                      : F-score below threshold; F-score is negative; MF near zero; DCV too high; zero-covered protected groups; min_f_score; min_mf; max_dcv; zero_covered_groups; min_fraction_groups_covered
+MF                          : 0.0000
+DCV                         : 0.3889
+F-score                     : -0.1944
+Weakest Group               : 0
+Likely Cause                : spread-heavy seed selection under-covered the weakest protected group
+Recommended Fix             : increase Fair RIS / weak-group weights; reduce spread_proxy/ml weights if fairness remains unstable
+
+Per-Method Notes
+- community_aware_fair_greedy: Best overall fairness-adjusted result; Fastest evaluated method; Best interpretable baseline; Fairness collapse warning: MF near zero; Fairness collapse warning: DCV extremely high; F-score below fairness threshold; not recommended as default; Fairness collapse warning: protected-group coverage below threshold; RIS config: search_estimator=monte_carlo | final_estimator=monte_carlo | fair_ris=False | ris_rr_sets=128 | ris_verified=False | fair_ris_verified=False; Algorithms: embedding=None | ml_ranking=None | community=Leiden | diffusion=Independent Cascade | search=Monte Carlo | optimizer=Fairness-weighted greedy | repair=Fairness-first repair | local_refinement=Disabled | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+
+Warnings
+- 1 method(s) were placed after fairness-collapse filters.
+- No method passed professor-priority fairness gates; showing the least-bad method by F-score, MF, DCV, scalability, spread, extra spread, then runtime.
+- No method passed professor-priority fairness gates; recommending the least-bad method with warning.
+
+Recommendation
+- best_overall_method=community_aware_fair_greedy
+- best_ml_only_method=n/a
+- best_fairness_first_method=community_aware_fair_greedy
+- best_spread_first_method=community_aware_fair_greedy
+- best_runtime_first_method=community_aware_fair_greedy
+- best_interpretable_baseline=community_aware_fair_greedy
+- best_exploratory_comparator=n/a
+- best_practical_choice=community_aware_fair_greedy
+- best_fairness_quality_method=community_aware_fair_greedy
+- best_scalable_method=community_aware_fair_greedy
+- best_spread_method=community_aware_fair_greedy
+- best_runtime_method=community_aware_fair_greedy
+- final_professor_priority_recommendation=community_aware_fair_greedy
+
+Final Recommendation
+------------------------------------------------------------------------
+Best Fairness-Quality Method  : community_aware_fair_greedy
+Best Scalable Method          : community_aware_fair_greedy
+Best Spread Method            : community_aware_fair_greedy
+Best Runtime Method           : community_aware_fair_greedy
+Best Interpretable Baseline   : community_aware_fair_greedy
+Professor-Priority Choice     : least-bad method only
+Decision Summary              : no method passed fairness gates; do not claim as final default.
+
+Baseline inclusion: disabled
+
+
+ML Benchmark Insights
+- Best overall method: community_aware_fair_greedy
+- Best ML-only method: n/a
+- Best current overall ML stack: n/a
+- Best fairness-first ML stack: n/a
+- Best spread-first ML stack: n/a
+- Best fast ML stack: n/a
+- Best interpretable baseline: community_aware_fair_greedy
+- Strongest practical default: n/a
+
+ML Benchmark Recommendation
+- best_overall_method=community_aware_fair_greedy
+- best_ml_only_method=n/a
+- best_current_overall_ml_stack=n/a
+- best_fairness_first_ml_stack=n/a
+- best_spread_first_ml_stack=n/a
+- best_fast_ml_stack=n/a
+- best_interpretable_baseline=community_aware_fair_greedy
+- strongest_practical_default=n/a
+- best_fairness_quality_method=n/a
+- best_scalable_method=n/a
+- best_spread_method=n/a
+- best_runtime_method=n/a
+- final_professor_priority_recommendation=community_aware_fair_greedy
+- stacks_needing_more_work=n/a

@@ -29,6 +29,9 @@ from fim_hybrid.permutations import (  # noqa: E402
 from fim_hybrid.priority_policy import PROFESSOR_PRIORITY, normalize_ranking_policy  # noqa: E402
 from fim_hybrid.ml_training import available_ranking_models  # noqa: E402
 
+_SPREAD_SEARCH_CHOICES = ("auto", "monte_carlo", "ris", "fairness_aware_ris")
+_SPREAD_FINAL_CHOICES = ("monte_carlo",)
+
 
 def _resolve_repo_path(path_value: str | None) -> Path | None:
     if path_value is None:
@@ -37,6 +40,86 @@ def _resolve_repo_path(path_value: str | None) -> Path | None:
     if path.is_absolute():
         return path
     return ROOT / path
+
+
+def _normalize_spread_estimator_search(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"", "auto"}:
+        return "auto"
+    if normalized in {"mc", "montecarlo", "monte_carlo"}:
+        return "monte_carlo"
+    if normalized == "ris_guidance":
+        return "ris"
+    if normalized not in {"ris", "fairness_aware_ris"}:
+        raise ValueError(f"Unsupported spread estimator search value '{value}'.")
+    return normalized
+
+
+def _legacy_spread_estimator_for_settings(search_estimator: str) -> str:
+    if search_estimator == "auto":
+        return "auto"
+    if search_estimator == "monte_carlo":
+        return "mc"
+    return "ris_guidance"
+
+
+def _resolve_cli_search_estimator(args: argparse.Namespace) -> str:
+    raw_search = args.spread_estimator_search if args.spread_estimator_search is not None else args.spread_estimator
+    search = _normalize_spread_estimator_search(raw_search)
+    if bool(args.force_ris_for_all_stacks):
+        if search == "monte_carlo":
+            raise ValueError(
+                "--force-ris-for-all-stacks conflicts with Monte Carlo search. "
+                "Use --spread-estimator-search ris or fairness_aware_ris."
+            )
+        if bool(args.use_fair_ris):
+            return "fairness_aware_ris"
+        if bool(args.use_ris) or search == "ris":
+            return "ris"
+        if search == "fairness_aware_ris":
+            return "fairness_aware_ris"
+        return "fairness_aware_ris"
+    if bool(args.use_fair_ris):
+        return "fairness_aware_ris"
+    if bool(args.use_ris):
+        return "ris"
+    return search
+
+
+def _apply_cli_ris_control(spec: FIMPermutationSpec, args: argparse.Namespace) -> FIMPermutationSpec:
+    search = _resolve_cli_search_estimator(args)
+    if bool(args.require_ris) and search == "monte_carlo":
+        raise ValueError("--require-ris requires RIS search; use --spread-estimator-search ris or fairness_aware_ris.")
+    if search == "auto":
+        return spec
+    if search == "fairness_aware_ris":
+        return replace(
+            spec,
+            spread_estimator_search="fairness_aware_ris",
+            spread_estimator_final="monte_carlo",
+            use_ris_guidance=True,
+            use_fair_ris=True,
+            notes="; ".join(part for part in [spec.notes, "fair_ris_explicit=true"] if part),
+        )
+    if search == "ris":
+        return replace(
+            spec,
+            spread_estimator_search="ris",
+            spread_estimator_final="monte_carlo",
+            use_ris_guidance=True,
+            use_fair_ris=False,
+            fair_ris_weight=0.0,
+            notes="; ".join(part for part in [spec.notes, "ris_explicit=true"] if part),
+        )
+    return replace(
+        spec,
+        spread_estimator_search="monte_carlo",
+        spread_estimator_final="monte_carlo",
+        use_ris_guidance=False,
+        use_fair_ris=False,
+        fair_ris_weight=0.0,
+        notes="; ".join(part for part in [spec.notes, "ris_disabled_explicit=true"] if part),
+    )
 
 
 def _rule(character: str = "=") -> str:
@@ -767,7 +850,7 @@ def _direct_weight_defaults(args: argparse.Namespace, spec: FIMPermutationSpec) 
 
 
 def _run_direct_fim_stack(args: argparse.Namespace, dataset_config: DatasetConfig) -> pd.DataFrame:
-    spec = _preset_spec(args)
+    spec = _apply_cli_ris_control(_preset_spec(args), args)
     weights = _direct_weight_defaults(args, spec)
     requested_policy = normalize_ranking_policy(args.ranking_policy)
     effective_ranking_policy = spec.ranking_policy if requested_policy == "fim_default" else requested_policy
@@ -794,6 +877,8 @@ def _run_direct_fim_stack(args: argparse.Namespace, dataset_config: DatasetConfi
         ris_num_rr_sets=int(args.ris_num_rr_sets),
         use_ris=bool(spec.use_ris_guidance),
         use_fair_ris=bool(spec.use_fair_ris),
+        force_ris_for_all_stacks=bool(args.force_ris_for_all_stacks),
+        require_ris=bool(args.require_ris),
         ris_mode=str(args.ris_mode),
         ris_reuse_rr_sets=bool(args.ris_reuse_rr_sets),
         embedding_dim=int(args.embedding_dim),
@@ -879,7 +964,20 @@ def _run_direct_fim_stack(args: argparse.Namespace, dataset_config: DatasetConfi
         repair_mode=str(args.repair_mode),
         swap_reject_spread_gain_if_fairness_collapses=bool(args.swap_reject_spread_gain_if_fairness_collapses),
         min_budget_node_ratio_warning=float(args.min_budget_node_ratio_warning),
+        imbalance_ratio_warning_threshold=float(args.imbalance_ratio_warning_threshold),
+        warn_if_communities_exceed_budget=bool(args.warn_if_communities_exceed_budget),
         min_seeds_per_group_warning=int(args.min_seeds_per_group_warning),
+        print_experiment_header=bool(args.print_experiment_header),
+        print_budget_check=bool(args.print_budget_check),
+        print_stack_summary=bool(args.print_stack_summary),
+        print_runtime_breakdown=bool(args.print_runtime_breakdown),
+        print_seed_diagnostics=bool(args.print_seed_diagnostics),
+        print_group_influence=bool(args.print_group_influence),
+        print_score_diagnostics=bool(args.print_score_diagnostics),
+        print_optimizer_diagnostics=bool(args.print_optimizer_diagnostics),
+        print_delta_vs_baseline=bool(args.print_delta_vs_baseline),
+        print_decision_trace=bool(args.print_decision_trace),
+        print_collapse_explanations=bool(args.print_collapse_explanations),
     )
     result = run_fim_permutation_benchmark_from_config(
         dataset_config=dataset_config,
@@ -1012,6 +1110,18 @@ def parse_args() -> argparse.Namespace:
         help="Alias for the search-time spread-estimation/guidance family. Final reported evaluation remains Monte Carlo.",
     )
     parser.add_argument(
+        "--spread-estimator-search",
+        choices=list(_SPREAD_SEARCH_CHOICES),
+        default=None,
+        help="Search-time spread estimator/guidance. Overrides --spread-estimator when provided.",
+    )
+    parser.add_argument(
+        "--spread-estimator-final",
+        choices=list(_SPREAD_FINAL_CHOICES),
+        default="monte_carlo",
+        help="Final estimator for reported evaluation. Currently only monte_carlo is accepted.",
+    )
+    parser.add_argument(
         "--propagation-prob",
         type=float,
         default=0.01,
@@ -1091,7 +1201,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--embedding-method", choices=["none", "graphsage", "gcn", "node2vec"], default=None, help="Embedding/scoring method used when --pipeline-mode ml_guided_community_siea is selected.")
     parser.add_argument("--embedding-dim", type=int, default=32, help="Embedding dimension used by direct ML-guided FIM stack presets.")
     parser.add_argument("--optimizer-mode", choices=["hybrid_si_ea", "local_search"], default="hybrid_si_ea", help="Optimizer mode metadata for --fim-stack presets.")
+    parser.add_argument("--use-ris", action=argparse.BooleanOptionalAction, default=False, help="Enable standard RIS guidance in --fim-stack presets.")
     parser.add_argument("--use-fair-ris", action=argparse.BooleanOptionalAction, default=None, help="Enable Fair RIS guidance in --fim-stack presets.")
+    parser.add_argument("--force-ris-for-all-stacks", action=argparse.BooleanOptionalAction, default=False, help="Force RIS/Fair RIS search guidance for direct FIM stack presets.")
+    parser.add_argument("--require-ris", action=argparse.BooleanOptionalAction, default=False, help="Fail direct FIM stack runs if RIS verification does not pass.")
     parser.add_argument("--use-community-features", action=argparse.BooleanOptionalAction, default=True, help="Include community features in ML scoring inputs for --fim-stack presets.")
     parser.add_argument(
         "--allow-protected-features-in-ml",
@@ -1307,7 +1420,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ris-num-rr-sets", type=int, default=256, help="Number of RR sets generated for RIS guidance.")
     parser.add_argument("--ris-random-seed", type=int, default=None, help="Optional RIS-specific random seed. Defaults to --random-seed.")
     parser.add_argument("--ris-reuse-rr-sets", action=argparse.BooleanOptionalAction, default=True, help="Reuse one RR-set sample across RIS-using variants in the same run.")
-    parser.add_argument("--ris-mode", choices=["global", "weak_group_weighted"], default="global", help="RIS scoring mode used for search-time guidance.")
+    parser.add_argument("--ris-mode", choices=["standard", "global", "weak_group_weighted", "group_balanced"], default="weak_group_weighted", help="RIS scoring mode used for search-time guidance.")
     parser.add_argument("--graphsage-weight", type=float, default=None, help="Optional alias for the GraphSAGE prior weight inside combined guidance scores. Overrides --gnn-weight when provided.")
     parser.add_argument("--gnn-weight", type=float, default=1.0, help="Weight of the GNN prior inside combined guidance scores.")
     parser.add_argument("--ris-weight", type=float, default=1.0, help="Weight of the RIS prior inside combined guidance scores.")
@@ -1335,6 +1448,9 @@ def main() -> None:
     community_method_config = json.loads(args.community_method_config_json)
     if not isinstance(community_method_config, dict):
         raise ValueError("--community-method-config-json must parse to a JSON object.")
+    effective_search_estimator = _resolve_cli_search_estimator(args)
+    if bool(args.require_ris) and effective_search_estimator not in {"ris", "fairness_aware_ris"}:
+        raise ValueError("--require-ris requires --spread-estimator-search ris or fairness_aware_ris.")
     _resolve_pipeline_mode_stack(args)
     if args.fim_stack is not None:
         _run_direct_fim_stack(args, dataset_config)
@@ -1352,11 +1468,14 @@ def main() -> None:
                 resolved_ml_backend = "gnn_ris"
             elif resolved_ml_backend == "tabular":
                 resolved_ml_backend = "ris"
-    if args.spread_estimator == "ris_guidance":
+    if effective_search_estimator in {"ris", "fairness_aware_ris"}:
         if resolved_ml_backend == "gnn":
             resolved_ml_backend = "gnn_ris"
         elif resolved_ml_backend == "tabular":
             resolved_ml_backend = "ris"
+    resolved_fair_ris_weight = float(args.fair_ris_weight)
+    if effective_search_estimator == "fairness_aware_ris" and resolved_fair_ris_weight <= 0.0:
+        resolved_fair_ris_weight = 1.0
     resolved_fairness_first_init_enabled = args.fairness_first_init_enabled
     resolved_fairness_first_init_slots = args.fairness_first_init_slots
     resolved_fairness_first_init_weight = args.fairness_first_init_weight
@@ -1391,7 +1510,7 @@ def main() -> None:
         protected_attribute=args.protected_attribute,
         budget=args.budget,
         diffusion_model=args.diffusion_model,
-        spread_estimator=args.spread_estimator,
+        spread_estimator=_legacy_spread_estimator_for_settings(effective_search_estimator),
         community_method=args.community_methods[0],
         community_input_mode=args.community_input_mode,
         community_n_clusters=args.community_n_clusters,
@@ -1444,7 +1563,7 @@ def main() -> None:
         graphsage_weight=args.graphsage_weight,
         gnn_weight=args.gnn_weight,
         ris_weight=args.ris_weight,
-        fair_ris_weight=args.fair_ris_weight,
+        fair_ris_weight=resolved_fair_ris_weight,
         fairness_urgency_weight=args.fairness_urgency_weight,
         diversity_weight=args.diversity_weight,
         node2vec_dimensions=args.node2vec_dimensions,

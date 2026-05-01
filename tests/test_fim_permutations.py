@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 import io
 from pathlib import Path
 import shutil
@@ -109,14 +109,17 @@ class FIMPermutationTestCase(unittest.TestCase):
                 swap_candidate_pool_size=4,
                 local_search_steps=1,
             )
-            result = run_fim_permutation_benchmark(
-                dataset,
-                report,
-                config,
-                permutations=["community_aware_fair_greedy"],
-            )
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                result = run_fim_permutation_benchmark(
+                    dataset,
+                    report,
+                    config,
+                    permutations=["community_aware_fair_greedy"],
+                )
 
             frame = result.summary_frame
+            self.assertNotIn("Benchmark diagnostics |", stdout.getvalue())
             self.assertEqual(frame.loc[0, "status"], "ok")
             self.assertEqual(frame.loc[0, "stack_name"], "community_aware_fair_greedy")
             self.assertEqual(frame.loc[0, "final_spread_estimator"], "monte_carlo")
@@ -127,8 +130,42 @@ class FIMPermutationTestCase(unittest.TestCase):
             self.assertIn("f_score", frame.columns)
             self.assertIn("ranking_model", frame.columns)
             self.assertIn("clustering_input_mode", frame.columns)
+            self.assertIn("diagnostics_json", frame.columns)
+            self.assertIn("protected_group_counts", str(frame.loc[0, "diagnostics_json"]))
             self.assertTrue(result.comparison_csv_path is not None and result.comparison_csv_path.is_file())
             self.assertTrue(result.report_path is not None and result.report_path.is_file())
+
+    def test_raw_benchmark_diagnostics_can_be_enabled(self) -> None:
+        dataset, report = _toy_dataset()
+        with _WorkspaceScratchDir() as output_dir:
+            config = FIMPermutationRunConfig(
+                protected_attribute="group",
+                budget=2,
+                propagation_probability=0.0,
+                mc_runs_search=2,
+                mc_runs_eval=3,
+                random_seed=7,
+                output_dir=output_dir,
+                print_raw_diagnostics=True,
+                print_experiment_header=False,
+                print_budget_check=False,
+                print_stack_summary=False,
+                print_runtime_breakdown=False,
+                print_seed_diagnostics=False,
+                print_group_influence=False,
+                print_score_diagnostics=False,
+                print_optimizer_diagnostics=False,
+            )
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                run_fim_permutation_benchmark(
+                    dataset,
+                    report,
+                    config,
+                    permutations=["community_aware_fair_greedy"],
+                )
+
+            self.assertIn("Benchmark diagnostics |", stdout.getvalue())
 
     def test_leiden_graphsage_fair_ris_hybrid_delegates_to_existing_experiment_runner(self) -> None:
         dataset, report = _toy_dataset()

@@ -114,6 +114,43 @@ class RunMlFimBenchmarkTestCase(unittest.TestCase):
         self.assertIn("line_fast_ml", stack_names)
         self.assertIn("deepwalk_mlp", stack_names)
 
+    def test_force_fair_ris_rewrites_baseline_and_ml_stacks(self) -> None:
+        specs = resolve_ml_benchmark_specs(
+            ml_stacks=["graphsage_community_siea"],
+            include_baseline=True,
+            embedding_methods=None,
+            ranking_models=None,
+            community_method=None,
+            clustering_method=None,
+            spread_estimator_search="fairness_aware_ris",
+            spread_estimator_final="monte_carlo",
+            optimizer_mode=None,
+            use_fair_ris=True,
+            force_ris_for_all_stacks=True,
+        )
+
+        by_name = {spec.name: spec for spec in specs}
+        self.assertEqual(by_name["community_aware_fair_greedy"].spread_estimator_search, "fairness_aware_ris")
+        self.assertTrue(by_name["community_aware_fair_greedy"].use_ris_guidance)
+        self.assertTrue(by_name["community_aware_fair_greedy"].use_fair_ris)
+        self.assertEqual(by_name["graphsage_community_siea"].spread_estimator_search, "fairness_aware_ris")
+        self.assertTrue(by_name["graphsage_community_siea"].use_fair_ris)
+
+    def test_force_ris_rejects_monte_carlo_search(self) -> None:
+        with self.assertRaisesRegex(ValueError, "conflicts"):
+            resolve_ml_benchmark_specs(
+                ml_stacks=["graphsage_community_siea"],
+                include_baseline=True,
+                embedding_methods=None,
+                ranking_models=None,
+                community_method=None,
+                clustering_method=None,
+                spread_estimator_search="monte_carlo",
+                spread_estimator_final="monte_carlo",
+                optimizer_mode=None,
+                force_ris_for_all_stacks=True,
+            )
+
     def test_resolve_ml_benchmark_specs_generates_custom_stack_when_filters_eliminate_named_ones(self) -> None:
         specs = resolve_ml_benchmark_specs(
             ml_stacks=["strong_ml"],
