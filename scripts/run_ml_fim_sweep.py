@@ -1125,6 +1125,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--gnn-weight-decay", type=float, default=5e-4)
     parser.add_argument("--embedding-dim", type=int, default=64)
     parser.add_argument("--ris-num-rr-sets", type=int, default=128)
+    parser.add_argument("--ris-cache", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--ris-cache-dir", default=None)
+    parser.add_argument("--regenerate-ris-cache", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--evaluation-mode", choices=["fast_search", "final_confirmation", "debug_mc"], default=None)
+    parser.add_argument("--ris-mc-sanity-check", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--ris-mc-sanity-check-seeds", type=int, default=20)
     parser.add_argument("--swap-candidate-pool-size", type=int, default=24)
     parser.add_argument("--local-search-steps", type=int, default=1)
     parser.add_argument("--ranking-top-fraction", type=float, default=0.5)
@@ -1155,7 +1161,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--use-protected-group-quota-initialization", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--small-group-seed-fraction", type=float, default=0.10)
     parser.add_argument("--initialization-quota-mode", choices=["proportional", "sqrt", "uniform_min"], default="sqrt")
-    parser.add_argument("--score-normalization", choices=["global", "per_group", "hybrid"], default="global")
+    parser.add_argument("--score-normalization", choices=["global", "per_group", "hybrid"], default=None)
     parser.add_argument("--large-imbalance-ml-score-weight", type=float, default=0.4)
     parser.add_argument("--large-imbalance-ris-score-weight", type=float, default=0.5)
     parser.add_argument("--large-imbalance-fair-ris-score-weight", type=float, default=2.0)
@@ -1173,6 +1179,21 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--use-fairness-first-swap-acceptance", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--fairness-tolerance-fscore-drop", type=float, default=0.001)
     parser.add_argument("--fairness-tolerance-dcv", type=float, default=0.005)
+    parser.add_argument("--use-dcv-targeting", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--dcv-target-weight", type=float, default=3.0)
+    parser.add_argument("--parity-error-weight", type=float, default=2.0)
+    parser.add_argument("--over-served-penalty-weight", type=float, default=2.0)
+    parser.add_argument("--under-served-bonus-weight", type=float, default=1.5)
+    parser.add_argument("--parity-tolerance", type=float, default=0.005)
+    parser.add_argument("--use-over-served-group-penalty", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--use-dcv-first-swap-acceptance", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--dcv-improvement-epsilon", type=float, default=0.0005)
+    parser.add_argument("--mf-drop-tolerance", type=float, default=0.001)
+    parser.add_argument("--fscore-drop-tolerance", type=float, default=0.001)
+    parser.add_argument("--spread-safe-dcv-tolerance", type=float, default=0.002)
+    parser.add_argument("--use-dcv-parity-repair", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--dcv-parity-repair-rounds", type=int, default=5)
+    parser.add_argument("--dcv-parity-repair-candidate-limit", type=int, default=100)
     parser.add_argument("--swap-reject-spread-gain-if-fairness-collapses", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--min-budget-node-ratio-warning", type=float, default=0.02)
     parser.add_argument("--min-seeds-per-group-warning", type=int, default=5)
@@ -1200,6 +1221,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     output_dir = _resolve_repo_path(args.output_dir)
     if output_dir is None:
         raise ValueError("--output-dir could not be resolved.")
+    score_normalization = (
+        "per_group"
+        if args.score_normalization is None and bool(args.use_dcv_targeting)
+        else (str(args.score_normalization) if args.score_normalization is not None else "global")
+    )
+    use_dcv_parity_repair = bool(args.use_dcv_targeting) if args.use_dcv_parity_repair is None else bool(args.use_dcv_parity_repair)
     base_run_config = FIMPermutationRunConfig(
         protected_attribute=protected_attributes[0],
         budget=int(budgets[0]),
@@ -1221,6 +1248,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         gnn_learning_rate=float(args.gnn_learning_rate),
         gnn_weight_decay=float(args.gnn_weight_decay),
         ris_num_rr_sets=int(args.ris_num_rr_sets),
+        ris_cache=bool(args.ris_cache),
+        ris_cache_dir=_resolve_repo_path(args.ris_cache_dir) if args.ris_cache_dir else None,
+        regenerate_ris_cache=bool(args.regenerate_ris_cache),
+        evaluation_mode=args.evaluation_mode,
+        ris_mc_sanity_check=bool(args.ris_mc_sanity_check),
+        ris_mc_sanity_check_seeds=int(args.ris_mc_sanity_check_seeds),
         ranking_top_fraction=args.ranking_top_fraction,
         ranking_top_n=args.ranking_top_n,
         ranking_max_nodes=args.ranking_max_nodes,
@@ -1243,7 +1276,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         use_protected_group_quota_initialization=args.use_protected_group_quota_initialization,
         small_group_seed_fraction=float(args.small_group_seed_fraction),
         initialization_quota_mode=str(args.initialization_quota_mode),
-        score_normalization=str(args.score_normalization),
+        score_normalization=score_normalization,
         large_imbalance_ml_score_weight=float(args.large_imbalance_ml_score_weight),
         large_imbalance_ris_score_weight=float(args.large_imbalance_ris_score_weight),
         large_imbalance_fair_ris_score_weight=float(args.large_imbalance_fair_ris_score_weight),
@@ -1261,6 +1294,21 @@ def main(argv: Sequence[str] | None = None) -> None:
         use_fairness_first_swap_acceptance=bool(args.use_fairness_first_swap_acceptance),
         fairness_tolerance_fscore_drop=float(args.fairness_tolerance_fscore_drop),
         fairness_tolerance_dcv=float(args.fairness_tolerance_dcv),
+        use_dcv_targeting=bool(args.use_dcv_targeting),
+        dcv_target_weight=float(args.dcv_target_weight),
+        parity_error_weight=float(args.parity_error_weight),
+        over_served_penalty_weight=float(args.over_served_penalty_weight),
+        under_served_bonus_weight=float(args.under_served_bonus_weight),
+        parity_tolerance=float(args.parity_tolerance),
+        use_over_served_group_penalty=bool(args.use_over_served_group_penalty or args.use_dcv_targeting),
+        use_dcv_first_swap_acceptance=bool(args.use_dcv_first_swap_acceptance or args.use_dcv_targeting),
+        dcv_improvement_epsilon=float(args.dcv_improvement_epsilon),
+        mf_drop_tolerance=float(args.mf_drop_tolerance),
+        fscore_drop_tolerance=float(args.fscore_drop_tolerance),
+        spread_safe_dcv_tolerance=float(args.spread_safe_dcv_tolerance),
+        use_dcv_parity_repair=use_dcv_parity_repair,
+        dcv_parity_repair_rounds=int(args.dcv_parity_repair_rounds),
+        dcv_parity_repair_candidate_limit=int(args.dcv_parity_repair_candidate_limit),
         swap_reject_spread_gain_if_fairness_collapses=bool(args.swap_reject_spread_gain_if_fairness_collapses),
         min_budget_node_ratio_warning=float(args.min_budget_node_ratio_warning),
         min_seeds_per_group_warning=int(args.min_seeds_per_group_warning),

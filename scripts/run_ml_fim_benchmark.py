@@ -52,6 +52,9 @@ WEAK_ML_BASELINES = (
     "line_fast_ml",
 )
 DEFAULT_ALL_STACKS = DEFAULT_STRONG_STACKS + (
+    "graphsage_community_memetic",
+    "node2vec_xgboost_community_memetic",
+    "gcn_community_memetic",
     "fairness_first_scalable_ml_siea",
     "node2vec_xgboost_fair_siea",
     "gcn_fair_siea",
@@ -66,11 +69,14 @@ DEFAULT_ALL_STACKS = DEFAULT_STRONG_STACKS + (
 _VALID_SPREAD_SEARCH = {"monte_carlo", "ris", "ris_guidance", "fairness_aware_ris"}
 _CLI_SPREAD_SEARCH = {"auto"} | _VALID_SPREAD_SEARCH
 _VALID_FINAL_ESTIMATORS = {"monte_carlo"}
-_VALID_OPTIMIZER_MODES = {"greedy", "local_search", "hybrid_si_ea"}
+_VALID_OPTIMIZER_MODES = {"greedy", "local_search", "hybrid_si_ea", "memetic", "evolutionary_memetic"}
 _ML_GUIDED_COMMUNITY_SIEA_STACKS = {
     "graphsage_community_siea",
+    "graphsage_community_memetic",
     "gcn_community_siea",
+    "gcn_community_memetic",
     "node2vec_xgboost_community_siea",
+    "node2vec_xgboost_community_memetic",
     "graphsage_fair_ris_hybrid",
     "gcn_fair_ris_hybrid",
     "node2vec_xgboost",
@@ -203,6 +209,47 @@ def _configure_specs_ris(
     ]
 
 
+def _ea_memetic_override_spec(spec: FIMPermutationSpec, registry: dict[str, FIMPermutationSpec]) -> FIMPermutationSpec:
+    if spec.variant_family == "baseline" or spec.embedding_method in {"", "none"}:
+        return spec
+    ea_memetic_name_by_stack = {
+        "graphsage_community_siea": "graphsage_community_ea_memetic",
+        "node2vec_xgboost_community_siea": "node2vec_xgboost_community_ea_memetic",
+        "gcn_community_siea": "gcn_community_ea_memetic",
+        "graphsage_community_memetic": "graphsage_community_ea_memetic",
+        "node2vec_xgboost_community_memetic": "node2vec_xgboost_community_ea_memetic",
+        "gcn_community_memetic": "gcn_community_ea_memetic",
+    }
+    mapped_name = ea_memetic_name_by_stack.get(spec.name)
+    if mapped_name is not None and mapped_name in registry:
+        return registry[mapped_name]
+    return replace(
+        spec,
+        runner_kind="ranked_hybrid",
+        optimizer_mode="evolutionary_memetic",
+        notes=_with_appended_note(spec, "optimizer_override=evolutionary_memetic"),
+    )
+
+
+def _memetic_override_spec(spec: FIMPermutationSpec, registry: dict[str, FIMPermutationSpec]) -> FIMPermutationSpec:
+    if spec.variant_family == "baseline" or spec.embedding_method in {"", "none"}:
+        return spec
+    memetic_name_by_stack = {
+        "graphsage_community_siea": "graphsage_community_memetic",
+        "node2vec_xgboost_community_siea": "node2vec_xgboost_community_memetic",
+        "gcn_community_siea": "gcn_community_memetic",
+    }
+    mapped_name = memetic_name_by_stack.get(spec.name)
+    if mapped_name is not None and mapped_name in registry:
+        return registry[mapped_name]
+    return replace(
+        spec,
+        runner_kind="ranked_hybrid",
+        optimizer_mode="memetic",
+        notes=_with_appended_note(spec, "optimizer_override=memetic"),
+    )
+
+
 def _effective_requested_search_estimator(
     *,
     spread_estimator_search: object,
@@ -274,6 +321,24 @@ def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
             use_fair_ris=True,
             notes="main_method=true; ml_guided_only=true",
         ),
+        "graphsage_community_memetic": FIMPermutationSpec(
+            name="graphsage_community_memetic",
+            description="Leiden communities with GraphSAGE guidance, Fair RIS, and the fairness-first Memetic Algorithm.",
+            runner_kind="ranked_hybrid",
+            diffusion_model="ic",
+            community_method="leiden",
+            spread_estimator_search="fairness_aware_ris",
+            spread_estimator_final="monte_carlo",
+            embedding_method="graphsage",
+            ranking_model="graphsage",
+            optimizer_mode="memetic",
+            fairness_objective="f_score",
+            variant_family="ml",
+            candidate_top_fraction=0.5,
+            use_ris_guidance=True,
+            use_fair_ris=True,
+            notes="main_method=true; ml_guided_only=true; memetic=true",
+        ),
         "node2vec_xgboost_community_siea": FIMPermutationSpec(
             name="node2vec_xgboost_community_siea",
             description="Leiden communities with Node2Vec+XGBoost guidance and Hybrid SI+EA.",
@@ -292,6 +357,24 @@ def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
             use_fair_ris=True,
             notes="main_method=true; lightweight_quality_runtime=true; ml_guided_only=true",
         ),
+        "node2vec_xgboost_community_memetic": FIMPermutationSpec(
+            name="node2vec_xgboost_community_memetic",
+            description="Leiden communities with Node2Vec+XGBoost guidance and the fairness-first Memetic Algorithm.",
+            runner_kind="ranked_hybrid",
+            diffusion_model="ic",
+            community_method="leiden",
+            spread_estimator_search="fairness_aware_ris",
+            spread_estimator_final="monte_carlo",
+            embedding_method="node2vec",
+            ranking_model="xgboost",
+            optimizer_mode="memetic",
+            fairness_objective="f_score",
+            variant_family="ml",
+            candidate_top_fraction=0.5,
+            use_ris_guidance=True,
+            use_fair_ris=True,
+            notes="main_method=true; lightweight_quality_runtime=true; ml_guided_only=true; memetic=true",
+        ),
         "gcn_community_siea": FIMPermutationSpec(
             name="gcn_community_siea",
             description="Leiden communities with GCN guidance, Fair RIS, and Hybrid SI+EA.",
@@ -309,6 +392,87 @@ def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
             use_ris_guidance=True,
             use_fair_ris=True,
             notes="optional_gnn_comparison=true; ml_guided_only=true",
+        ),
+        "gcn_community_memetic": FIMPermutationSpec(
+            name="gcn_community_memetic",
+            description="Leiden communities with GCN guidance, Fair RIS, and the fairness-first Memetic Algorithm.",
+            runner_kind="ranked_hybrid",
+            diffusion_model="ic",
+            community_method="leiden",
+            spread_estimator_search="fairness_aware_ris",
+            spread_estimator_final="monte_carlo",
+            embedding_method="gcn",
+            ranking_model="gcn",
+            optimizer_mode="memetic",
+            fairness_objective="f_score",
+            variant_family="ml",
+            candidate_top_fraction=0.5,
+            use_ris_guidance=True,
+            use_fair_ris=True,
+            notes="optional_gnn_comparison=true; ml_guided_only=true; memetic=true",
+        ),
+        "graphsage_community_ea_memetic": FIMPermutationSpec(
+            name="graphsage_community_ea_memetic",
+            description=(
+                "Leiden communities with GraphSAGE guidance, Fair RIS, and the "
+                "Evolutionary Memetic Algorithm (ea_* tuning knobs)."
+            ),
+            runner_kind="ranked_hybrid",
+            diffusion_model="ic",
+            community_method="leiden",
+            spread_estimator_search="fairness_aware_ris",
+            spread_estimator_final="monte_carlo",
+            embedding_method="graphsage",
+            ranking_model="graphsage",
+            optimizer_mode="evolutionary_memetic",
+            fairness_objective="f_score",
+            variant_family="ml",
+            candidate_top_fraction=0.5,
+            use_ris_guidance=True,
+            use_fair_ris=True,
+            notes="main_method=true; ml_guided_only=true; ea_memetic=true",
+        ),
+        "node2vec_xgboost_community_ea_memetic": FIMPermutationSpec(
+            name="node2vec_xgboost_community_ea_memetic",
+            description=(
+                "Leiden communities with Node2Vec+XGBoost guidance, Fair RIS, and the "
+                "Evolutionary Memetic Algorithm (ea_* tuning knobs)."
+            ),
+            runner_kind="ranked_hybrid",
+            diffusion_model="ic",
+            community_method="leiden",
+            spread_estimator_search="fairness_aware_ris",
+            spread_estimator_final="monte_carlo",
+            embedding_method="node2vec",
+            ranking_model="xgboost",
+            optimizer_mode="evolutionary_memetic",
+            fairness_objective="f_score",
+            variant_family="ml",
+            candidate_top_fraction=0.5,
+            use_ris_guidance=True,
+            use_fair_ris=True,
+            notes="main_method=true; lightweight_quality_runtime=true; ml_guided_only=true; ea_memetic=true",
+        ),
+        "gcn_community_ea_memetic": FIMPermutationSpec(
+            name="gcn_community_ea_memetic",
+            description=(
+                "Leiden communities with GCN guidance, Fair RIS, and the "
+                "Evolutionary Memetic Algorithm (ea_* tuning knobs)."
+            ),
+            runner_kind="ranked_hybrid",
+            diffusion_model="ic",
+            community_method="leiden",
+            spread_estimator_search="fairness_aware_ris",
+            spread_estimator_final="monte_carlo",
+            embedding_method="gcn",
+            ranking_model="gcn",
+            optimizer_mode="evolutionary_memetic",
+            fairness_objective="f_score",
+            variant_family="ml",
+            candidate_top_fraction=0.5,
+            use_ris_guidance=True,
+            use_fair_ris=True,
+            notes="optional_gnn_comparison=true; ml_guided_only=true; ea_memetic=true",
         ),
         "graphsage_fair_ris_hybrid": _clone_named_spec(
             "leiden_graphsage_fair_ris_hybrid",
@@ -474,14 +638,16 @@ def _generic_runner_kind(
             raise ValueError(
                 f"ranking_model='{ranking_model}' requires embedding_method='{ranking_model}' for the GNN-guided path."
             )
+        if normalized_optimizer == "memetic" and normalized_search == "fairness_aware_ris":
+            return "ranked_hybrid", "f_score"
         if normalized_optimizer != "hybrid_si_ea" or normalized_search != "fairness_aware_ris":
             raise ValueError(
-                f"{ranking_model} benchmark stacks require optimizer_mode='hybrid_si_ea' and "
+                f"{ranking_model} benchmark stacks require optimizer_mode='hybrid_si_ea' or 'memetic' and "
                 "spread_estimator_search='fairness_aware_ris'."
             )
         return "experiment_runner_gnn_ris", "f_score"
 
-    if normalized_optimizer == "hybrid_si_ea":
+    if normalized_optimizer in {"hybrid_si_ea", "memetic"}:
         return "ranked_hybrid", "f_score"
     if normalized_optimizer == "greedy":
         return "ranked_greedy", "f_score"
@@ -597,14 +763,18 @@ def resolve_ml_benchmark_specs(
     )
 
     selected_names: list[str]
+    explicit_stack_names: bool
     if "all_available" in requested_tokens:
         selected_names = list(DEFAULT_ALL_STACKS)
+        explicit_stack_names = False
     elif "strong_ml" in requested_tokens:
         selected_names = list(DEFAULT_STRONG_STACKS)
         if include_weak_ml_baselines:
             selected_names.extend(WEAK_ML_BASELINES)
+        explicit_stack_names = False
     else:
         selected_names = requested_tokens
+        explicit_stack_names = True
 
     selected_specs: list[FIMPermutationSpec] = []
     for name in selected_names:
@@ -617,17 +787,32 @@ def resolve_ml_benchmark_specs(
     if include_baseline and "community_aware_fair_greedy" not in selected_names_set:
         selected_specs.insert(0, registry["community_aware_fair_greedy"])
 
+    optimizer_filter = optimizer_mode
+    if optimizer_mode is not None and str(optimizer_mode).strip().lower() == "memetic":
+        selected_specs = [_memetic_override_spec(spec, registry) for spec in selected_specs]
+        optimizer_filter = None
+    elif optimizer_mode is not None and str(optimizer_mode).strip().lower() == "evolutionary_memetic":
+        selected_specs = [_ea_memetic_override_spec(spec, registry) for spec in selected_specs]
+        optimizer_filter = None
+
     search_filter = _normalize_spread_estimator_search(effective_search_request)
     final_filter = str(spread_estimator_final).strip().lower()
+    # When explicit stack names are provided, --clustering-method is a runtime config
+    # override for FIMPermutationRunConfig, not a spec-level filter. Preset stacks all
+    # have clustering_method='none' in their spec definition; the actual clustering is
+    # controlled at run time via the RunConfig. Only filter by clustering_method when
+    # auto-selecting from a group (strong_ml / all_available) to allow registry-defined
+    # clustering variants to be selected.
+    clustering_filter = None if explicit_stack_names else clustering_method
     filtered_specs = _apply_stack_filters(
         selected_specs,
         embedding_methods=embedding_methods,
         ranking_models=ranking_models,
         community_method=community_method,
-        clustering_method=clustering_method,
+        clustering_method=clustering_filter,
         spread_estimator_search=None,
         spread_estimator_final=final_filter,
-        optimizer_mode=optimizer_mode,
+        optimizer_mode=optimizer_filter,
     )
 
     if filtered_specs:
@@ -900,6 +1085,34 @@ def build_ml_benchmark_insights(
     return lines, recommendations
 
 
+def _format_optimizer_diagnostics_summary(raw_frame: pd.DataFrame) -> list[str]:
+    if raw_frame.empty or "optimizer_mode" not in raw_frame.columns:
+        return []
+    rows = raw_frame[raw_frame["optimizer_mode"].astype(str).str.lower().eq("memetic")]
+    if rows.empty:
+        return []
+    lines = ["Optimizer Diagnostics Summary"]
+    for _, row in rows.iterrows():
+        if str(row.get("status", "")).strip().lower() != "ok":
+            lines.append(f"- {row.get('stack_name')}: skipped ({row.get('skip_reason', row.get('skipped_reason', ''))})")
+            continue
+        lines.append(
+            "- "
+            f"{row.get('stack_name')}: mode=memetic | "
+            f"population={row.get('population_size')} | "
+            f"generations={row.get('generations')} | "
+            f"crossover={row.get('memetic_crossover_rate')} | "
+            f"mutation={row.get('memetic_mutation_rate')} | "
+            f"local_search_elites={row.get('memetic_local_search_top_elites')} | "
+            f"local_search_attempts={row.get('memetic_local_search_attempts')} | "
+            f"local_search_improvements={row.get('memetic_local_search_improvements')} | "
+            f"rejected_fairness_drops={row.get('rejected_fairness_drops')} | "
+            f"best_generation={row.get('best_generation')} | "
+            f"final_fitness={row.get('final_fitness')}"
+        )
+    return lines
+
+
 def _benchmark_run_output_dir(base_output_dir: Path, *, seed: int, budget: int, protected_attribute: str) -> Path:
     safe_attribute = "".join(character if character.isalnum() or character in {"-", "_", "."} else "_" for character in protected_attribute)
     return base_output_dir / "runs" / f"seed_{seed}" / f"budget_{budget}" / safe_attribute
@@ -977,11 +1190,23 @@ def run_ml_fim_benchmark(
         raw_comparison_frame,
         thresholds=insight_thresholds,
     )
+    optimizer_diagnostics_lines = _format_optimizer_diagnostics_summary(raw_comparison_frame)
     report_text = (
         base_report
         + f"\n\nBaseline inclusion: {baseline_inclusion_status}\n"
         + "\n\nML Benchmark Insights\n"
         + "\n".join(f"- {line}" for line in insight_lines)
+        + (
+            "\n\n"
+            + optimizer_diagnostics_lines[0]
+            + "\n"
+            + "\n".join(
+                f"- {line[2:]}" if line.startswith("- ") else f"- {line}"
+                for line in optimizer_diagnostics_lines[1:]
+            )
+            if optimizer_diagnostics_lines
+            else ""
+        )
         + "\n\nML Benchmark Recommendation\n"
         + "\n".join(f"- {key}={value or 'n/a'}" for key, value in ml_recommendations.items())
         + "\n"
@@ -1083,6 +1308,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--community-method", default=None, help="Optional stack filter or generator override.")
     parser.add_argument("--clustering-method", default=None, help="Optional stack filter or generator override.")
+    parser.add_argument("--num-clusters", default="auto", help="Number of embedding clusters: integer or 'auto'.")
+    parser.add_argument("--use-clustering-features", action=argparse.BooleanOptionalAction, default=False, help="Add cluster_id and cluster_size columns to ML feature table.")
+    parser.add_argument("--use-cluster-diversity-bonus", action=argparse.BooleanOptionalAction, default=False, help="Apply cluster diversity bonus to combined candidate scores.")
+    parser.add_argument("--cluster-diversity-weight", type=float, default=0.3, help="Weight for cluster diversity bonus in combined score (default 0.3).")
+    parser.add_argument("--cluster-balance-enabled", action=argparse.BooleanOptionalAction, default=False, help="Enable cluster-aware initialization and mutation in SI+EA.")
+    parser.add_argument("--cluster-repair-enabled", action=argparse.BooleanOptionalAction, default=False, help="Enable cluster rebalancing repair pass in SI+EA.")
     parser.add_argument(
         "--spread-estimator-search",
         default="auto",
@@ -1107,6 +1338,44 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lambda-weight", type=float, default=0.5)
     parser.add_argument("--population-size", type=int, default=8)
     parser.add_argument("--generations", type=int, default=5)
+    parser.add_argument("--memetic-population-size", type=int, default=None)
+    parser.add_argument("--memetic-random-immigrant-rate", type=float, default=0.10)
+    parser.add_argument("--memetic-initialization-mode", choices=["fairness_guided", "score_guided", "random"], default="fairness_guided")
+    parser.add_argument("--memetic-fscore-weight", type=float, default=4.0)
+    parser.add_argument("--memetic-mf-weight", type=float, default=2.0)
+    parser.add_argument("--memetic-dcv-weight", type=float, default=2.5)
+    parser.add_argument("--memetic-group-coverage-weight", type=float, default=1.0)
+    parser.add_argument("--memetic-community-coverage-weight", type=float, default=0.5)
+    parser.add_argument("--memetic-spread-weight", type=float, default=0.4)
+    parser.add_argument("--memetic-selection", choices=["tournament", "rank", "roulette"], default="tournament")
+    parser.add_argument("--memetic-tournament-size", type=int, default=3)
+    parser.add_argument("--memetic-crossover", choices=["uniform", "fairness_preserving"], default="fairness_preserving")
+    parser.add_argument("--memetic-crossover-rate", type=float, default=0.9)
+    parser.add_argument("--memetic-mutation-rate", type=float, default=0.25)
+    parser.add_argument("--memetic-mutation-strength", type=int, default=None)
+    parser.add_argument("--memetic-weak-group-mutation-bias", type=float, default=0.70)
+    parser.add_argument("--memetic-repair-enabled", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--memetic-repair-rounds", type=int, default=2)
+    parser.add_argument("--memetic-local-search-enabled", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--memetic-local-search-frequency", choices=["every_generation", "final_generation", "never"], default="every_generation")
+    parser.add_argument("--memetic-local-search-intensity", choices=["light", "medium", "heavy"], default="light")
+    parser.add_argument("--memetic-local-search-top-elites", type=float, default=0.25)
+    parser.add_argument("--memetic-local-search-candidate-limit", type=int, default=None)
+    parser.add_argument("--memetic-fairness-tolerance-fscore-drop", type=float, default=0.001)
+    parser.add_argument("--memetic-fairness-tolerance-dcv", type=float, default=0.005)
+    parser.add_argument("--memetic-elitism-rate", type=float, default=0.10)
+    parser.add_argument("--memetic-diversity-preservation", action=argparse.BooleanOptionalAction, default=True)
+    # ── Evolutionary Memetic (ea_*) args — independent tuning knobs for evolutionary_memetic mode ──
+    parser.add_argument("--ea-selection", choices=["tournament", "rank", "roulette"], default="tournament", help="Parent selection method for evolutionary_memetic optimizer.")
+    parser.add_argument("--ea-tournament-size", type=int, default=3, help="Tournament size for ea-selection=tournament.")
+    parser.add_argument("--ea-crossover-rate", type=float, default=0.90, help="Crossover probability for evolutionary_memetic.")
+    parser.add_argument("--ea-crossover-mode", choices=["uniform", "fairness_preserving"], default="fairness_preserving", help="Crossover operator for evolutionary_memetic.")
+    parser.add_argument("--ea-mutation-rate", type=float, default=0.25, help="Mutation probability for evolutionary_memetic.")
+    parser.add_argument("--ea-mutation-strength", type=int, default=None, help="Seeds to swap per mutation (default: max(1, budget*0.05)).")
+    parser.add_argument("--weak-group-mutation-bias", type=float, default=0.70, help="Bias towards weak-group candidates during EA mutation.")
+    parser.add_argument("--memetic-elite-fraction", type=float, default=0.25, help="Fraction of offspring receiving local search in evolutionary_memetic.")
+    parser.add_argument("--random-immigrant-rate", type=float, default=0.10, help="Fraction of random immigrants injected each generation in evolutionary_memetic.")
+    parser.add_argument("--diversity-preservation", action=argparse.BooleanOptionalAction, default=True, help="Enable Jaccard-diversity filtering during survival selection in evolutionary_memetic.")
     parser.add_argument("--gnn-epochs", type=int, default=30)
     parser.add_argument("--gnn-hidden-dim", type=int, default=32)
     parser.add_argument("--gnn-num-layers", type=int, default=2)
@@ -1165,7 +1434,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--imbalance-threshold-high", type=float, default=10.0)
     parser.add_argument("--adaptive-fairness-multiplier-medium", type=float, default=1.5)
     parser.add_argument("--adaptive-fairness-multiplier-high", type=float, default=2.0)
-    parser.add_argument("--large-imbalance-fairness-mode", choices=["auto", "off", "force"], default="off")
+    parser.add_argument("--large-imbalance-fairness-mode", choices=["auto", "off", "force"], default="auto")
     parser.add_argument("--large-imbalance-threshold", type=float, default=5.0)
     parser.add_argument("--large-graph-threshold", type=int, default=1000)
     parser.add_argument("--use-group-stratified-candidate-pool", action=argparse.BooleanOptionalAction, default=None)
@@ -1174,7 +1443,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--use-protected-group-quota-initialization", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--small-group-seed-fraction", type=float, default=0.10)
     parser.add_argument("--initialization-quota-mode", choices=["proportional", "sqrt", "uniform_min"], default="sqrt")
-    parser.add_argument("--score-normalization", choices=["global", "per_group", "hybrid"], default="global")
+    parser.add_argument("--score-normalization", choices=["global", "per_group", "hybrid"], default=None)
     parser.add_argument("--large-imbalance-ml-score-weight", type=float, default=0.4)
     parser.add_argument("--large-imbalance-ris-score-weight", type=float, default=0.5)
     parser.add_argument("--large-imbalance-fair-ris-score-weight", type=float, default=2.0)
@@ -1189,6 +1458,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--use-fairness-first-repair", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--weak-group-repair-rounds", type=int, default=0)
     parser.add_argument("--majority-overconcentration-threshold", type=float, default=0.60)
+    parser.add_argument("--use-dcv-targeting", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--dcv-target-weight", type=float, default=3.0)
+    parser.add_argument("--parity-error-weight", type=float, default=2.0)
+    parser.add_argument("--over-served-penalty-weight", type=float, default=2.0)
+    parser.add_argument("--under-served-bonus-weight", type=float, default=1.5)
+    parser.add_argument("--parity-tolerance", type=float, default=0.005)
+    parser.add_argument("--use-over-served-group-penalty", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--use-dcv-first-swap-acceptance", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--dcv-improvement-epsilon", type=float, default=0.0005)
+    parser.add_argument("--mf-drop-tolerance", type=float, default=0.001)
+    parser.add_argument("--fscore-drop-tolerance", type=float, default=0.001)
+    parser.add_argument("--spread-safe-dcv-tolerance", type=float, default=0.002)
+    parser.add_argument("--use-dcv-parity-repair", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--dcv-parity-repair-rounds", type=int, default=5)
+    parser.add_argument("--dcv-parity-repair-candidate-limit", type=int, default=100)
+    parser.add_argument("--use-dcv-minimization", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--dcv-target-mode", choices=["mean", "median"], default="mean")
+    parser.add_argument("--parity-error-improvement-epsilon", type=float, default=0.0005)
+    parser.add_argument("--auto-disable-constant-score-components", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--constant-score-epsilon", type=float, default=1e-12)
+    parser.add_argument("--use-ris-parity-weighted-weak-bonus", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--scalability-mode", choices=["auto", "off", "large_graph"], default="auto")
     parser.add_argument("--max-candidate-pool-size", type=int, default=500)
     parser.add_argument("--candidate-pool-fraction", type=float, default=0.30)
@@ -1201,6 +1491,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--embedding-cache", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--community-cache", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--ris-cache", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--ris-cache-dir", default=None)
+    parser.add_argument("--regenerate-ris-cache", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--evaluation-mode", choices=["fast_search", "final_confirmation", "debug_mc"], default=None)
+    parser.add_argument("--ris-mc-sanity-check", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--ris-mc-sanity-check-seeds", type=int, default=20)
     parser.add_argument(
         "--allow-protected-features-in-ml",
         action=argparse.BooleanOptionalAction,
@@ -1293,6 +1588,75 @@ def parse_args() -> argparse.Namespace:
         help="Reuse saved node-score caches when available.",
     )
     parser.add_argument("--save-json", action=argparse.BooleanOptionalAction, default=False)
+    # ── Shortfall DCV arguments (Steps 2–13 of the shortfall-DCV refactor) ──────
+    parser.add_argument(
+        "--primary-dcv-mode",
+        choices=["disparity", "shortfall"],
+        default="disparity",
+        help="Primary fairness metric: 'shortfall' = no-group-left-behind, 'disparity' = original DCV (default).",
+    )
+    parser.add_argument(
+        "--report-both-dcv",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Always report both DCV_shortfall and DCV_disparity in output.",
+    )
+    parser.add_argument(
+        "--ideal-influence-mode",
+        choices=["proportional_budget_internal"],
+        default="proportional_budget_internal",
+        help="How to compute per-group ideal influence targets.",
+    )
+    parser.add_argument(
+        "--shortfall-dcv-weight",
+        type=float,
+        default=1.0,
+        help="Weight for DCV_shortfall in shortfall-primary F-score.",
+    )
+    parser.add_argument(
+        "--disparity-dcv-weight",
+        type=float,
+        default=0.25,
+        help="Weight for DCV_disparity as a soft secondary penalty.",
+    )
+    parser.add_argument(
+        "--fscore-mode",
+        choices=["disparity_primary", "shortfall_primary", "combined"],
+        default="disparity_primary",
+        help="F-score formula mode: disparity_primary keeps original lambda formula.",
+    )
+    parser.add_argument(
+        "--shortfall-dcv-worsen-tolerance",
+        type=float,
+        default=0.001,
+        help="Allow shortfall DCV to worsen by this amount during swap acceptance.",
+    )
+    parser.add_argument(
+        "--disparity-warning-threshold",
+        type=float,
+        default=0.10,
+        help="DCV_disparity value above which a disparity warning is reported.",
+    )
+    parser.add_argument(
+        "--max-shortfall-dcv",
+        type=float,
+        default=0.01,
+        help="Fairness gate: maximum acceptable DCV_shortfall (only active when primary-dcv-mode=shortfall).",
+    )
+    parser.add_argument(
+        "--min-target-coverage-ratio",
+        type=float,
+        default=1.0,
+        help="Fairness gate: minimum fraction of groups that must meet ideal target.",
+    )
+    parser.add_argument(
+        "--use-shortfall-repair",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable post-optimization shortfall repair to help below-target groups.",
+    )
+    parser.add_argument("--shortfall-repair-rounds", type=int, default=3)
+    parser.add_argument("--shortfall-repair-candidate-limit", type=int, default=100)
     return parser.parse_args()
 
 
@@ -1359,6 +1723,27 @@ def main() -> None:
     community_diversity_weight = 0.2 if args.community_diversity_weight is None else float(args.community_diversity_weight)
     protected_group_coverage_weight = 0.0 if args.protected_group_coverage_weight is None else float(args.protected_group_coverage_weight)
     spread_proxy_weight = 0.0 if args.spread_proxy_weight is None else float(args.spread_proxy_weight)
+    requested_search_estimator = _effective_requested_search_estimator(
+        spread_estimator_search=args.spread_estimator_search,
+        use_ris=bool(args.use_ris),
+        use_fair_ris=bool(args.use_fair_ris),
+        force_ris_for_all_stacks=bool(args.force_ris_for_all_stacks),
+    )
+    evaluation_mode = str(args.evaluation_mode or (
+        "fast_search" if requested_search_estimator in {"ris", "fairness_aware_ris"} else "debug_mc"
+    ))
+    if evaluation_mode == "fast_search" and requested_search_estimator in {"ris", "fairness_aware_ris"} and int(args.mc_runs_eval) > 300:
+        print("Evaluation mode note: fast_search uses RIS/Fair RIS during search; consider --mc-runs-eval 100-300 for quick iteration.")
+    if evaluation_mode == "final_confirmation" and int(args.mc_runs_eval) < 500:
+        print("Evaluation mode note: final_confirmation is usually paired with --mc-runs-eval 500-1000.")
+    if evaluation_mode == "debug_mc" and requested_search_estimator in {"ris", "fairness_aware_ris"}:
+        print("Evaluation mode note: debug_mc requested while RIS/Fair RIS search is active; final metrics still use Monte Carlo.")
+    score_normalization = (
+        "per_group"
+        if args.score_normalization is None and bool(args.use_dcv_targeting)
+        else (str(args.score_normalization) if args.score_normalization is not None else "global")
+    )
+    use_dcv_parity_repair = bool(args.use_dcv_targeting) if args.use_dcv_parity_repair is None else bool(args.use_dcv_parity_repair)
     base_run_config = FIMPermutationRunConfig(
         protected_attribute=args.protected_attribute,
         budget=int(args.budget),
@@ -1375,6 +1760,33 @@ def main() -> None:
         local_search_steps=int(args.local_search_steps),
         population_size=int(args.population_size),
         generations=int(args.generations),
+        memetic_population_size=args.memetic_population_size,
+        memetic_random_immigrant_rate=float(args.memetic_random_immigrant_rate),
+        memetic_initialization_mode=str(args.memetic_initialization_mode),
+        memetic_fscore_weight=float(args.memetic_fscore_weight),
+        memetic_mf_weight=float(args.memetic_mf_weight),
+        memetic_dcv_weight=float(args.memetic_dcv_weight),
+        memetic_group_coverage_weight=float(args.memetic_group_coverage_weight),
+        memetic_community_coverage_weight=float(args.memetic_community_coverage_weight),
+        memetic_spread_weight=float(args.memetic_spread_weight),
+        memetic_selection=str(args.memetic_selection),
+        memetic_tournament_size=int(args.memetic_tournament_size),
+        memetic_crossover=str(args.memetic_crossover),
+        memetic_crossover_rate=float(args.memetic_crossover_rate),
+        memetic_mutation_rate=float(args.memetic_mutation_rate),
+        memetic_mutation_strength=args.memetic_mutation_strength,
+        memetic_weak_group_mutation_bias=float(args.memetic_weak_group_mutation_bias),
+        memetic_repair_enabled=bool(args.memetic_repair_enabled),
+        memetic_repair_rounds=int(args.memetic_repair_rounds),
+        memetic_local_search_enabled=bool(args.memetic_local_search_enabled),
+        memetic_local_search_frequency=str(args.memetic_local_search_frequency),
+        memetic_local_search_intensity=str(args.memetic_local_search_intensity),
+        memetic_local_search_top_elites=float(args.memetic_local_search_top_elites),
+        memetic_local_search_candidate_limit=args.memetic_local_search_candidate_limit,
+        memetic_fairness_tolerance_fscore_drop=float(args.memetic_fairness_tolerance_fscore_drop),
+        memetic_fairness_tolerance_dcv=float(args.memetic_fairness_tolerance_dcv),
+        memetic_elitism_rate=float(args.memetic_elitism_rate),
+        memetic_diversity_preservation=bool(args.memetic_diversity_preservation),
         gnn_epochs=int(args.gnn_epochs),
         gnn_hidden_dim=int(args.gnn_hidden_dim),
         gnn_num_layers=int(args.gnn_num_layers),
@@ -1438,7 +1850,7 @@ def main() -> None:
         use_protected_group_quota_initialization=args.use_protected_group_quota_initialization,
         small_group_seed_fraction=float(args.small_group_seed_fraction),
         initialization_quota_mode=str(args.initialization_quota_mode),
-        score_normalization=str(args.score_normalization),
+        score_normalization=score_normalization,
         large_imbalance_ml_score_weight=float(args.large_imbalance_ml_score_weight),
         large_imbalance_ris_score_weight=float(args.large_imbalance_ris_score_weight),
         large_imbalance_fair_ris_score_weight=float(args.large_imbalance_fair_ris_score_weight),
@@ -1453,6 +1865,27 @@ def main() -> None:
         use_fairness_first_repair=bool(args.use_fairness_first_repair),
         weak_group_repair_rounds=int(args.weak_group_repair_rounds),
         majority_overconcentration_threshold=float(args.majority_overconcentration_threshold),
+        use_dcv_targeting=bool(args.use_dcv_targeting),
+        dcv_target_weight=float(args.dcv_target_weight),
+        parity_error_weight=float(args.parity_error_weight),
+        over_served_penalty_weight=float(args.over_served_penalty_weight),
+        under_served_bonus_weight=float(args.under_served_bonus_weight),
+        parity_tolerance=float(args.parity_tolerance),
+        use_over_served_group_penalty=bool(args.use_over_served_group_penalty or args.use_dcv_targeting),
+        use_dcv_first_swap_acceptance=bool(args.use_dcv_first_swap_acceptance or args.use_dcv_targeting),
+        dcv_improvement_epsilon=float(args.dcv_improvement_epsilon),
+        mf_drop_tolerance=float(args.mf_drop_tolerance),
+        fscore_drop_tolerance=float(args.fscore_drop_tolerance),
+        spread_safe_dcv_tolerance=float(args.spread_safe_dcv_tolerance),
+        use_dcv_parity_repair=use_dcv_parity_repair,
+        dcv_parity_repair_rounds=int(args.dcv_parity_repair_rounds),
+        dcv_parity_repair_candidate_limit=int(args.dcv_parity_repair_candidate_limit),
+        use_dcv_minimization=bool(args.use_dcv_minimization),
+        dcv_target_mode=str(args.dcv_target_mode),
+        parity_error_improvement_epsilon=float(args.parity_error_improvement_epsilon),
+        auto_disable_constant_score_components=bool(args.auto_disable_constant_score_components),
+        constant_score_epsilon=float(args.constant_score_epsilon),
+        use_ris_parity_weighted_weak_bonus=bool(args.use_ris_parity_weighted_weak_bonus),
         swap_reject_spread_gain_if_fairness_collapses=bool(args.swap_reject_spread_gain_if_fairness_collapses),
         min_budget_node_ratio_warning=float(args.min_budget_node_ratio_warning),
         imbalance_ratio_warning_threshold=float(args.imbalance_ratio_warning_threshold),
@@ -1464,6 +1897,11 @@ def main() -> None:
         adaptive_ris_rr_sets=bool(args.adaptive_ris_rr_sets),
         community_cache=bool(args.community_cache),
         ris_cache=bool(args.ris_cache),
+        ris_cache_dir=_resolve_repo_path(args.ris_cache_dir) if args.ris_cache_dir else None,
+        regenerate_ris_cache=bool(args.regenerate_ris_cache),
+        evaluation_mode=evaluation_mode,
+        ris_mc_sanity_check=bool(args.ris_mc_sanity_check),
+        ris_mc_sanity_check_seeds=int(args.ris_mc_sanity_check_seeds),
         print_experiment_header=bool(args.print_experiment_header),
         print_budget_check=bool(args.print_budget_check),
         print_stack_summary=bool(args.print_stack_summary),
@@ -1478,6 +1916,37 @@ def main() -> None:
         print_raw_diagnostics=bool(args.print_raw_diagnostics),
         debug_diagnostics=bool(args.debug_diagnostics),
         spread_proxy_weight=spread_proxy_weight,
+        clustering_method=str(args.clustering_method or "none"),
+        num_clusters=args.num_clusters,
+        use_clustering_features=bool(args.use_clustering_features),
+        use_cluster_diversity_bonus=bool(args.use_cluster_diversity_bonus),
+        cluster_diversity_weight=float(args.cluster_diversity_weight),
+        cluster_balance_enabled=bool(args.cluster_balance_enabled),
+        cluster_repair_enabled=bool(args.cluster_repair_enabled),
+        ea_selection=str(args.ea_selection),
+        ea_tournament_size=int(args.ea_tournament_size),
+        ea_crossover_rate=float(args.ea_crossover_rate),
+        ea_crossover_mode=str(args.ea_crossover_mode),
+        ea_mutation_rate=float(args.ea_mutation_rate),
+        ea_mutation_strength=args.ea_mutation_strength,
+        ea_weak_group_mutation_bias=float(args.weak_group_mutation_bias),
+        ea_elite_fraction=float(args.memetic_elite_fraction),
+        ea_random_immigrant_rate=float(args.random_immigrant_rate),
+        ea_diversity_preservation=bool(args.diversity_preservation),
+        # Shortfall DCV settings.
+        primary_dcv_mode=str(args.primary_dcv_mode),
+        report_both_dcv=bool(args.report_both_dcv),
+        ideal_influence_mode=str(args.ideal_influence_mode),
+        shortfall_dcv_weight=float(args.shortfall_dcv_weight),
+        disparity_dcv_weight=float(args.disparity_dcv_weight),
+        fscore_mode=str(args.fscore_mode),
+        shortfall_dcv_worsen_tolerance=float(args.shortfall_dcv_worsen_tolerance),
+        disparity_warning_threshold=float(args.disparity_warning_threshold),
+        max_shortfall_dcv=float(args.max_shortfall_dcv),
+        min_target_coverage_ratio=float(args.min_target_coverage_ratio),
+        use_shortfall_repair=bool(args.use_shortfall_repair),
+        shortfall_repair_rounds=int(args.shortfall_repair_rounds),
+        shortfall_repair_candidate_limit=int(args.shortfall_repair_candidate_limit),
     )
     insight_thresholds = InsightThresholds(
         close_threshold=float(args.fairness_close_threshold if args.fairness_close_threshold is not None else args.close_threshold),
@@ -1488,6 +1957,9 @@ def main() -> None:
         scalability_required=bool(args.scalability_required),
         runtime_tiebreak_only=bool(args.runtime_tiebreak_only),
         warn_only_fairness_gates=bool(args.warn_only_fairness_gates),
+        primary_dcv_mode=str(args.primary_dcv_mode),
+        max_shortfall_dcv=float(args.max_shortfall_dcv),
+        min_target_coverage_ratio=float(args.min_target_coverage_ratio),
     )
     result = run_ml_fim_benchmark(
         dataset_config=dataset_config,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -19,6 +19,21 @@ class FairnessMetrics:
     mf: float
     soft_mf: float | None
     dcv: float
+    parity_target: float = 0.0
+    parity_abs_error: float = 0.0
+    parity_squared_error: float = 0.0
+    over_served_groups: tuple[str, ...] = ()
+    under_served_groups: tuple[str, ...] = ()
+    # Shortfall DCV additions (Step 4–5 of the shortfall-DCV refactor).
+    # dcv_shortfall: no-group-left-behind metric (primary when primary_dcv_mode=shortfall).
+    # dcv_disparity: alias for original dcv — always populated for backward compat.
+    dcv_shortfall: float = 0.0
+    dcv_disparity: float = 0.0
+    per_group_shortfall_violation: dict[str, float] = field(default_factory=dict)
+    groups_below_target: tuple[str, ...] = ()
+    groups_met_target: tuple[str, ...] = ()
+    target_coverage_ratio: float = 1.0
+    ideal_influences: dict[str, float] = field(default_factory=dict)
 
 
 def _normalize_group_spread_input(
@@ -113,14 +128,81 @@ def compute_dcv(
     return float(np.mean(violations)), group_targets
 
 
+def compute_parity_diagnostics(
+    normalized_group_spread: dict[str, float],
+    parity_tolerance: float = 0.005,
+) -> dict[str, float | tuple[str, ...]]:
+    """Compute diagnostics for equal normalized influence across protected groups."""
+
+    if not normalized_group_spread:
+        raise ValueError("normalized_group_spread must contain at least one protected group.")
+    tolerance = max(0.0, float(parity_tolerance))
+    values = {
+        group_name: float(value)
+        for group_name, value in normalized_group_spread.items()
+    }
+    parity_target = float(np.mean(list(values.values())))
+    return {
+        "parity_target": parity_target,
+        "parity_abs_error": float(sum(abs(value - parity_target) for value in values.values())),
+        "parity_squared_error": float(sum((value - parity_target) ** 2 for value in values.values())),
+        "over_served_groups": tuple(
+            group_name
+            for group_name, value in values.items()
+            if value > parity_target + tolerance
+        ),
+        "under_served_groups": tuple(
+            group_name
+            for group_name, value in values.items()
+            if value < parity_target - tolerance
+        ),
+    }
+
+
+def compute_dcv_shortfall(
+    group_influence: dict[str, float],
+    ideal_influences: dict[str, float],
+) -> tuple[float, dict[str, float], tuple[str, ...], tuple[str, ...], float]:
+    """Shortfall DCV — no-group-left-behind metric.
+
+    For each group: violation = max(0, (ideal - actual) / ideal).
+    Groups that meet or exceed ideal contribute 0 violation.
+
+    Returns:
+        (dcv_shortfall, per_group_violation, groups_below, groups_met, target_coverage_ratio)
+    """
+    violations: dict[str, float] = {}
+    groups_below: list[str] = []
+    groups_met: list[str] = []
+    all_groups = sorted(set(group_influence) | set(ideal_influences))
+    for group_name in all_groups:
+        ideal = float(ideal_influences.get(group_name, 0.0))
+        actual = float(group_influence.get(group_name, 0.0))
+        violation = max(0.0, (ideal - actual) / ideal) if ideal > 0.0 else 0.0
+        violations[group_name] = violation
+        if violation > 1e-9:
+            groups_below.append(group_name)
+        else:
+            groups_met.append(group_name)
+    total_groups = max(1, len(all_groups))
+    dcv_shortfall = float(np.mean(list(violations.values()))) if violations else 0.0
+    target_coverage_ratio = float(len(groups_met)) / float(total_groups)
+    return dcv_shortfall, violations, tuple(groups_below), tuple(groups_met), target_coverage_ratio
+
+
 def evaluate_fairness(
     group_spread: dict[str, float],
     group_sizes: dict[str, int],
     total_spread: float | None = None,
     include_soft_mf: bool = True,
+    parity_tolerance: float = 0.005,
+    ideal_influences: dict[str, float] | None = None,
 ) -> FairnessMetrics:
-    """Compute normalized group spread, strict MF, soft MF, and DCV."""
+    """Compute normalized group spread, strict MF, soft MF, disparity DCV, and shortfall DCV.
 
+    When ideal_influences is provided, dcv_shortfall is computed from per-group targets.
+    When omitted, dcv_shortfall defaults to dcv (disparity-based) for backward compatibility.
+    """
     normalized_group_spread = compute_normalized_group_spread(group_spread, group_sizes)
     completed_group_spread = {
         group_name: float(group_spread.get(group_name, 0.0))
@@ -135,6 +217,31 @@ def evaluate_fairness(
         group_sizes=group_sizes,
         total_spread=total_spread,
     )
+    parity = compute_parity_diagnostics(
+        normalized_group_spread,
+        parity_tolerance=parity_tolerance,
+    )
+
+    # Shortfall DCV — computed from ideal targets when available.
+    if ideal_influences is not None and ideal_influences:
+        (
+            dcv_shortfall,
+            per_group_shortfall_violation,
+            groups_below_target,
+            groups_met_target,
+            target_coverage_ratio,
+        ) = compute_dcv_shortfall(
+            group_influence=completed_group_spread,
+            ideal_influences=ideal_influences,
+        )
+        ideal_influences_used = dict(ideal_influences)
+    else:
+        dcv_shortfall = dcv
+        per_group_shortfall_violation = {}
+        groups_below_target = ()
+        groups_met_target = ()
+        target_coverage_ratio = 1.0
+        ideal_influences_used: dict[str, float] = {}
 
     return FairnessMetrics(
         group_spread=completed_group_spread,
@@ -143,4 +250,16 @@ def evaluate_fairness(
         mf=compute_strict_mf(normalized_group_spread),
         soft_mf=compute_soft_mf(normalized_group_spread) if include_soft_mf else None,
         dcv=dcv,
+        parity_target=float(parity["parity_target"]),
+        parity_abs_error=float(parity["parity_abs_error"]),
+        parity_squared_error=float(parity["parity_squared_error"]),
+        over_served_groups=tuple(parity["over_served_groups"]),
+        under_served_groups=tuple(parity["under_served_groups"]),
+        dcv_shortfall=dcv_shortfall,
+        dcv_disparity=dcv,
+        per_group_shortfall_violation=per_group_shortfall_violation,
+        groups_below_target=groups_below_target,
+        groups_met_target=groups_met_target,
+        target_coverage_ratio=target_coverage_ratio,
+        ideal_influences=ideal_influences_used,
     )

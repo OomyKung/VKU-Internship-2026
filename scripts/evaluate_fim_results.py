@@ -183,6 +183,9 @@ class InsightThresholds:
     scalability_required: bool = True
     runtime_tiebreak_only: bool = True
     warn_only_fairness_gates: bool = False
+    primary_dcv_mode: str = "disparity"
+    max_shortfall_dcv: float = 0.01
+    min_target_coverage_ratio: float = 1.0
 
 
 def _professor_config_from_thresholds(thresholds: InsightThresholds) -> ProfessorPriorityConfig:
@@ -195,6 +198,9 @@ def _professor_config_from_thresholds(thresholds: InsightThresholds) -> Professo
         max_dcv=float(thresholds.dcv_collapse_threshold),
         min_fraction_groups_covered=float(thresholds.min_fraction_groups_covered),
         warn_only_fairness_gates=bool(thresholds.warn_only_fairness_gates),
+        primary_dcv_mode=str(thresholds.primary_dcv_mode),
+        max_shortfall_dcv=float(thresholds.max_shortfall_dcv),
+        min_target_coverage_ratio=float(thresholds.min_target_coverage_ratio),
     )
 
 
@@ -1060,6 +1066,7 @@ def _aggregated_method_frame(group_frame: pd.DataFrame, group_columns: Sequence[
 
     aggregated = descriptor_frame.merge(metric_frame, on="stack_name", how="left", validate="one_to_one")
     aggregated = aggregated.merge(count_frame, on="stack_name", how="left", validate="one_to_one")
+    aggregated = aggregated.copy()
     for column_name in group_columns:
         if column_name in group_frame.columns:
             aggregated[column_name] = _first_non_null(group_frame[column_name])
@@ -1146,6 +1153,11 @@ def _method_note(
         if pd.notna(row.get("fair_ris_verified", row.get("fair_ris_active_verified"))):
             ris_bits.append(f"fair_ris_verified={row.get('fair_ris_verified', row.get('fair_ris_active_verified'))}")
         notes.append("RIS config: " + " | ".join(str(part) for part in ris_bits))
+        search_estimator = str(row.get("search_estimator", row.get("spread_estimator_search", ""))).strip().lower()
+        if search_estimator == "fairness_aware_ris":
+            notes.append("Search objective used Fair RIS; final metrics reported by Monte Carlo.")
+        elif search_estimator == "ris":
+            notes.append("Search objective used RIS; final metrics reported by Monte Carlo.")
     algorithm_fields = [
         ("embedding", "graph_embedding_algorithm"),
         ("ml_ranking", "ml_ranking_algorithm"),
@@ -1507,6 +1519,18 @@ def _format_context(context: dict[str, object]) -> str:
     return " | ".join(parts)
 
 
+def _optimizer_type_tag(row: pd.Series) -> str:
+    mode = str(row.get("optimizer_mode", "")).lower()
+    name = str(row.get("stack_name", "")).lower()
+    if "hybrid_si_ea" in mode or name.endswith("_siea") or "_siea_" in name or "_community_siea" in name:
+        return "SI"
+    if "evolutionary_memetic" in mode or "ea_memetic" in name:
+        return "EA-Mem"
+    if "memetic" in mode or name.endswith("_memetic") or "_community_memetic" in name:
+        return "Mem"
+    return "-"
+
+
 def _format_ranked_table(frame: pd.DataFrame) -> str:
     if frame.empty:
         return "No successful methods to rank."
@@ -1514,7 +1538,7 @@ def _format_ranked_table(frame: pd.DataFrame) -> str:
     header = (
         "Rank  Method                         "
         + ("n   " if include_runs else "")
-        + "F-score   MF      DCV     Spread   Extra   Runtime"
+        + "Type    F-score   MF      DCV     Spread   Extra   Runtime"
     )
     lines = [header]
     for _, row in frame.iterrows():
@@ -1525,6 +1549,7 @@ def _format_ranked_table(frame: pd.DataFrame) -> str:
         if include_runs:
             line += f"{_format_int(row.get('run_count')):<3} "
         line += (
+            f"{_optimizer_type_tag(row):<7} "
             f"{_format_float(row.get('f_score')):<8} "
             f"{_format_float(row.get('mf')):<7} "
             f"{_format_float(row.get('dcv')):<7} "
@@ -1628,7 +1653,7 @@ def _format_delta_vs_baseline(frame: pd.DataFrame) -> str:
         lines.append("No baseline deltas available.")
         return "\n".join(lines)
     lines.append(
-        f"{'Method':<30} {'dF-score':<9} {'dMF':<8} {'dDCV':<8} "
+        f"{'Method':<30} {'Type':<7} {'dF-score':<9} {'dMF':<8} {'dDCV':<8} "
         f"{'dSpread':<9} {'dExtra':<9} {'Speedup'}"
     )
     for _, row in delta_frame.iterrows():
@@ -1636,6 +1661,7 @@ def _format_delta_vs_baseline(frame: pd.DataFrame) -> str:
         speedup_text = f"{speedup:.2f}x" if speedup is not None else "n/a"
         lines.append(
             f"{_trim_text(row.get('stack_name'), 30):<30} "
+            f"{_optimizer_type_tag(row):<7} "
             f"{_format_float(row.get('delta_f_score')):<9} "
             f"{_format_float(row.get('delta_mf')):<8} "
             f"{_format_float(row.get('delta_dcv')):<8} "

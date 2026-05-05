@@ -51,6 +51,8 @@ EMBEDDING_SPACE_CLUSTERING_METHODS = (
     "kmeans",
     "spectral",
     "agglomerative",
+    "gaussian_mixture",
+    "hdbscan",
     "dbscan_or_hdbscan",
     "gmm",
 )
@@ -272,6 +274,8 @@ def _method_registry() -> dict[str, ClusteringMethodSpec]:
         "kmeans": ClusteringMethodSpec("kmeans", "embedding_space", True, "embedding"),
         "spectral": ClusteringMethodSpec("spectral", "embedding_space", True, "embedding"),
         "agglomerative": ClusteringMethodSpec("agglomerative", "embedding_space", True, "embedding"),
+        "gaussian_mixture": ClusteringMethodSpec("gaussian_mixture", "embedding_space", True, "embedding"),
+        "hdbscan": ClusteringMethodSpec("hdbscan", "embedding_space", False, "embedding"),
         "dbscan_or_hdbscan": ClusteringMethodSpec("dbscan_or_hdbscan", "embedding_space", False, "embedding"),
         "gmm": ClusteringMethodSpec("gmm", "embedding_space", True, "embedding"),
     }
@@ -520,7 +524,7 @@ def _embedding_space_assignments(
     labels: np.ndarray | None,
 ) -> np.ndarray:
     method_key = str(method).strip().lower()
-    if method_key in {"kmeans", "spectral", "agglomerative", "gmm"}:
+    if method_key in {"kmeans", "spectral", "agglomerative", "gaussian_mixture", "gmm"}:
         n_clusters = _resolve_fixed_cluster_count(method_key, config=config, labels=labels)
     if method_key == "kmeans":
         model = KMeans(
@@ -547,6 +551,17 @@ def _embedding_space_assignments(
             linkage=str(config.get("linkage", "ward")),
         )
         return model.fit_predict(matrix)
+    if method_key == "hdbscan":
+        if hdbscan is None:
+            raise ClusteringDependencyError(
+                "Clustering method 'hdbscan' requires the optional 'hdbscan' package, but it is not installed."
+            )
+        min_cluster_size = int(config.get("min_cluster_size", config.get("min_samples", 5)))
+        model = hdbscan.HDBSCAN(
+            min_cluster_size=min_cluster_size,
+            min_samples=int(config.get("min_samples", min_cluster_size)),
+        )
+        return model.fit_predict(matrix)
     if method_key == "dbscan_or_hdbscan":
         min_cluster_size = int(config.get("min_cluster_size", config.get("min_samples", 5)))
         if hdbscan is not None:
@@ -561,7 +576,7 @@ def _embedding_space_assignments(
             metric=str(config.get("metric", "euclidean")),
         )
         return model.fit_predict(matrix)
-    if method_key == "gmm":
+    if method_key in {"gaussian_mixture", "gmm"}:
         model = GaussianMixture(
             n_components=n_clusters,
             covariance_type=str(config.get("covariance_type", "full")),

@@ -70,7 +70,7 @@ from .diffusion import (
     simulate_weighted_cascade_once,
     validate_diffusion_model,
 )
-from .evaluation import SeedSetEvaluation, compute_f_score, evaluate_seed_set
+from .evaluation import SeedSetEvaluation, compute_f_score, compute_ideal_influences_proportional, evaluate_seed_set
 from .embeddings import (
     BenchmarkRunResult,
     EmbeddingFrameworkError,
@@ -96,6 +96,7 @@ from .feature_extraction import compute_node_features, compute_structural_node_s
 from .fairness import (
     FairnessMetrics,
     compute_dcv,
+    compute_dcv_shortfall,
     compute_normalized_group_spread,
     compute_soft_mf,
     compute_strict_mf,
@@ -103,6 +104,7 @@ from .fairness import (
 )
 from .gnn_training import GNNTrainingResult, train_gnn_node_utility_model
 from .hybrid_optimizer import CandidateEvaluation, HybridOptimizationResult, HybridSIEAConfig, HybridSIEAOptimizer
+from .memetic_optimizer import MemeticConfig, MemeticOptimizer
 from .label_generation import NodeUtilityLabelResult, generate_singleton_node_utility_labels
 from .ml_training import (
     MLTrainingResult,
@@ -135,6 +137,7 @@ from .permutations import (
     run_fim_permutation_benchmark_from_config,
 )
 from .ris_guidance import RISConfig, RISGuidanceResult, generate_ris_guidance
+from .search_evaluator import SearchObjectiveCounters, SearchObjectiveEvaluator
 from .stack_pipeline import (
     StackClusteringArtifact,
     StackEmbeddingArtifact,
@@ -167,6 +170,8 @@ __all__ = [
     "FIMPermutationRunConfig",
     "FIMPermutationSpec",
     "LoadedDataset",
+    "MemeticConfig",
+    "MemeticOptimizer",
     "ProtectedGroupReport",
     "choose_communities",
     "create_embedding_model",
@@ -194,8 +199,12 @@ __all__ = [
     "GraphEmbeddingModel",
     "GNNTrainingResult",
     "SeedSetEvaluation",
+    "SearchObjectiveCounters",
+    "SearchObjectiveEvaluator",
     "compute_f_score",
+    "compute_ideal_influences_proportional",
     "compute_dcv",
+    "compute_dcv_shortfall",
     "compute_community_quality_metrics",
     "compute_node_features",
     "compute_normalized_group_spread",

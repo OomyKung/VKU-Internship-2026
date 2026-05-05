@@ -6,9 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+import networkx as nx
 import pandas as pd
 
-from .clustering import ClusteringResult, cluster_nodes
+from .clustering import ClusteringFrameworkError, ClusteringResult, cluster_nodes
 from .community_detection import CommunityDetectionResult
 from .data_loader import LoadedDataset, ProtectedGroupReport
 from .embeddings.base import validate_embedding_frame
@@ -117,6 +118,38 @@ def _score_table_path(
     return attribute_dir / f"{dataset_name}_{stack_name}_{suffix}.csv"
 
 
+def _structural_clustering_features(dataset: LoadedDataset) -> pd.DataFrame:
+    """Build structural-only fallback features for optional embedding-space clustering."""
+
+    graph = dataset.graph
+    work_graph = graph if not graph.is_directed() else graph.to_undirected()
+    node_order = tuple(sorted(graph.nodes(), key=_sort_key))
+    node_count = max(1, int(graph.number_of_nodes()))
+    max_degree = max((float(work_graph.degree(node_id)) for node_id in node_order), default=1.0)
+    pagerank = nx.pagerank(work_graph) if work_graph.number_of_nodes() else {}
+    clustering = nx.clustering(work_graph)
+    core_numbers = (
+        {node_id: float(value) for node_id, value in nx.core_number(work_graph).items()}
+        if work_graph.number_of_edges() > 0
+        else {node_id: 0.0 for node_id in node_order}
+    )
+    rows: list[dict[str, object]] = []
+    for node_id in node_order:
+        degree = float(work_graph.degree(node_id))
+        rows.append(
+            {
+                "node_id": node_id,
+                "degree": degree,
+                "normalized_degree": degree / float(max(max_degree, 1.0)),
+                "pagerank": float(pagerank.get(node_id, 0.0)),
+                "clustering_coefficient": float(clustering.get(node_id, 0.0)),
+                "core_number": float(core_numbers.get(node_id, 0.0)),
+                "graph_density": float(nx.density(work_graph)) if node_count > 1 else 0.0,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def prepare_embedding_frame(
     dataset: LoadedDataset,
     method_name: str,
@@ -187,6 +220,7 @@ def prepare_optional_clustering(
     labels: pd.Series | Sequence[Any] | Mapping[Any, Any] | None = None,
     output_dir: Path | str | None = None,
     random_seed: int = 42,
+    use_structural_fallback: bool = True,
 ) -> StackClusteringArtifact:
     """Compute one optional clustering artifact and persist assignments when requested."""
 
@@ -194,17 +228,30 @@ def prepare_optional_clustering(
     if normalized_method in {"", "none", "off"}:
         return StackClusteringArtifact(method_name="none", clustering_result=None, notes="clustering=none")
 
-    result = cluster_nodes(
-        dataset.graph,
-        normalized_method,
-        embeddings=embeddings,
-        features=features,
-        labels=labels,
-        config=dict(config or {}),
-        random_seed=int(random_seed),
-        input_mode=input_mode,
-        dataset=dataset,
-    )
+    resolved_features = features
+    notes = []
+    if embeddings is None and resolved_features is None and bool(use_structural_fallback):
+        resolved_features = _structural_clustering_features(dataset)
+        notes.append("clustering_features=structural_fallback")
+    try:
+        result = cluster_nodes(
+            dataset.graph,
+            normalized_method,
+            embeddings=embeddings,
+            features=resolved_features,
+            labels=labels,
+            config=dict(config or {}),
+            random_seed=int(random_seed),
+            input_mode=input_mode,
+            dataset=None if resolved_features is not None else dataset,
+        )
+    except ClusteringFrameworkError as exc:
+        notes.append(f"clustering_skipped={type(exc).__name__}: {exc}")
+        return StackClusteringArtifact(
+            method_name=normalized_method,
+            clustering_result=None,
+            notes="; ".join(notes),
+        )
     dataset_dir = _dataset_artifact_dir(output_dir, dataset.name, "clustering")
     assignments_csv_path = None
     cluster_sizes_csv_path = None
@@ -223,7 +270,7 @@ def prepare_optional_clustering(
         clustering_result=result,
         assignments_csv_path=assignments_csv_path,
         cluster_sizes_csv_path=cluster_sizes_csv_path,
-        notes=f"clustering_input_mode={result.resolved_input_mode}",
+        notes="; ".join([*notes, f"clustering_input_mode={result.resolved_input_mode}"]),
     )
 
 
@@ -352,6 +399,7 @@ def build_ranking_feature_frame(
     extra_score_maps: Mapping[str, Mapping[Any, float]] | None = None,
     use_community_features_for_ml: bool = True,
     community_feature_mode: str = "basic",
+    use_clustering_features: bool = False,
 ) -> pd.DataFrame:
     """Build the shared feature table consumed by tabular and GNN rankers."""
 
@@ -371,7 +419,7 @@ def build_ranking_feature_frame(
             how="left",
             validate="one_to_one",
         )
-    if clustering_result is not None:
+    if clustering_result is not None and bool(use_clustering_features):
         assignment_frame = clustering_result.assignment_frame.rename(
             columns={"cluster_id": "clustering_cluster_id"}
         )

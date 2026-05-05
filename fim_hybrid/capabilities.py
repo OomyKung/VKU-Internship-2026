@@ -234,6 +234,14 @@ def _optimizer_entries() -> list[CapabilityEntry]:
         ),
         CapabilityEntry(
             category="optimizer_mode",
+            name="memetic",
+            status="available",
+            integration_surface="trusted_fim_pipeline",
+            interface="MemeticOptimizer(...).optimize()",
+            notes="Fairness-first Memetic Algorithm with evolutionary search, repair, and targeted local improvement.",
+        ),
+        CapabilityEntry(
+            category="optimizer_mode",
             name="repair_heuristics",
             status="available",
             integration_surface="hybrid_optimizer",

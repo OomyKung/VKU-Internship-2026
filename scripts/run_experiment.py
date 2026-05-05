@@ -618,8 +618,11 @@ _FIM_STACK_PRESETS = {
     "community_aware_fair_greedy",
     "baseline_community_greedy",
     "graphsage_community_siea",
+    "graphsage_community_memetic",
     "gcn_community_siea",
+    "gcn_community_memetic",
     "node2vec_xgboost_community_siea",
+    "node2vec_xgboost_community_memetic",
     "no_ml_community_siea",
     "fairness_first_scalable_ml_siea",
     "node2vec_xgboost_fair_siea",
@@ -666,21 +669,31 @@ def _preset_spec(args: argparse.Namespace) -> FIMPermutationSpec:
             "community_fair_greedy_baseline",
             "community_aware_fair_greedy",
             "graphsage_community_siea",
+            "graphsage_community_memetic",
             "gcn_community_siea",
+            "gcn_community_memetic",
             "node2vec_xgboost_community_siea",
+            "node2vec_xgboost_community_memetic",
         }
         and requested_policy == "fim_default"
         else requested_policy
     )
-    if stack_name not in {"baseline_community_greedy", "community_aware_fair_greedy", "community_fair_greedy_baseline"} and args.optimizer_mode != "hybrid_si_ea":
+    stack_optimizer_mode = "memetic" if stack_name.endswith("_memetic") else str(args.optimizer_mode)
+    if (
+        stack_name not in {"baseline_community_greedy", "community_aware_fair_greedy", "community_fair_greedy_baseline"}
+        and stack_optimizer_mode not in {"hybrid_si_ea", "memetic"}
+    ):
         raise ValueError(
-            f"--fim-stack {stack_name} is wired to Hybrid SI+EA in this runner; "
-            "use --optimizer-mode hybrid_si_ea or the existing standard experiment path."
+            f"--fim-stack {stack_name} is wired to Hybrid SI+EA or Memetic optimization in this runner; "
+            "use --optimizer-mode hybrid_si_ea, --optimizer-mode memetic, or the existing standard experiment path."
         )
     use_fair_ris = bool(args.use_fair_ris) if args.use_fair_ris is not None else stack_name in {
         "graphsage_community_siea",
+        "graphsage_community_memetic",
         "gcn_community_siea",
+        "gcn_community_memetic",
         "node2vec_xgboost_community_siea",
+        "node2vec_xgboost_community_memetic",
         "fairness_first_scalable_ml_siea",
         "node2vec_xgboost_fair_siea",
         "gcn_fair_siea",
@@ -740,10 +753,10 @@ def _preset_spec(args: argparse.Namespace) -> FIMPermutationSpec:
             ranking_policy=effective_ranking_policy,
             notes=f"preset={stack_name}",
         )
-    if stack_name == "graphsage_community_siea":
+    if stack_name in {"graphsage_community_siea", "graphsage_community_memetic"}:
         return FIMPermutationSpec(
             name=stack_name,
-            description="Leiden/Louvain/Multilevel/Infomap communities with GraphSAGE, Fair RIS, and Hybrid SI+EA.",
+            description="Leiden/Louvain/Multilevel/Infomap communities with GraphSAGE, Fair RIS, and configurable optimization.",
             runner_kind="ranked_hybrid",
             diffusion_model=args.diffusion_model,
             community_method=community_method,
@@ -751,16 +764,16 @@ def _preset_spec(args: argparse.Namespace) -> FIMPermutationSpec:
             spread_estimator_final="monte_carlo",
             embedding_method="graphsage",
             ranking_model=_canonical_ranking_model(args.ranking_model, "graphsage"),
-            optimizer_mode="hybrid_si_ea",
+            optimizer_mode=stack_optimizer_mode,
             variant_family="ml",
             use_ris_guidance=True,
             use_fair_ris=use_fair_ris,
-            notes="preset=graphsage_community_siea",
+            notes=f"preset={stack_name}",
         )
-    if stack_name == "gcn_community_siea":
+    if stack_name in {"gcn_community_siea", "gcn_community_memetic"}:
         return FIMPermutationSpec(
             name=stack_name,
-            description="Communities with GCN, Fair RIS, and Hybrid SI+EA.",
+            description="Communities with GCN, Fair RIS, and configurable optimization.",
             runner_kind="ranked_hybrid",
             diffusion_model=args.diffusion_model,
             community_method=community_method,
@@ -768,16 +781,16 @@ def _preset_spec(args: argparse.Namespace) -> FIMPermutationSpec:
             spread_estimator_final="monte_carlo",
             embedding_method="gcn",
             ranking_model=_canonical_ranking_model(args.ranking_model, "gcn"),
-            optimizer_mode="hybrid_si_ea",
+            optimizer_mode=stack_optimizer_mode,
             variant_family="ml",
             use_ris_guidance=True,
             use_fair_ris=use_fair_ris,
-            notes="preset=gcn_community_siea",
+            notes=f"preset={stack_name}",
         )
-    if stack_name == "node2vec_xgboost_community_siea":
+    if stack_name in {"node2vec_xgboost_community_siea", "node2vec_xgboost_community_memetic"}:
         return FIMPermutationSpec(
             name=stack_name,
-            description="Communities with Node2Vec, XGBoost, RIS/Fair RIS, and Hybrid SI+EA.",
+            description="Communities with Node2Vec, XGBoost, RIS/Fair RIS, and configurable optimization.",
             runner_kind="ranked_hybrid",
             diffusion_model=args.diffusion_model,
             community_method=community_method,
@@ -785,11 +798,11 @@ def _preset_spec(args: argparse.Namespace) -> FIMPermutationSpec:
             spread_estimator_final="monte_carlo",
             embedding_method="node2vec",
             ranking_model=_canonical_ranking_model(args.ranking_model, "node2vec"),
-            optimizer_mode="hybrid_si_ea",
+            optimizer_mode=stack_optimizer_mode,
             variant_family="ml",
             use_ris_guidance=True,
             use_fair_ris=use_fair_ris,
-            notes="preset=node2vec_xgboost_community_siea",
+            notes=f"preset={stack_name}",
         )
     if stack_name == "no_ml_community_siea":
         return FIMPermutationSpec(
@@ -868,6 +881,33 @@ def _run_direct_fim_stack(args: argparse.Namespace, dataset_config: DatasetConfi
         local_search_steps=int(args.local_search_steps),
         population_size=int(args.population_size),
         generations=int(args.generations),
+        memetic_population_size=args.memetic_population_size,
+        memetic_random_immigrant_rate=float(args.memetic_random_immigrant_rate),
+        memetic_initialization_mode=str(args.memetic_initialization_mode),
+        memetic_fscore_weight=float(args.fscore_weight),
+        memetic_mf_weight=float(args.mf_weight),
+        memetic_dcv_weight=float(args.dcv_weight),
+        memetic_group_coverage_weight=float(args.group_coverage_weight),
+        memetic_community_coverage_weight=float(args.community_coverage_weight),
+        memetic_spread_weight=float(args.spread_weight),
+        memetic_selection=str(args.memetic_selection),
+        memetic_tournament_size=int(args.memetic_tournament_size),
+        memetic_crossover=str(args.memetic_crossover),
+        memetic_crossover_rate=float(args.memetic_crossover_rate),
+        memetic_mutation_rate=float(args.memetic_mutation_rate),
+        memetic_mutation_strength=args.memetic_mutation_strength,
+        memetic_weak_group_mutation_bias=float(args.memetic_weak_group_mutation_bias),
+        memetic_repair_enabled=bool(args.memetic_repair_enabled),
+        memetic_repair_rounds=int(args.memetic_repair_rounds),
+        memetic_local_search_enabled=bool(args.memetic_local_search_enabled),
+        memetic_local_search_frequency=str(args.memetic_local_search_frequency),
+        memetic_local_search_intensity=str(args.memetic_local_search_intensity),
+        memetic_local_search_top_elites=float(args.memetic_local_search_top_elites),
+        memetic_local_search_candidate_limit=args.memetic_local_search_candidate_limit,
+        memetic_fairness_tolerance_fscore_drop=float(args.fairness_tolerance_fscore_drop),
+        memetic_fairness_tolerance_dcv=float(args.fairness_tolerance_dcv),
+        memetic_elitism_rate=float(args.memetic_elitism_rate),
+        memetic_diversity_preservation=bool(args.memetic_diversity_preservation),
         gnn_epochs=int(args.gnn_epochs),
         gnn_hidden_dim=int(args.gnn_hidden_dim),
         gnn_num_layers=int(args.gnn_num_layers),
@@ -1170,6 +1210,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--elite-fraction", type=float, default=0.25, help="Hybrid elite fraction.")
     parser.add_argument("--leader-guidance-fraction", type=float, default=0.34, help="Swarm-style leader replacement fraction.")
     parser.add_argument("--local-search-steps", type=int, default=2, help="Local search refinement steps per offspring.")
+    parser.add_argument("--memetic-population-size", type=int, default=None)
+    parser.add_argument("--memetic-random-immigrant-rate", type=float, default=0.10)
+    parser.add_argument("--memetic-initialization-mode", choices=["fairness_guided", "score_guided", "random"], default="fairness_guided")
+    parser.add_argument("--memetic-selection", choices=["tournament", "rank", "roulette"], default="tournament")
+    parser.add_argument("--memetic-tournament-size", type=int, default=3)
+    parser.add_argument("--memetic-crossover", choices=["uniform", "fairness_preserving"], default="fairness_preserving")
+    parser.add_argument("--memetic-crossover-rate", type=float, default=0.9)
+    parser.add_argument("--memetic-mutation-rate", type=float, default=0.25)
+    parser.add_argument("--memetic-mutation-strength", type=int, default=None)
+    parser.add_argument("--memetic-weak-group-mutation-bias", type=float, default=0.70)
+    parser.add_argument("--memetic-repair-enabled", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--memetic-repair-rounds", type=int, default=2)
+    parser.add_argument("--memetic-local-search-enabled", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--memetic-local-search-frequency", choices=["every_generation", "final_generation", "never"], default="every_generation")
+    parser.add_argument("--memetic-local-search-intensity", choices=["light", "medium", "heavy"], default="light")
+    parser.add_argument("--memetic-local-search-top-elites", type=float, default=0.25)
+    parser.add_argument("--memetic-local-search-candidate-limit", type=int, default=None)
+    parser.add_argument("--memetic-elitism-rate", type=float, default=0.10)
+    parser.add_argument("--memetic-diversity-preservation", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--random-seed", type=int, default=42, help="Random seed.")
     parser.add_argument("--output-dir", default="results", help="Directory for CSV outputs.")
     parser.add_argument(
@@ -1200,7 +1259,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ml", action="store_true", help="Enable ML-guided candidate selection.")
     parser.add_argument("--embedding-method", choices=["none", "graphsage", "gcn", "node2vec"], default=None, help="Embedding/scoring method used when --pipeline-mode ml_guided_community_siea is selected.")
     parser.add_argument("--embedding-dim", type=int, default=32, help="Embedding dimension used by direct ML-guided FIM stack presets.")
-    parser.add_argument("--optimizer-mode", choices=["hybrid_si_ea", "local_search"], default="hybrid_si_ea", help="Optimizer mode metadata for --fim-stack presets.")
+    parser.add_argument("--optimizer-mode", choices=["hybrid_si_ea", "memetic", "local_search"], default="hybrid_si_ea", help="Optimizer mode metadata for --fim-stack presets.")
     parser.add_argument("--use-ris", action=argparse.BooleanOptionalAction, default=False, help="Enable standard RIS guidance in --fim-stack presets.")
     parser.add_argument("--use-fair-ris", action=argparse.BooleanOptionalAction, default=None, help="Enable Fair RIS guidance in --fim-stack presets.")
     parser.add_argument("--force-ris-for-all-stacks", action=argparse.BooleanOptionalAction, default=False, help="Force RIS/Fair RIS search guidance for direct FIM stack presets.")

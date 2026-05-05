@@ -11,6 +11,7 @@ from typing import Any, Iterable, Sequence
 import numpy as np
 import pandas as pd
 
+from .clustering import ClusteringResult
 from .community_detection import CommunityDetectionResult, get_community_stats, sample_community, sample_node_from_community
 from .data_loader import LoadedDataset, ProtectedGroupReport
 from .diffusion import DEFAULT_DIFFUSION_MODEL, validate_diffusion_model
@@ -18,6 +19,7 @@ from .evaluation import evaluate_seed_set
 from .feature_extraction import compute_node_features, compute_structural_node_scores
 from .fairness import FairnessMetrics
 from .safe_math import safe_divide, safe_minmax_normalize
+from .search_evaluator import SearchObjectiveEvaluator
 
 
 @dataclass(slots=True)
@@ -132,6 +134,34 @@ class HybridSIEAConfig:
     optimization_mode: str = "full"
     refinement_intensity: float = 1.0
     marginal_eval_fraction: float = 1.0
+    use_dcv_targeting: bool = False
+    dcv_target_weight: float = 3.0
+    parity_error_weight: float = 2.0
+    over_served_penalty_weight: float = 2.0
+    under_served_bonus_weight: float = 1.5
+    parity_tolerance: float = 0.005
+    use_over_served_group_penalty: bool = False
+    use_dcv_first_swap_acceptance: bool = False
+    dcv_improvement_epsilon: float = 0.0005
+    mf_drop_tolerance: float = 0.001
+    fscore_drop_tolerance: float = 0.001
+    spread_safe_dcv_tolerance: float = 0.002
+    use_dcv_parity_repair: bool = False
+    dcv_parity_repair_rounds: int = 5
+    dcv_parity_repair_candidate_limit: int = 100
+    cluster_diversity_enabled: bool = False
+    cluster_balance_enabled: bool = False
+    cluster_repair_enabled: bool = False
+    cluster_diversity_weight: float = 0.0
+    max_seeds_per_cluster_fraction: float = 0.5
+    use_dcv_minimization: bool = False
+    dcv_target_mode: str = "mean"
+    parity_error_improvement_epsilon: float = 0.0005
+    # Shortfall DCV fields — active only when primary_dcv_mode="shortfall".
+    primary_dcv_mode: str = "disparity"
+    shortfall_dcv_weight: float = 1.0
+    disparity_dcv_weight: float = 0.25
+    ideal_influences: dict[str, float] | None = None
 
 
 @dataclass(slots=True)
@@ -181,8 +211,40 @@ class HybridOptimizationResult:
     swap_accepted_fscore_improvement: int = 0
     swap_accepted_mf_improvement: int = 0
     swap_accepted_spread_fairness_preserved: int = 0
+    swaps_accepted_dcv_improvement: int = 0
+    swaps_rejected_dcv_worsening: int = 0
+    swaps_accepted_parity_improvement: int = 0
     seed_quota_per_protected_group: dict[str, int] | None = None
     initial_population_group_coverage_summary: dict[str, int] | None = None
+    parity_repair_attempts: int = 0
+    parity_repair_successes: int = 0
+    dcv_before_parity_repair: float | None = None
+    dcv_after_parity_repair_estimated: float | None = None
+    groups_rebalanced: tuple[str, ...] = ()
+    optimizer_mode: str = "hybrid_si_ea"
+    crossover_rate: float | None = None
+    mutation_rate: float | None = None
+    local_search_enabled: bool | None = None
+    local_search_top_elites: float | None = None
+    local_search_intensity: str = ""
+    local_search_attempts: int = 0
+    local_search_improvements: int = 0
+    accepted_fscore_moves: int = 0
+    accepted_mf_dcv_moves: int = 0
+    accepted_spread_safe_moves: int = 0
+    rejected_fairness_drops: int = 0
+    search_mc_eval_calls: int = 0
+    search_ris_eval_calls: int = 0
+    search_fair_ris_eval_calls: int = 0
+    time_ris_evaluation: float = 0.0
+    time_mc_search_evaluation: float = 0.0
+    time_search_objective_total: float = 0.0
+    rr_sets_used: int = 0
+    rr_sets_generated: int = 0
+    duplicate_repairs: int = 0
+    budget_repairs: int = 0
+    community_repairs: int = 0
+    diversity_score: float | None = None
 
 
 def _sort_key(value: Any) -> tuple[str, str]:
@@ -224,11 +286,14 @@ class HybridSIEAOptimizer:
         node_scores: dict[Any, float] | None = None,
         ml_node_scores: dict[Any, float] | None = None,
         node2vec_embeddings: dict[Any, Sequence[float]] | None = None,
+        search_evaluator: SearchObjectiveEvaluator | None = None,
+        clustering_result: ClusteringResult | None = None,
     ) -> None:
         self.dataset = dataset
         self.protected_group_report = protected_group_report
         self.community_result = community_result
         self.config = config
+        self.search_evaluator = search_evaluator
         self.rng = np.random.default_rng(config.random_seed)
         self.evaluation_cache: OrderedDict[tuple[Any, ...], CandidateEvaluation] = OrderedDict()
         self.screening_evaluation_cache: OrderedDict[tuple[tuple[Any, ...], int], CandidateEvaluation] = OrderedDict()
@@ -254,7 +319,16 @@ class HybridSIEAOptimizer:
         self.swap_accepted_fscore_improvement = 0
         self.swap_accepted_mf_improvement = 0
         self.swap_accepted_spread_fairness_preserved = 0
+        self.swaps_accepted_dcv_improvement = 0
+        self.swaps_rejected_dcv_worsening = 0
+        self.swaps_accepted_parity_improvement = 0
         self.last_swap_acceptance_reason = ""
+        self.last_swap_rejection_reason = ""
+        self.parity_repair_attempts = 0
+        self.parity_repair_successes = 0
+        self.dcv_before_parity_repair: float | None = None
+        self.dcv_after_parity_repair_estimated: float | None = None
+        self.groups_rebalanced: set[str] = set()
         self.seed_quota_per_protected_group: dict[str, int] = {}
         self.initial_population_group_coverage_summary: dict[str, int] = {}
 
@@ -278,8 +352,13 @@ class HybridSIEAOptimizer:
             node_id: set(self.structural_graph.neighbors(node_id))
             for node_id in self.structural_graph.nodes()
         }
+        self.clustering_result = clustering_result
+        self.cluster_id_by_node: dict[Any, int] = (
+            clustering_result.cluster_id_by_node if clustering_result is not None else {}
+        )
         self.available_communities = self._build_available_communities()
         self.available_community_stats = get_community_stats(self.available_communities)
+        self.available_clusters: dict[int, tuple[Any, ...]] = self._build_available_clusters()
         self.max_unique_seed_sets = math.comb(len(self.candidate_pool), self.config.budget)
         self.node_scores = self._build_node_scores(node_scores)
         self.normalized_node_scores = _normalize_score_map(self.node_scores, self.candidate_pool)
@@ -333,7 +412,7 @@ class HybridSIEAOptimizer:
             raise ValueError("generations must be at least 1.")
         if self.config.local_search_steps < 0:
             raise ValueError("local_search_steps must be non-negative.")
-        if self.config.mc_runs < 1:
+        if self.config.mc_runs < 1 and self.search_evaluator is None:
             raise ValueError("mc_runs must be at least 1.")
         if not 0.0 <= self.config.crossover_probability <= 1.0:
             raise ValueError("crossover_probability must be between 0.0 and 1.0.")
@@ -374,6 +453,15 @@ class HybridSIEAOptimizer:
             "runtime_weight",
             "fairness_tolerance_dcv",
             "fairness_tolerance_fscore_drop",
+            "dcv_target_weight",
+            "parity_error_weight",
+            "over_served_penalty_weight",
+            "under_served_bonus_weight",
+            "parity_tolerance",
+            "dcv_improvement_epsilon",
+            "mf_drop_tolerance",
+            "fscore_drop_tolerance",
+            "spread_safe_dcv_tolerance",
         ):
             if float(getattr(self.config, field_name)) < 0.0:
                 raise ValueError(f"{field_name} must be non-negative.")
@@ -506,6 +594,10 @@ class HybridSIEAOptimizer:
             raise ValueError("refinement_intensity must be in the interval (0.0, 1.0].")
         if not 0.0 < self.config.marginal_eval_fraction <= 1.0:
             raise ValueError("marginal_eval_fraction must be in the interval (0.0, 1.0].")
+        if self.config.dcv_parity_repair_rounds < 0:
+            raise ValueError("dcv_parity_repair_rounds must be non-negative.")
+        if self.config.dcv_parity_repair_candidate_limit < 0:
+            raise ValueError("dcv_parity_repair_candidate_limit must be non-negative.")
         if self.config.mc_runs_full > 0 and self.config.mc_runs_full < 1:
             raise ValueError("mc_runs_full must be at least 1 when provided.")
         if self.config.use_staged_mc:
@@ -661,6 +753,32 @@ class HybridSIEAOptimizer:
             raise ValueError("No non-empty candidate communities are available for optimization.")
         return communities
 
+    def _build_available_clusters(self) -> dict[int, tuple[Any, ...]]:
+        if self.clustering_result is None:
+            return {}
+        clusters: dict[int, tuple[Any, ...]] = {}
+        for cluster_id, cluster_nodes in self.clustering_result.clusters.items():
+            filtered = tuple(n for n in cluster_nodes if n in self.candidate_pool_set)
+            if filtered:
+                clusters[cluster_id] = filtered
+        return clusters
+
+    def _cluster_seed_counts(self, seed_set: Sequence[Any]) -> dict[int, int]:
+        counts: dict[int, int] = {}
+        for node_id in seed_set:
+            cid = self.cluster_id_by_node.get(node_id)
+            if cid is not None:
+                counts[cid] = counts.get(cid, 0) + 1
+        return counts
+
+    def _uncovered_cluster_ids(self, seed_set: Sequence[Any]) -> set[int]:
+        covered = {
+            self.cluster_id_by_node[node_id]
+            for node_id in seed_set
+            if node_id in self.cluster_id_by_node
+        }
+        return set(self.available_clusters.keys()) - covered
+
     def _build_community_group_fraction(self) -> dict[int, dict[str, float]]:
         fractions: dict[int, dict[str, float]] = {}
         for community_id, community_nodes in self.community_result.communities.items():
@@ -804,7 +922,10 @@ class HybridSIEAOptimizer:
 
     def _fitness_score(self, evaluation_result: Any) -> float:
         if self.config.fitness_policy not in {"fairness_first", "professor_priority"}:
-            return float(evaluation_result.f_score)
+            base_score = float(evaluation_result.f_score)
+            if self.config.use_dcv_targeting:
+                base_score += self._dcv_targeting_objective_adjustment(evaluation_result)
+            return base_score
 
         node_count = max(1, int(self.dataset.graph.number_of_nodes()))
         normalized_spread = safe_divide(
@@ -836,14 +957,69 @@ class HybridSIEAOptimizer:
         group_coverage_weight = self.config.group_coverage_weight if self.config.fitness_policy == "professor_priority" else 0.0
         scalability_weight = self.config.scalability_weight if self.config.fitness_policy == "professor_priority" else 0.0
         runtime_weight = self.config.runtime_weight if self.config.fitness_policy == "professor_priority" else self.config.runtime_penalty_weight
+        # When primary_dcv_mode=shortfall, weight DCV_shortfall as the primary penalty.
+        _primary_dcv_mode = str(getattr(self.config, "primary_dcv_mode", "disparity")).strip().lower()
+        if _primary_dcv_mode == "shortfall":
+            _dcv_sf = float(getattr(evaluation_result.fairness, "dcv_shortfall", evaluation_result.fairness.dcv))
+            _dcv_disp = float(evaluation_result.fairness.dcv)
+            _sf_w = float(getattr(self.config, "shortfall_dcv_weight", 1.0))
+            _disp_w = float(getattr(self.config, "disparity_dcv_weight", 0.25))
+            _tcr = float(getattr(evaluation_result.fairness, "target_coverage_ratio", 1.0))
+            score = float(
+                self.config.mf_weight * float(evaluation_result.fairness.mf)
+                - self.config.dcv_weight * _sf_w * _dcv_sf
+                - self.config.dcv_weight * _disp_w * _dcv_disp
+                + group_coverage_weight * fraction_groups_covered
+                + group_coverage_weight * _tcr
+                + scalability_weight * scalability_score
+                + self.config.spread_weight * normalized_spread
+                - runtime_weight * normalized_runtime
+            )
+        else:
+            score = float(
+                self.config.fscore_weight * float(evaluation_result.f_score)
+                + self.config.mf_weight * float(evaluation_result.fairness.mf)
+                - self.config.dcv_weight * float(evaluation_result.fairness.dcv)
+                + group_coverage_weight * fraction_groups_covered
+                + scalability_weight * scalability_score
+                + self.config.spread_weight * normalized_spread
+                - runtime_weight * normalized_runtime
+            )
+        if self.config.use_dcv_targeting:
+            score += self._dcv_targeting_objective_adjustment(evaluation_result)
+        return score
+
+    def _dcv_targeting_objective_adjustment(self, evaluation_result: Any) -> float:
+        fairness = evaluation_result.fairness
+        normalized = {
+            group_name: float(value)
+            for group_name, value in dict(getattr(fairness, "normalized_group_spread", {}) or {}).items()
+        }
+        if self.config.dcv_target_mode == "median" and normalized:
+            sorted_vals = sorted(normalized.values())
+            n = len(sorted_vals)
+            parity_target = (
+                (sorted_vals[n // 2 - 1] + sorted_vals[n // 2]) / 2.0
+                if n % 2 == 0
+                else float(sorted_vals[n // 2])
+            )
+        else:
+            parity_target = float(getattr(fairness, "parity_target", 0.0))
+        tolerance = float(self.config.parity_tolerance)
+        over_error = float(
+            sum(max(0.0, value - parity_target - tolerance) for value in normalized.values())
+        )
+        under_error = float(
+            sum(max(0.0, parity_target - tolerance - value) for value in normalized.values())
+        )
+        parity_error = float(getattr(fairness, "parity_abs_error", 0.0)) + float(
+            getattr(fairness, "parity_squared_error", 0.0)
+        )
         return float(
-            self.config.fscore_weight * float(evaluation_result.f_score)
-            + self.config.mf_weight * float(evaluation_result.fairness.mf)
-            - self.config.dcv_weight * float(evaluation_result.fairness.dcv)
-            + group_coverage_weight * fraction_groups_covered
-            + scalability_weight * scalability_score
-            + self.config.spread_weight * normalized_spread
-            - runtime_weight * normalized_runtime
+            -self.config.dcv_target_weight * float(fairness.dcv)
+            - self.config.parity_error_weight * parity_error
+            - self.config.over_served_penalty_weight * over_error
+            - self.config.under_served_bonus_weight * under_error
         )
 
     def _mode_scale(self) -> float:
@@ -1276,6 +1452,37 @@ class HybridSIEAOptimizer:
             urgency_weights[group_name] = weight
         return urgency_weights
 
+    def _parity_adjustment_active(self) -> bool:
+        return bool(self.config.use_dcv_targeting or self.config.use_over_served_group_penalty)
+
+    def _parity_candidate_adjustment(
+        self,
+        node_id: Any,
+        coverage_levels: dict[str, float] | None,
+    ) -> tuple[float, float, float]:
+        if not self._parity_adjustment_active():
+            return 0.0, 0.0, 0.0
+        if coverage_levels is None:
+            coverage_levels = {group_name: 0.0 for group_name in self.group_names}
+        if not coverage_levels:
+            return 0.0, 0.0, 0.0
+
+        values = {group_name: float(coverage_levels.get(group_name, 0.0)) for group_name in self.group_names}
+        parity_target = float(np.mean(list(values.values()))) if values else 0.0
+        tolerance = float(self.config.parity_tolerance)
+        reach_profile = self.node_group_reach_profile[node_id]
+        under_bonus = 0.0
+        over_penalty = 0.0
+        for group_name, current_value in values.items():
+            reach = float(reach_profile.get(group_name, 0.0))
+            if current_value < parity_target - tolerance:
+                under_bonus += reach * (parity_target - tolerance - current_value)
+            elif current_value > parity_target + tolerance:
+                over_penalty += reach * (current_value - parity_target - tolerance)
+        weighted_bonus = float(self.config.under_served_bonus_weight * under_bonus)
+        weighted_penalty = float(self.config.over_served_penalty_weight * over_penalty)
+        return weighted_bonus, weighted_penalty, float(weighted_bonus - weighted_penalty)
+
     def _scoring_priors(
         self,
         reference_nodes: Sequence[Any] | set[Any] | None,
@@ -1284,7 +1491,7 @@ class HybridSIEAOptimizer:
         require_proxy: bool = False,
     ) -> tuple[tuple[Any, ...], dict[str, float] | None, dict[str, float] | None]:
         reference_seed_set = _normalize_seed_set(reference_nodes or ())
-        if not (require_proxy or self._urgency_weighting_active()):
+        if not (require_proxy or self._urgency_weighting_active() or self._parity_adjustment_active()):
             return reference_seed_set, None, None
 
         coverage_levels = self._normalized_group_coverage(
@@ -1344,6 +1551,8 @@ class HybridSIEAOptimizer:
                 )
             ) if target_groups else 0.0
             score += proxy_signal
+        _, _, parity_adjustment = self._parity_candidate_adjustment(node_id, coverage_levels)
+        score += parity_adjustment
         return score
 
     def _prefilter_candidate_nodes(
@@ -1485,17 +1694,20 @@ class HybridSIEAOptimizer:
             self.screening_evaluation_calls += 1
             self.last_screening_mc_runs = mc_runs
 
-        evaluation_result = evaluate_seed_set(
-            dataset=self.dataset,
-            protected_group_report=self.protected_group_report,
-            seed_set=normalized_seed_set,
-            propagation_probability=self.config.propagation_probability,
-            mc_runs=mc_runs,
-            diffusion_model=self.config.diffusion_model,
-            random_seed=self.config.random_seed,
-            lambda_weight=self.config.lambda_weight,
-            include_soft_mf=True,
-        )
+        if self.search_evaluator is not None:
+            evaluation_result = self.search_evaluator.evaluate_seed_set_evaluation(normalized_seed_set)
+        else:
+            evaluation_result = evaluate_seed_set(
+                dataset=self.dataset,
+                protected_group_report=self.protected_group_report,
+                seed_set=normalized_seed_set,
+                propagation_probability=self.config.propagation_probability,
+                mc_runs=mc_runs,
+                diffusion_model=self.config.diffusion_model,
+                random_seed=self.config.random_seed,
+                lambda_weight=self.config.lambda_weight,
+                include_soft_mf=True,
+            )
         evaluation = CandidateEvaluation(
             seed_set=evaluation_result.seed_set,
             total_spread_mean=evaluation_result.total_spread_mean,
@@ -1745,6 +1957,11 @@ class HybridSIEAOptimizer:
                 context="optimizer fraction of protected groups covered",
             ),
             "weakest_groups_note": ",".join(weakest_groups),
+            "parity_target": float(getattr(fairness, "parity_target", 0.0)),
+            "parity_abs_error": float(getattr(fairness, "parity_abs_error", 0.0)),
+            "parity_squared_error": float(getattr(fairness, "parity_squared_error", 0.0)),
+            "over_served_groups": ",".join(str(group) for group in getattr(fairness, "over_served_groups", ())),
+            "under_served_groups": ",".join(str(group) for group in getattr(fairness, "under_served_groups", ())),
         }
 
     def _local_search_rank_key(
@@ -1800,6 +2017,75 @@ class HybridSIEAOptimizer:
             return "spread"
         return None
 
+    def _dcv_first_swap_acceptance_reason(
+        self,
+        incumbent: CandidateEvaluation,
+        candidate: CandidateEvaluation,
+    ) -> str | None:
+        eps = 1e-12
+        dcv_delta = float(candidate.fairness.dcv) - float(incumbent.fairness.dcv)
+        mf_delta = float(candidate.fairness.mf) - float(incumbent.fairness.mf)
+        fscore_delta = float(candidate.f_score) - float(incumbent.f_score)
+        spread_delta = float(candidate.total_spread_mean) - float(incumbent.total_spread_mean)
+        if (
+            dcv_delta < -float(self.config.dcv_improvement_epsilon)
+            and mf_delta >= -float(self.config.mf_drop_tolerance)
+        ):
+            return "dcv"
+        if (
+            fscore_delta > eps
+            and dcv_delta <= float(self.config.spread_safe_dcv_tolerance)
+        ):
+            return "fscore"
+        if (
+            mf_delta > eps
+            and dcv_delta <= float(self.config.spread_safe_dcv_tolerance)
+        ):
+            return "mf"
+        if (
+            spread_delta > eps
+            and fscore_delta >= -float(self.config.fscore_drop_tolerance)
+            and dcv_delta <= float(self.config.spread_safe_dcv_tolerance)
+        ):
+            return "spread"
+        if self.config.use_dcv_minimization:
+            parity_error_delta = float(
+                getattr(candidate.fairness, "parity_abs_error", 0.0)
+            ) - float(getattr(incumbent.fairness, "parity_abs_error", 0.0))
+            if (
+                parity_error_delta < -float(self.config.parity_error_improvement_epsilon)
+                and mf_delta >= -float(self.config.mf_drop_tolerance)
+            ):
+                return "parity"
+        return None
+
+    def _record_swap_acceptance(self) -> None:
+        self.swap_accepted += 1
+        if self.last_swap_acceptance_reason == "dcv":
+            self.swaps_accepted_dcv_improvement += 1
+        elif self.last_swap_acceptance_reason == "fscore":
+            self.swap_accepted_fscore_improvement += 1
+        elif self.last_swap_acceptance_reason == "mf":
+            self.swap_accepted_mf_improvement += 1
+        elif self.last_swap_acceptance_reason == "spread":
+            self.swap_accepted_spread_fairness_preserved += 1
+        elif self.last_swap_acceptance_reason == "parity":
+            self.swaps_accepted_parity_improvement += 1
+
+    def _record_swap_rejection(
+        self,
+        candidate: CandidateEvaluation,
+        incumbent: CandidateEvaluation,
+    ) -> None:
+        if self.config.use_fairness_first_swap_acceptance or self.config.use_dcv_first_swap_acceptance:
+            self.swap_rejected_fairness_degradation += 1
+        if (
+            self.config.use_dcv_first_swap_acceptance
+            and float(candidate.fairness.dcv)
+            > float(incumbent.fairness.dcv) + float(self.config.spread_safe_dcv_tolerance)
+        ):
+            self.swaps_rejected_dcv_worsening += 1
+
     def _fairness_first_swap_is_acceptable(
         self,
         incumbent: CandidateEvaluation,
@@ -1807,11 +2093,52 @@ class HybridSIEAOptimizer:
     ) -> bool:
         return self._fairness_first_swap_acceptance_reason(incumbent, candidate) is not None
 
+    def _shortfall_first_swap_acceptance_reason(
+        self,
+        incumbent: CandidateEvaluation,
+        candidate: CandidateEvaluation,
+    ) -> str | None:
+        """Accept if shortfall DCV decreases, target coverage improves, or spread
+        gains while shortfall does not worsen beyond tolerance."""
+        eps = 1e-12
+        tol = float(getattr(self.config, "shortfall_dcv_worsen_tolerance",
+                            getattr(self.config, "mf_drop_tolerance", 0.001)))
+        sf_inc = float(getattr(incumbent.fairness, "dcv_shortfall", incumbent.fairness.dcv))
+        sf_can = float(getattr(candidate.fairness, "dcv_shortfall", candidate.fairness.dcv))
+        tcr_inc = float(getattr(incumbent.fairness, "target_coverage_ratio", 1.0))
+        tcr_can = float(getattr(candidate.fairness, "target_coverage_ratio", 1.0))
+        mf_delta = float(candidate.fairness.mf) - float(incumbent.fairness.mf)
+        spread_delta = float(candidate.total_spread_mean) - float(incumbent.total_spread_mean)
+
+        if sf_can < sf_inc - eps:
+            return "shortfall_dcv"
+        if tcr_can > tcr_inc + eps and sf_can <= sf_inc + tol:
+            return "target_coverage"
+        if mf_delta > eps and sf_can <= sf_inc + tol:
+            return "mf"
+        if spread_delta > eps and sf_can <= sf_inc + tol:
+            return "spread"
+        return None
+
     def _is_local_search_improvement(
         self,
         candidate: CandidateEvaluation,
         incumbent: CandidateEvaluation,
     ) -> bool:
+        # Shortfall-first mode takes priority over all existing acceptance strategies.
+        if str(getattr(self.config, "primary_dcv_mode", "disparity")).strip().lower() == "shortfall":
+            reason = self._shortfall_first_swap_acceptance_reason(incumbent, candidate)
+            self.last_swap_acceptance_reason = "" if reason is None else reason
+            return reason is not None
+        if self.config.use_dcv_first_swap_acceptance:
+            reason = self._dcv_first_swap_acceptance_reason(incumbent, candidate)
+            self.last_swap_acceptance_reason = "" if reason is None else reason
+            self.last_swap_rejection_reason = "dcv_worsening" if (
+                reason is None
+                and float(candidate.fairness.dcv)
+                > float(incumbent.fairness.dcv) + float(self.config.spread_safe_dcv_tolerance)
+            ) else ""
+            return reason is not None
         if self.config.use_fairness_first_swap_acceptance:
             reason = self._fairness_first_swap_acceptance_reason(incumbent, candidate)
             self.last_swap_acceptance_reason = "" if reason is None else reason
@@ -1927,6 +2254,8 @@ class HybridSIEAOptimizer:
                 coverage_levels=coverage_levels,
                 urgency_weights=urgency_weights,
             )
+        _, _, parity_adjustment = self._parity_candidate_adjustment(node_id, coverage_levels)
+        score += parity_adjustment
         return score
 
     def _interleave_tier_rankings(
@@ -2002,6 +2331,7 @@ class HybridSIEAOptimizer:
             self._marginal_gain_scoring_active()
             or local_search_delta_mf_weight > 0.0
             or local_search_delta_dcv_weight > 0.0
+            or self._parity_adjustment_active()
         )
         reference_seed_set, coverage_levels, urgency_weights = self._scoring_priors(
             reference_nodes,
@@ -2873,6 +3203,47 @@ class HybridSIEAOptimizer:
                 if len(cleaned) == self.config.budget:
                     break
 
+        if bool(self.config.cluster_repair_enabled) and self.available_clusters and len(cleaned) == self.config.budget:
+            max_per_cluster = max(1, int(self.config.max_seeds_per_cluster_fraction * self.config.budget))
+            cluster_counts = self._cluster_seed_counts(cleaned)
+            for cluster_id, cnt in list(cluster_counts.items()):
+                if cnt <= max_per_cluster:
+                    continue
+                excess = cnt - max_per_cluster
+                uncovered = self._uncovered_cluster_ids(cleaned)
+                if not uncovered:
+                    break
+                cleaned_list = list(cleaned)
+                removed = 0
+                cluster_members_in_seeds = [
+                    n for n in cleaned_list
+                    if self.cluster_id_by_node.get(n) == cluster_id
+                ]
+                cluster_members_scored = sorted(
+                    cluster_members_in_seeds,
+                    key=lambda n: (float(self.node_scores.get(n, 0.0)), _sort_key(n)),
+                )
+                for victim in cluster_members_scored:
+                    if removed >= excess:
+                        break
+                    target_cluster_id = next(iter(sorted(uncovered)))
+                    target_candidates = [
+                        n for n in self.available_clusters.get(target_cluster_id, ())
+                        if n not in set(cleaned_list)
+                    ]
+                    if not target_candidates:
+                        uncovered.discard(target_cluster_id)
+                        continue
+                    replacement = sorted(
+                        target_candidates,
+                        key=lambda n: (-float(self.node_scores.get(n, 0.0)), _sort_key(n)),
+                    )[0]
+                    cleaned_list.remove(victim)
+                    cleaned_list.append(replacement)
+                    uncovered = self._uncovered_cluster_ids(cleaned_list)
+                    removed += 1
+                cleaned = cleaned_list
+
         self.last_repair_group_counts_after = {
             str(group_name): int(count)
             for group_name, count in self._selected_group_counts(cleaned).items()
@@ -2922,6 +3293,21 @@ class HybridSIEAOptimizer:
                 if fairness_ranked:
                     init_choices = tuple(fairness_ranked[: min(3, len(fairness_ranked))])
                     node_id = sample_node_from_community(init_choices, self.rng)
+
+            if node_id is None and bool(self.config.cluster_diversity_enabled) and self.available_clusters:
+                uncovered = self._uncovered_cluster_ids(seed_nodes)
+                if uncovered:
+                    cluster_id = next(iter(sorted(uncovered)))
+                    cluster_candidates = [
+                        n for n in self.available_clusters[cluster_id]
+                        if n not in used_nodes
+                    ]
+                    if cluster_candidates:
+                        cluster_candidates_scored = sorted(
+                            cluster_candidates,
+                            key=lambda n: (-float(self.node_scores.get(n, 0.0)), _sort_key(n)),
+                        )
+                        node_id = cluster_candidates_scored[0]
 
             if node_id is None:
                 node_id = self._sample_repair_node(
@@ -3034,6 +3420,19 @@ class HybridSIEAOptimizer:
         if not merged_nodes:
             merged_nodes.extend(parent_a[: max(1, self.config.budget // 2)])
             merged_nodes.extend(parent_b[: max(1, self.config.budget // 2)])
+        if bool(self.config.cluster_diversity_enabled) and self.available_clusters and len(merged_nodes) > self.config.budget:
+            seen_clusters: set[int] = set()
+            cluster_diverse: list[Any] = []
+            remainder: list[Any] = []
+            for node in merged_nodes:
+                cid = self.cluster_id_by_node.get(node)
+                if cid is None or cid not in seen_clusters:
+                    cluster_diverse.append(node)
+                    if cid is not None:
+                        seen_clusters.add(cid)
+                else:
+                    remainder.append(node)
+            merged_nodes = cluster_diverse + remainder
         return self._repair_seed_set(merged_nodes)
 
     def _mutate(self, individual: tuple[Any, ...]) -> tuple[Any, ...]:
@@ -3062,6 +3461,17 @@ class HybridSIEAOptimizer:
             )
             if not ranked_candidates:
                 continue
+            if bool(self.config.cluster_diversity_enabled) and self.available_clusters:
+                uncovered = self._uncovered_cluster_ids(remaining)
+                if uncovered:
+                    cluster_preferred = [
+                        n for n in ranked_candidates
+                        if self.cluster_id_by_node.get(n) in uncovered
+                    ]
+                    if cluster_preferred:
+                        ranked_candidates = cluster_preferred + [
+                            n for n in ranked_candidates if n not in cluster_preferred
+                        ]
             if self._uses_legacy_two_tier_guidance():
                 secondary_ranked = [node for node in ranked_candidates if node not in self.primary_ml_pool_set]
                 primary_ranked = [node for node in ranked_candidates if node in self.primary_ml_pool_set]
@@ -3124,6 +3534,15 @@ class HybridSIEAOptimizer:
                     local_search_overlap_penalty_weight=self.config.local_search_overlap_penalty_weight,
                     stage="local_search",
                 )
+                if bool(self.config.cluster_diversity_enabled) and self.available_clusters:
+                    uncovered = self._uncovered_cluster_ids(current)
+                    if uncovered:
+                        cluster_preferred = [
+                            n for n in external_candidates
+                            if self.cluster_id_by_node.get(n) in uncovered
+                        ]
+                        other_candidates = [n for n in external_candidates if n not in cluster_preferred]
+                        external_candidates = cluster_preferred + other_candidates
                 candidate_pool_size, max_trials, early_stop_patience = self._effective_local_search_budget()
                 failed_patience = (
                     self.config.local_search_failed_patience
@@ -3159,20 +3578,13 @@ class HybridSIEAOptimizer:
                         evaluated_trials += 1
                         self.swap_attempts += 1
                         if self._is_local_search_improvement(evaluation, best_evaluation):
-                            self.swap_accepted += 1
-                            if self.last_swap_acceptance_reason == "fscore":
-                                self.swap_accepted_fscore_improvement += 1
-                            elif self.last_swap_acceptance_reason == "mf":
-                                self.swap_accepted_mf_improvement += 1
-                            elif self.last_swap_acceptance_reason == "spread":
-                                self.swap_accepted_spread_fairness_preserved += 1
+                            self._record_swap_acceptance()
                             best_candidate = candidate
                             best_evaluation = evaluation
                             screening_improvements.append((candidate, evaluation))
                             stale_trials = 0
                         else:
-                            if self.config.use_fairness_first_swap_acceptance:
-                                self.swap_rejected_fairness_degradation += 1
+                            self._record_swap_rejection(evaluation, best_evaluation)
                             stale_trials += 1
                     if evaluated_trials >= max_trials or stale_trials >= failed_patience:
                         break
@@ -3295,13 +3707,7 @@ class HybridSIEAOptimizer:
                     evaluated_trials += 1
                     self.swap_attempts += 1
                     if self._is_local_search_improvement(evaluation, best_evaluation):
-                        self.swap_accepted += 1
-                        if self.last_swap_acceptance_reason == "fscore":
-                            self.swap_accepted_fscore_improvement += 1
-                        elif self.last_swap_acceptance_reason == "mf":
-                            self.swap_accepted_mf_improvement += 1
-                        elif self.last_swap_acceptance_reason == "spread":
-                            self.swap_accepted_spread_fairness_preserved += 1
+                        self._record_swap_acceptance()
                         best_candidate = evaluation.seed_set
                         best_evaluation = evaluation
                         screening_improvements.append((evaluation.seed_set, evaluation))
@@ -3310,8 +3716,7 @@ class HybridSIEAOptimizer:
                             accepted_first_improvement = True
                             break
                     else:
-                        if self.config.use_fairness_first_swap_acceptance:
-                            self.swap_rejected_fairness_degradation += 1
+                        self._record_swap_rejection(evaluation, best_evaluation)
                         stale_trials += 1
                 if accepted_first_improvement:
                     break
@@ -3333,6 +3738,100 @@ class HybridSIEAOptimizer:
             current = best_candidate
             current_evaluation = best_evaluation
             current_full_evaluation = best_evaluation
+
+        return current
+
+    def _dcv_parity_repair_removal_order(
+        self,
+        seed_set: tuple[Any, ...],
+        evaluation: CandidateEvaluation,
+    ) -> list[Any]:
+        over_groups = tuple(getattr(evaluation.fairness, "over_served_groups", ()) or ())
+        group_counts = self._selected_group_counts(seed_set)
+        over_group_set = set(over_groups)
+        over_represented_groups = {
+            group_name
+            for group_name, count in group_counts.items()
+            if count > max(1, int(math.ceil(float(self.config.budget) / float(max(1, len(self.group_names))))))
+        }
+        target_groups = over_group_set | over_represented_groups
+        ranked = self._rank_seed_nodes_for_replacement(
+            seed_set,
+            ml_bias_weight=self.config.ml_repair_bias_weight if self._ml_guidance_enabled() else 0.0,
+            weak_group_context=WeakGroupContext(
+                weak_groups=tuple(getattr(evaluation.fairness, "under_served_groups", ()) or ()),
+                zero_covered_groups=(),
+            ),
+        )
+        preferred = [
+            node_id
+            for node_id in ranked
+            if self.node_group_by_node.get(node_id) in target_groups
+        ]
+        return preferred + [node_id for node_id in ranked if node_id not in preferred]
+
+    def _dcv_parity_repair(self, seed_set: tuple[Any, ...]) -> tuple[Any, ...]:
+        if not bool(self.config.use_dcv_parity_repair) or self.config.dcv_parity_repair_rounds <= 0:
+            return seed_set
+
+        current = self._validate_seed_set(seed_set)
+        current_eval = self._evaluate_seed_set(current, screening=False)
+        self.dcv_before_parity_repair = float(current_eval.fairness.dcv)
+        self.dcv_after_parity_repair_estimated = float(current_eval.fairness.dcv)
+        candidate_limit = max(1, int(self.config.dcv_parity_repair_candidate_limit))
+
+        for _ in range(int(self.config.dcv_parity_repair_rounds)):
+            under_groups = tuple(getattr(current_eval.fairness, "under_served_groups", ()) or ())
+            over_groups = tuple(getattr(current_eval.fairness, "over_served_groups", ()) or ())
+            if not under_groups or not over_groups:
+                break
+
+            weak_context = WeakGroupContext(weak_groups=under_groups, zero_covered_groups=())
+            add_candidates = self._rank_external_candidates(
+                current,
+                ml_bias_weight=self.config.ml_repair_bias_weight if self._ml_guidance_enabled() else 0.0,
+                primary_rate=self.config.ml_repair_primary_rate if self._uses_tuned_two_tier_guidance() else None,
+                weak_group_context=weak_context,
+                reference_evaluation=current_eval,
+                fairness_weight=max(float(self.config.under_served_bonus_weight), float(self.config.repair_fairness_weight)),
+                zero_bonus_weight=self.config.zero_group_bonus_weight,
+                bridge_weight=max(float(self.config.bridge_to_weak_group_weight), float(self.config.repair_bridge_weight)),
+                centrality_weight=self.config.repair_centrality_weight,
+                diversity_weight=self.config.repair_diversity_weight,
+                stage="repair",
+            )[:candidate_limit]
+            if not add_candidates:
+                break
+
+            accepted: tuple[tuple[Any, ...], CandidateEvaluation] | None = None
+            for node_to_remove in self._dcv_parity_repair_removal_order(current, current_eval):
+                partial = [node_id for node_id in current if node_id != node_to_remove]
+                for node_to_add in add_candidates:
+                    if node_to_add in partial:
+                        continue
+                    self.parity_repair_attempts += 1
+                    trial_seed_set = self._repair_seed_set([*partial, node_to_add])
+                    if trial_seed_set == current:
+                        continue
+                    trial_eval = self._evaluate_seed_set(trial_seed_set, screening=False)
+                    if (
+                        float(trial_eval.fairness.dcv)
+                        < float(current_eval.fairness.dcv) - float(self.config.dcv_improvement_epsilon)
+                        and float(trial_eval.fairness.mf)
+                        >= float(current_eval.fairness.mf) - float(self.config.mf_drop_tolerance)
+                    ):
+                        accepted = (trial_seed_set, trial_eval)
+                        self.parity_repair_successes += 1
+                        self.groups_rebalanced.update(str(group_name) for group_name in under_groups)
+                        self.groups_rebalanced.update(str(group_name) for group_name in over_groups)
+                        break
+                if accepted is not None:
+                    break
+
+            if accepted is None:
+                break
+            current, current_eval = accepted
+            self.dcv_after_parity_repair_estimated = float(current_eval.fairness.dcv)
 
         return current
 
@@ -3464,7 +3963,11 @@ class HybridSIEAOptimizer:
 
         final_evaluations = [self._evaluate_seed_set(individual) for individual in population]
         best_evaluation = max(final_evaluations, key=self._candidate_rank_key)
+        repaired_seed_set = self._dcv_parity_repair(best_evaluation.seed_set)
+        if repaired_seed_set != best_evaluation.seed_set:
+            best_evaluation = self._evaluate_seed_set(repaired_seed_set, screening=False)
         runtime_seconds = perf_counter() - start
+        search_verify = self.search_evaluator.verify() if self.search_evaluator is not None else {}
 
         return HybridOptimizationResult(
             best_seed_set=best_evaluation.seed_set,
@@ -3489,6 +3992,22 @@ class HybridSIEAOptimizer:
             swap_accepted_fscore_improvement=int(self.swap_accepted_fscore_improvement),
             swap_accepted_mf_improvement=int(self.swap_accepted_mf_improvement),
             swap_accepted_spread_fairness_preserved=int(self.swap_accepted_spread_fairness_preserved),
+            swaps_accepted_dcv_improvement=int(self.swaps_accepted_dcv_improvement),
+            swaps_rejected_dcv_worsening=int(self.swaps_rejected_dcv_worsening),
+            swaps_accepted_parity_improvement=int(self.swaps_accepted_parity_improvement),
             seed_quota_per_protected_group=dict(self.seed_quota_per_protected_group),
             initial_population_group_coverage_summary=dict(self.initial_population_group_coverage_summary),
+            parity_repair_attempts=int(self.parity_repair_attempts),
+            parity_repair_successes=int(self.parity_repair_successes),
+            dcv_before_parity_repair=self.dcv_before_parity_repair,
+            dcv_after_parity_repair_estimated=self.dcv_after_parity_repair_estimated,
+            groups_rebalanced=tuple(sorted(self.groups_rebalanced, key=_sort_key)),
+            search_mc_eval_calls=int(search_verify.get("search_mc_eval_calls", 0)),
+            search_ris_eval_calls=int(search_verify.get("search_ris_eval_calls", 0)),
+            search_fair_ris_eval_calls=int(search_verify.get("search_fair_ris_eval_calls", 0)),
+            time_ris_evaluation=float(search_verify.get("time_ris_evaluation", 0.0)),
+            time_mc_search_evaluation=float(search_verify.get("time_mc_search_evaluation", 0.0)),
+            time_search_objective_total=float(search_verify.get("time_search_objective_total", 0.0)),
+            rr_sets_used=int(search_verify.get("rr_sets_used", 0)),
+            rr_sets_generated=int(search_verify.get("rr_sets_generated", 0)),
         )
