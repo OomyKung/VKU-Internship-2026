@@ -1,0 +1,563 @@
+Baseline inclusion: explicit.
+Experiment Setup
+------------------------------------------------------------
+Dataset                       : twitter
+Nodes / Edges                 : 3753 / 13986
+Protected Attribute           : color
+Protected Groups              : 3
+Group Counts                  : {0:812, 1:2755, 2:186}
+Imbalance Ratio               : 14.81
+Budget                        : 120
+Budget / Nodes                : 3.20%
+Communities                   : computed per stack
+Ranking Policy                : professor_priority
+Diffusion Model               : Independent Cascade
+Search Estimator              : Fair Reverse Influence Sampling / Fair RIS
+Final Evaluator               : Monte Carlo
+MC Runs Search                : 20
+MC Runs Eval                  : 300
+Random Seed                   : 42
+Output Directory              : C:\Users\User\Desktop\VKU-Internship-2026\results\dcv_targeting_twitter_b120_boundedrepair\runs\seed_42\budget_120\color
+Dataset Loading Time          : 0.01s
+Preprocessing Time            : 0.01s
+
+Budget Adequacy Check
+------------------------------------------------------------
+Budget / Nodes                : 3.20%
+Communities > Budget?         : computed per stack
+Protected Groups > Budget?    : No
+Smallest Group Size           : 186
+Largest Group Size            : 2755
+Imbalance Ratio               : 14.81
+Warning                       : protected-group imbalance ratio above warning threshold
+
+============================================================
+Running FIM Stack: community_aware_fair_greedy
+============================================================
+Method Type                     : Non-ML baseline
+Graph Embedding                 : None
+ML Ranking Model                : None
+Community Detection             : Leiden
+Clustering                      : None
+Diffusion Model                 : Independent Cascade
+Search-time Spread Estimator    : Fair Reverse Influence Sampling / Fair RIS
+RIS Mode                        : weak_group_weighted
+Fair RIS Enabled                : True
+Fairness / Influence Objective  : F-score fairness / influence objective
+Fair Influence Optimizer        : Fairness-weighted greedy + local search
+Repair Strategy                 : Fairness-first repair
+Local Refinement                : Swap Local Search
+Final Evaluator                 : Monte Carlo simulation
+Ranking Policy                  : Professor-priority ranking
+Scalability Mode                : large_graph
+Candidate Pool Strategy         : Group-stratified candidate pool (fraction=0.50, max=1000)
+Score Normalization             : per_group
+Protected Attribute Usage in ML : Disabled
+Large Imbalance Fairness Mode   : off
+Score Weights                   : ml=0.4, ris=0.5, fair_ris=2, weak_group=1.5, coverage=1.5, diversity=0.8
+Budget                          : 120
+Dataset                         : twitter
+Protected Attribute             : color
+============================================================
+Budget may be too small for stable fairness on this graph. Reasons: protected-group imbalance ratio above warning threshold
+Runtime Breakdown
+------------------------------------------------------------
+Dataset Loading               : 0.01s
+Preprocessing                 : 0.01s
+Community Detection           : 0.33s
+Embedding Generation          : n/a
+RIS / RR-set Generation       : 0.01s
+Candidate Scoring             : 1.27s
+SI+EA Optimization            : 0.09s
+Repair                        : n/a
+Swap Local Search             : 561.63s
+Final MC Evaluation           : 0.24s
+Reporting                     : n/a
+Total Runtime                 : 563.56s
+
+Final Seed Set Diagnostics
+------------------------------------------------------------
+Seed Count                    : 120 / 120
+Duplicate Seeds               : 0
+Seed Groups                   : {0:27, 1:87, 2:6}
+Seed Communities Covered      : 32 / 118
+Largest Community Seed %      : 11.7%
+Smallest Group Seed Count     : 6
+Largest Group Seed Count      : 87
+
+Protected Group Influence
+------------------------------------------------------------
+Group     Size      Seed Count    Influence         Normalized Influence
+0         812       27            28.9433           0.0356
+1         2755      87            92.0933           0.0334
+2         186       6             6.3000            0.0339
+
+Weakest Group                 : 1
+Strongest Group               : 0
+MF                            : 0.03342770719903206
+DCV                           : 0.005500919556771135
+F-score                       : 0.013963393821130463
+
+Candidate Score Diagnostics
+------------------------------------------------------------
+Score Normalization           : per_group
+Candidate Pool Size           : 1000
+Group-stratified Pool         : n/a
+ML Score Std                  : 0.04264050666543153
+RIS Score Std                 : 0.14075266052430918
+Fair RIS Score Std            : 0.1408174658369091
+Fairness Bonus Std            : 0.3761251735502992
+Weak Group Bonus Std          : 0.3761251735502992
+Coverage Bonus Std            : 0.0
+Community Bonus Std           : 0.07379084604023162
+Spread Proxy Score Std        : 0.04264050666543153
+Combined Score Std            : 0.6732230234941134
+Any Constant Components?      : Yes
+Constant Components           : ['protected_group_coverage_bonus']
+RIS Active Verified           : True
+Fair RIS Active Verified      : True
+
+Optimizer Diagnostics
+------------------------------------------------------------
+Initial Population Size       : 20
+Generations                   : 10
+Candidate Pool Size           : 1000
+Repair Attempts               : n/a
+Weak-group Repairs            : n/a
+Duplicate Repairs             : n/a
+Swap Attempts                 : n/a
+Successful Swaps              : n/a
+Rejected Fairness Drops       : n/a
+Accepted F-score Swaps        : n/a
+Accepted Spread-safe Swaps    : n/a
+Best Generation               : n/a
+Final Fitness                 : n/a
+
+============================================================
+Running FIM Stack: graphsage_community_siea
+============================================================
+Method Type                     : ML-guided Hybrid SI+EA
+Graph Embedding                 : GraphSAGE
+ML Ranking Model                : GraphSAGE + Fair RIS scoring
+Community Detection             : Leiden
+Clustering                      : None
+Diffusion Model                 : Independent Cascade
+Search-time Spread Estimator    : Fair Reverse Influence Sampling / Fair RIS
+RIS Mode                        : weak_group_weighted
+Fair RIS Enabled                : True
+Fairness / Influence Objective  : F-score fairness / influence objective
+Fair Influence Optimizer        : Swarm Intelligence + Evolutionary Algorithm
+Repair Strategy                 : Fairness-first repair
+Local Refinement                : Swap Local Search
+Final Evaluator                 : Monte Carlo simulation
+Ranking Policy                  : Professor-priority ranking
+Scalability Mode                : large_graph
+Candidate Pool Strategy         : Group-stratified candidate pool (fraction=0.50, max=1000)
+Score Normalization             : per_group
+Protected Attribute Usage in ML : Disabled
+Large Imbalance Fairness Mode   : off
+Score Weights                   : ml=0.4, ris=0.5, fair_ris=2, weak_group=1.5, coverage=1.5, diversity=0.8
+Budget                          : 120
+Dataset                         : twitter
+Protected Attribute             : color
+============================================================
+Budget may be too small for stable fairness on this graph. Reasons: protected-group imbalance ratio above warning threshold
+Runtime Breakdown
+------------------------------------------------------------
+Dataset Loading               : 0.01s
+Preprocessing                 : 1.18s
+Community Detection           : 0.34s
+Embedding Generation          : 10.04s
+RIS / RR-set Generation       : 0.04s
+Candidate Scoring             : 6.38s
+SI+EA Optimization            : 695.51s
+Repair                        : n/a
+Swap Local Search             : n/a
+Final MC Evaluation           : 0.50s
+Reporting                     : n/a
+Total Runtime                 : 714.10s
+
+Final Seed Set Diagnostics
+------------------------------------------------------------
+Seed Count                    : 120 / 120
+Duplicate Seeds               : 0
+Seed Groups                   : {0:27, 1:80, 2:13}
+Seed Communities Covered      : 32 / 118
+Largest Community Seed %      : 13.3%
+Smallest Group Seed Count     : 13
+Largest Group Seed Count      : 80
+
+Protected Group Influence
+------------------------------------------------------------
+Group     Size      Seed Count    Influence         Normalized Influence
+0         812       27            32.0000           0.0394
+1         2755      80            90.7067           0.0329
+2         186       13            13.9100           0.0748
+
+Weakest Group                 : 1
+Strongest Group               : 2
+MF                            : 0.0329243799153055
+DCV                           : 0.031844501267598156
+F-score                       : 0.0005399393238536727
+
+Candidate Score Diagnostics
+------------------------------------------------------------
+Score Normalization           : per_group
+Candidate Pool Size           : 1000
+Group-stratified Pool         : True
+ML Score Std                  : 0.15927931146706867
+RIS Score Std                 : 0.14075266052430918
+Fair RIS Score Std            : 0.1408174658369091
+Fairness Bonus Std            : 0.3761251735502992
+Weak Group Bonus Std          : 0.3761251735502992
+Coverage Bonus Std            : 0.0
+Community Bonus Std           : 0.07379084604023162
+Spread Proxy Score Std        : 0.04264050666543153
+Combined Score Std            : 0.6697872742022741
+Any Constant Components?      : Yes
+Constant Components           : ['protected_group_coverage_bonus']
+RIS Active Verified           : True
+Fair RIS Active Verified      : True
+
+Optimizer Diagnostics
+------------------------------------------------------------
+Initial Population Size       : 20
+Generations                   : 10
+Candidate Pool Size           : 1000
+Repair Attempts               : 0
+Weak-group Repairs            : 0
+Duplicate Repairs             : 0
+Swap Attempts                 : 2392
+Successful Swaps              : 200
+Rejected Fairness Drops       : 1562
+Accepted F-score Swaps        : 120
+Accepted Spread-safe Swaps    : 74
+Best Generation               : 9
+Final Fitness                 : 1.0770276146285633
+
+============================================================
+Running FIM Stack: node2vec_xgboost_community_siea
+============================================================
+Method Type                     : ML-guided Hybrid SI+EA
+Graph Embedding                 : Node2Vec
+ML Ranking Model                : XGBoost node scorer
+Community Detection             : Leiden
+Clustering                      : None
+Diffusion Model                 : Independent Cascade
+Search-time Spread Estimator    : Fair Reverse Influence Sampling / Fair RIS
+RIS Mode                        : weak_group_weighted
+Fair RIS Enabled                : True
+Fairness / Influence Objective  : F-score fairness / influence objective
+Fair Influence Optimizer        : Swarm Intelligence + Evolutionary Algorithm
+Repair Strategy                 : Fairness-first repair
+Local Refinement                : Swap Local Search
+Final Evaluator                 : Monte Carlo simulation
+Ranking Policy                  : Professor-priority ranking
+Scalability Mode                : large_graph
+Candidate Pool Strategy         : Group-stratified candidate pool (fraction=0.50, max=1000)
+Score Normalization             : per_group
+Protected Attribute Usage in ML : Disabled
+Large Imbalance Fairness Mode   : off
+Score Weights                   : ml=0.4, ris=0.5, fair_ris=2, weak_group=1.5, coverage=1.5, diversity=0.8
+Budget                          : 120
+Dataset                         : twitter
+Protected Attribute             : color
+============================================================
+Budget may be too small for stable fairness on this graph. Reasons: protected-group imbalance ratio above warning threshold
+Runtime Breakdown
+------------------------------------------------------------
+Dataset Loading               : 0.01s
+Preprocessing                 : 1.31s
+Community Detection           : 0.32s
+Embedding Generation          : 19.66s
+RIS / RR-set Generation       : 0.04s
+Candidate Scoring             : 8.21s
+SI+EA Optimization            : 744.85s
+Repair                        : n/a
+Swap Local Search             : n/a
+Final MC Evaluation           : 0.58s
+Reporting                     : n/a
+Total Runtime                 : 775.10s
+
+Final Seed Set Diagnostics
+------------------------------------------------------------
+Seed Count                    : 120 / 120
+Duplicate Seeds               : 0
+Seed Groups                   : {0:25, 1:82, 2:13}
+Seed Communities Covered      : 33 / 118
+Largest Community Seed %      : 14.2%
+Smallest Group Seed Count     : 13
+Largest Group Seed Count      : 82
+
+Protected Group Influence
+------------------------------------------------------------
+Group     Size      Seed Count    Influence         Normalized Influence
+0         812       25            30.0367           0.0370
+1         2755      82            92.5833           0.0336
+2         186       13            14.0700           0.0756
+
+Weakest Group                 : 1
+Strongest Group               : 2
+MF                            : 0.03360556563823351
+DCV                           : 0.025771971028628327
+F-score                       : 0.0039167973048025925
+
+Candidate Score Diagnostics
+------------------------------------------------------------
+Score Normalization           : per_group
+Candidate Pool Size           : 1000
+Group-stratified Pool         : True
+ML Score Std                  : 0.11618371239169882
+RIS Score Std                 : 0.14075266052430918
+Fair RIS Score Std            : 0.1408174658369091
+Fairness Bonus Std            : 0.3761251735502992
+Weak Group Bonus Std          : 0.3761251735502992
+Coverage Bonus Std            : 0.0
+Community Bonus Std           : 0.07379084604023162
+Spread Proxy Score Std        : 0.04264050666543153
+Combined Score Std            : 0.680477575790396
+Any Constant Components?      : Yes
+Constant Components           : ['protected_group_coverage_bonus']
+RIS Active Verified           : True
+Fair RIS Active Verified      : True
+
+Optimizer Diagnostics
+------------------------------------------------------------
+Initial Population Size       : 20
+Generations                   : 10
+Candidate Pool Size           : 1000
+Repair Attempts               : 0
+Weak-group Repairs            : 0
+Duplicate Repairs             : 0
+Swap Attempts                 : 2420
+Successful Swaps              : 200
+Rejected Fairness Drops       : 1592
+Accepted F-score Swaps        : 104
+Accepted Spread-safe Swaps    : 63
+Best Generation               : 5
+Final Fitness                 : 1.1260924989084504
+
+============================================================
+Running FIM Stack: gcn_community_siea
+============================================================
+Method Type                     : ML-guided Hybrid SI+EA
+Graph Embedding                 : Graph Convolutional Network
+ML Ranking Model                : GCN + Fair RIS scoring
+Community Detection             : Leiden
+Clustering                      : None
+Diffusion Model                 : Independent Cascade
+Search-time Spread Estimator    : Fair Reverse Influence Sampling / Fair RIS
+RIS Mode                        : weak_group_weighted
+Fair RIS Enabled                : True
+Fairness / Influence Objective  : F-score fairness / influence objective
+Fair Influence Optimizer        : Swarm Intelligence + Evolutionary Algorithm
+Repair Strategy                 : Fairness-first repair
+Local Refinement                : Swap Local Search
+Final Evaluator                 : Monte Carlo simulation
+Ranking Policy                  : Professor-priority ranking
+Scalability Mode                : large_graph
+Candidate Pool Strategy         : Group-stratified candidate pool (fraction=0.50, max=1000)
+Score Normalization             : per_group
+Protected Attribute Usage in ML : Disabled
+Large Imbalance Fairness Mode   : off
+Score Weights                   : ml=0.4, ris=0.5, fair_ris=2, weak_group=1.5, coverage=1.5, diversity=0.8
+Budget                          : 120
+Dataset                         : twitter
+Protected Attribute             : color
+============================================================
+Budget may be too small for stable fairness on this graph. Reasons: protected-group imbalance ratio above warning threshold
+Runtime Breakdown
+------------------------------------------------------------
+Dataset Loading               : 0.01s
+Preprocessing                 : 1.19s
+Community Detection           : 0.37s
+Embedding Generation          : 7.78s
+RIS / RR-set Generation       : 0.04s
+Candidate Scoring             : 6.33s
+SI+EA Optimization            : 696.20s
+Repair                        : n/a
+Swap Local Search             : n/a
+Final MC Evaluation           : 0.56s
+Reporting                     : n/a
+Total Runtime                 : 712.60s
+
+Final Seed Set Diagnostics
+------------------------------------------------------------
+Seed Count                    : 120 / 120
+Duplicate Seeds               : 0
+Seed Groups                   : {0:24, 1:82, 2:14}
+Seed Communities Covered      : 34 / 118
+Largest Community Seed %      : 13.3%
+Smallest Group Seed Count     : 14
+Largest Group Seed Count      : 82
+
+Protected Group Influence
+------------------------------------------------------------
+Group     Size      Seed Count    Influence         Normalized Influence
+0         812       24            29.2933           0.0361
+1         2755      82            93.0200           0.0338
+2         186       14            15.5900           0.0838
+
+Weakest Group                 : 1
+Strongest Group               : 2
+MF                            : 0.03376406533575317
+DCV                           : 0.03311172470830459
+F-score                       : 0.00032617031372429023
+
+Candidate Score Diagnostics
+------------------------------------------------------------
+Score Normalization           : per_group
+Candidate Pool Size           : 1000
+Group-stratified Pool         : True
+ML Score Std                  : 0.05253716218217872
+RIS Score Std                 : 0.14075266052430918
+Fair RIS Score Std            : 0.1408174658369091
+Fairness Bonus Std            : 0.3761251735502992
+Weak Group Bonus Std          : 0.3761251735502992
+Coverage Bonus Std            : 0.0
+Community Bonus Std           : 0.07379084604023162
+Spread Proxy Score Std        : 0.04264050666543153
+Combined Score Std            : 0.6765899359235334
+Any Constant Components?      : Yes
+Constant Components           : ['protected_group_coverage_bonus']
+RIS Active Verified           : True
+Fair RIS Active Verified      : True
+
+Optimizer Diagnostics
+------------------------------------------------------------
+Initial Population Size       : 20
+Generations                   : 10
+Candidate Pool Size           : 1000
+Repair Attempts               : 0
+Weak-group Repairs            : 0
+Duplicate Repairs             : 0
+Swap Attempts                 : 2396
+Successful Swaps              : 200
+Rejected Fairness Drops       : 1589
+Accepted F-score Swaps        : 111
+Accepted Spread-safe Swaps    : 84
+Best Generation               : 8
+Final Fitness                 : 1.0399866822157913
+
+FIM Result Evaluation
+====================================================================================================
+Report: ml_fim_benchmark
+Inputs: ml_fim_benchmark
+Rows loaded: 4
+Ranking mode: professor_priority
+
+Group 1: dataset=twitter | protected_attribute=color | budget=120
+------------------------------------------------------------------------
+Rows: 4 methods | ranking=professor_priority | aggregated_runs=no
+
+Rank  Method                         F-score   MF      DCV     Spread   Extra   Runtime
+1     community_aware_fair_greedy    0.0140   0.0334  0.0055  127.337  7.337   563.559s
+2     node2vec_xgboost_community_... 0.0039   0.0336  0.0258  136.690  16.690  775.102s
+3     graphsage_community_siea       0.0005   0.0329  0.0318  136.617  16.617  714.103s
+4     gcn_community_siea             0.0003   0.0338  0.0331  137.903  17.903  712.601s
+
+Delta vs community_aware_fair_greedy
+------------------------------------------------------------------------
+Method                         dF-score  dMF      dDCV     dSpread   dExtra    Speedup
+node2vec_xgboost_community_... -0.0100   0.0002   0.0203   9.353     9.353     0.73x
+graphsage_community_siea       -0.0134   -0.0005  0.0263   9.280     9.280     0.79x
+gcn_community_siea             -0.0136   0.0003   0.0276   10.567    10.567    0.79x
+
+Professor-Priority Decision Trace
+------------------------------------------------------------------------
+Winner                        : community_aware_fair_greedy
+Reason                        : highest valid F-score under professor-priority ordering
+F-score gap vs 2nd            : 0.0100
+MF gap vs 2nd                 : -0.0002
+DCV gap vs 2nd                : -0.0203
+Fairness gate passed?         : pass
+Scalability gate passed?      : Yes
+Spread rank                   : 4
+Runtime rank                  : 1
+Final decision                : Selected by fairness quality before runtime.
+
+Instant Insights
+- Overall winner: community_aware_fair_greedy
+- Best ML-only method: node2vec_xgboost_community_siea
+- Best spread: gcn_community_siea
+- Best fairness profile: community_aware_fair_greedy
+- Fastest method: community_aware_fair_greedy
+- Result closeness: decisive overall result; top f_score gap is 0.0100
+- Trade-off: gcn_community_siea delivers the best spread, but community_aware_fair_greedy keeps the stronger fairness-adjusted score.
+- Best practical choice: community_aware_fair_greedy
+- Best interpretable baseline: community_aware_fair_greedy
+- Professor-priority recommendation: community_aware_fair_greedy
+- Overall recommendation differs from ML-only recommendation because baseline rows are included.
+
+Fairness Collapse Explanation
+------------------------------------------------------------------------
+No fairness-collapse explanations were triggered.
+
+Per-Method Notes
+- community_aware_fair_greedy: Best overall fairness-adjusted result; Fastest evaluated method; Best interpretable baseline; RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=256 | ris_verified=True | fair_ris_verified=True; Algorithms: embedding=None | ml_ranking=None | community=Leiden | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=Fairness-weighted greedy + local search | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+- node2vec_xgboost_community_siea: RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=256 | ris_verified=True | fair_ris_verified=True; Algorithms: embedding=Node2Vec | ml_ranking=XGBoost node scorer | community=Leiden | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=Swarm Intelligence + Evolutionary Algorithm | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+- graphsage_community_siea: RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=256 | ris_verified=True | fair_ris_verified=True; Algorithms: embedding=GraphSAGE | ml_ranking=GraphSAGE + Fair RIS scoring | community=Leiden | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=Swarm Intelligence + Evolutionary Algorithm | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+- gcn_community_siea: Best spread-oriented method, but not best fairness-adjusted method; RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=256 | ris_verified=True | fair_ris_verified=True; Algorithms: embedding=Graph Convolutional Network | ml_ranking=GCN + Fair RIS scoring | community=Leiden | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=Swarm Intelligence + Evolutionary Algorithm | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+
+Recommendation
+- best_overall_method=community_aware_fair_greedy
+- best_ml_only_method=node2vec_xgboost_community_siea
+- best_fairness_first_method=community_aware_fair_greedy
+- best_spread_first_method=gcn_community_siea
+- best_runtime_first_method=community_aware_fair_greedy
+- best_interpretable_baseline=community_aware_fair_greedy
+- best_exploratory_comparator=n/a
+- best_practical_choice=community_aware_fair_greedy
+- best_fairness_quality_method=community_aware_fair_greedy
+- best_scalable_method=community_aware_fair_greedy
+- best_spread_method=gcn_community_siea
+- best_runtime_method=community_aware_fair_greedy
+- final_professor_priority_recommendation=community_aware_fair_greedy
+
+Final Recommendation
+------------------------------------------------------------------------
+Best Fairness-Quality Method  : community_aware_fair_greedy
+Best Scalable Method          : community_aware_fair_greedy
+Best Spread Method            : gcn_community_siea
+Best Runtime Method           : community_aware_fair_greedy
+Best Interpretable Baseline   : community_aware_fair_greedy
+Professor-Priority Choice     : community_aware_fair_greedy
+Decision Summary              : Selected by fairness quality before runtime.
+
+Baseline inclusion: explicit
+
+
+ML Benchmark Insights
+- Best overall method: community_aware_fair_greedy
+- Best ML-only method: node2vec_xgboost_community_siea
+- Best current overall ML stack: node2vec_xgboost_community_siea
+- Best fairness-first ML stack: node2vec_xgboost_community_siea
+- Best spread-first ML stack: gcn_community_siea
+- Best fast ML stack: gcn_community_siea
+- Best interpretable baseline: community_aware_fair_greedy
+- Strongest practical default: node2vec_xgboost_community_siea
+- gcn_community_siea is the best spread-oriented ML stack, but not the best fairness-adjusted ML stack.
+- Overall recommendation differs from ML-only recommendation because baseline rows are included.
+
+ML Benchmark Recommendation
+- best_overall_method=community_aware_fair_greedy
+- best_ml_only_method=node2vec_xgboost_community_siea
+- best_current_overall_ml_stack=node2vec_xgboost_community_siea
+- best_fairness_first_ml_stack=node2vec_xgboost_community_siea
+- best_spread_first_ml_stack=gcn_community_siea
+- best_fast_ml_stack=gcn_community_siea
+- best_interpretable_baseline=community_aware_fair_greedy
+- strongest_practical_default=node2vec_xgboost_community_siea
+- best_fairness_quality_method=node2vec_xgboost_community_siea
+- best_scalable_method=node2vec_xgboost_community_siea
+- best_spread_method=gcn_community_siea
+- best_runtime_method=gcn_community_siea
+- final_professor_priority_recommendation=community_aware_fair_greedy
+- stacks_needing_more_work=n/a
+
+Saved comparison CSV: C:\Users\User\Desktop\VKU-Internship-2026\results\dcv_targeting_twitter_b120_boundedrepair\ml_fim_benchmark_comparison.csv
+Saved normalized CSV: C:\Users\User\Desktop\VKU-Internship-2026\results\dcv_targeting_twitter_b120_boundedrepair\ml_fim_benchmark_normalized.csv
+Saved ranked CSV: C:\Users\User\Desktop\VKU-Internship-2026\results\dcv_targeting_twitter_b120_boundedrepair\ml_fim_benchmark_ranked.csv
+Saved delta-vs-baseline CSV: C:\Users\User\Desktop\VKU-Internship-2026\results\dcv_targeting_twitter_b120_boundedrepair\ml_fim_benchmark_delta_vs_baseline.csv
+Saved report: C:\Users\User\Desktop\VKU-Internship-2026\results\dcv_targeting_twitter_b120_boundedrepair\ml_fim_benchmark_report.txt
+Saved JSON summary: C:\Users\User\Desktop\VKU-Internship-2026\results\dcv_targeting_twitter_b120_boundedrepair\ml_fim_benchmark_summary.json

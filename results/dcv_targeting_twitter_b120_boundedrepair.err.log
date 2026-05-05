@@ -1,0 +1,16 @@
+protected_group_coverage_bonus per-group normalization for 0 is constant at 3.392857; using default 0.000000.
+protected_group_coverage_bonus per-group normalization for 1 is constant at 1.000000; using default 0.000000.
+protected_group_coverage_bonus per-group normalization for 2 is constant at 14.811828; using default 0.000000.
+protected_group_coverage_bonus per-group normalization for 0 is constant at 3.392857; using default 0.000000.
+protected_group_coverage_bonus per-group normalization for 1 is constant at 1.000000; using default 0.000000.
+protected_group_coverage_bonus per-group normalization for 2 is constant at 14.811828; using default 0.000000.
+protected_group_coverage_bonus per-group normalization for 0 is constant at 3.392857; using default 0.000000.
+protected_group_coverage_bonus per-group normalization for 1 is constant at 1.000000; using default 0.000000.
+protected_group_coverage_bonus per-group normalization for 2 is constant at 14.811828; using default 0.000000.
+protected_group_coverage_bonus per-group normalization for 0 is constant at 3.392857; using default 0.000000.
+protected_group_coverage_bonus per-group normalization for 1 is constant at 1.000000; using default 0.000000.
+protected_group_coverage_bonus per-group normalization for 2 is constant at 14.811828; using default 0.000000.
+C:\Users\User\Desktop\VKU-Internship-2026\scripts\evaluate_fim_results.py:1021: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  .reset_index()
+C:\Users\User\Desktop\VKU-Internship-2026\scripts\evaluate_fim_results.py:1065: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  aggregated[column_name] = _first_non_null(group_frame[column_name])

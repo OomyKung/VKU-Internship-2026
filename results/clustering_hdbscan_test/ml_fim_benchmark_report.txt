@@ -1,0 +1,136 @@
+FIM Result Evaluation
+====================================================================================================
+Report: ml_fim_benchmark
+Inputs: ml_fim_benchmark
+Rows loaded: 2
+Ranking mode: professor_priority
+
+Global Warnings
+------------------------------------------------------------------------
+- 2 method(s) were placed after fairness-collapse filters.
+- No method passed professor-priority fairness gates; showing the least-bad method by F-score, MF, DCV, scalability, spread, extra spread, then runtime.
+- No method passed professor-priority fairness gates; recommending the least-bad method with warning.
+
+Group 1: dataset=graph_spa_500_0 | protected_attribute=region | budget=40
+------------------------------------------------------------------------
+Rows: 2 methods | ranking=professor_priority | aggregated_runs=no
+
+Rank  Method                         F-score   MF      DCV     Spread   Extra   Runtime
+1     graphsage_community_siea       -0.0075  0.0481  0.0631  41.670   1.670   14.846s
+2     community_aware_fair_greedy    -0.2094  0.0000  0.4189  40.690   0.690   1.340s
+
+Delta vs community_aware_fair_greedy
+------------------------------------------------------------------------
+Method                         dF-score  dMF      dDCV     dSpread   dExtra    Speedup
+graphsage_community_siea       0.2019    0.0481   -0.3558  0.980     0.980     0.09x
+
+Professor-Priority Decision Trace
+------------------------------------------------------------------------
+Winner                        : graphsage_community_siea
+Reason                        : least-bad method; no method passed fairness gates
+F-score gap vs 2nd            : 0.2019
+MF gap vs 2nd                 : 0.0481
+DCV gap vs 2nd                : -0.3558
+Fairness gate passed?         : fail
+Scalability gate passed?      : Yes
+Spread rank                   : 1
+Runtime rank                  : 2
+Final decision                : No method passed fairness gates; selected row is least-bad only, not a strong default.
+
+Instant Insights
+- Overall winner: graphsage_community_siea
+- Best ML-only method: graphsage_community_siea
+- Best spread: graphsage_community_siea
+- Best fairness profile: graphsage_community_siea
+- Fastest method: community_aware_fair_greedy
+- Result closeness: decisive overall result; top f_score gap is 0.2019
+- Warning: graphsage_community_siea, community_aware_fair_greedy shows a fairness collapse signal.
+- Best practical choice: graphsage_community_siea
+- Best interpretable baseline: community_aware_fair_greedy
+- Professor-priority recommendation: graphsage_community_siea
+
+Fairness Collapse Explanation
+------------------------------------------------------------------------
+Method                      : graphsage_community_siea
+Reason                      : F-score below threshold; F-score is negative; min_f_score
+MF                          : 0.0481
+DCV                         : 0.0631
+F-score                     : -0.0075
+Weakest Group               : palmdale
+Likely Cause                : spread-heavy seed selection under-covered the weakest protected group
+Recommended Fix             : increase Fair RIS / weak-group weights; enable group-stratified candidate pool or per-group normalization; reduce spread_proxy/ml weights if fairness remains unstable
+
+Method                      : community_aware_fair_greedy
+Reason                      : F-score below threshold; F-score is negative; MF near zero; DCV too high; zero-covered protected groups; min_f_score; min_mf; max_dcv; zero_covered_groups; min_fraction_groups_covered
+MF                          : 0.0000
+DCV                         : 0.4189
+F-score                     : -0.2094
+Weakest Group               : acton
+Likely Cause                : spread-heavy seed selection under-covered the weakest protected group
+Recommended Fix             : increase Fair RIS / weak-group weights; enable group-stratified candidate pool or per-group normalization; reduce spread_proxy/ml weights if fairness remains unstable
+
+Per-Method Notes
+- graphsage_community_siea: Best overall fairness-adjusted result; F-score below fairness threshold; not recommended as default; RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=256 | ris_verified=True | fair_ris_verified=True; Search objective used Fair RIS; final metrics reported by Monte Carlo.; Algorithms: embedding=GraphSAGE | ml_ranking=GraphSAGE + Fair RIS scoring | community=Leiden | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=Swarm Intelligence + Evolutionary Algorithm | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+- community_aware_fair_greedy: Fastest evaluated method; Best interpretable baseline; Fairness collapse warning: MF near zero; Fairness collapse warning: DCV extremely high; F-score below fairness threshold; not recommended as default; Fairness collapse warning: protected-group coverage below threshold; RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=256 | ris_verified=True | fair_ris_verified=True; Search objective used Fair RIS; final metrics reported by Monte Carlo.; Algorithms: embedding=None | ml_ranking=None | community=Leiden | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=Fairness-weighted greedy + local search | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+
+Warnings
+- 2 method(s) were placed after fairness-collapse filters.
+- No method passed professor-priority fairness gates; showing the least-bad method by F-score, MF, DCV, scalability, spread, extra spread, then runtime.
+- No method passed professor-priority fairness gates; recommending the least-bad method with warning.
+
+Recommendation
+- best_overall_method=graphsage_community_siea
+- best_ml_only_method=graphsage_community_siea
+- best_fairness_first_method=graphsage_community_siea
+- best_spread_first_method=graphsage_community_siea
+- best_runtime_first_method=community_aware_fair_greedy
+- best_interpretable_baseline=community_aware_fair_greedy
+- best_exploratory_comparator=n/a
+- best_practical_choice=graphsage_community_siea
+- best_fairness_quality_method=graphsage_community_siea
+- best_scalable_method=graphsage_community_siea
+- best_spread_method=graphsage_community_siea
+- best_runtime_method=community_aware_fair_greedy
+- final_professor_priority_recommendation=graphsage_community_siea
+
+Final Recommendation
+------------------------------------------------------------------------
+Best Fairness-Quality Method  : graphsage_community_siea
+Best Scalable Method          : graphsage_community_siea
+Best Spread Method            : graphsage_community_siea
+Best Runtime Method           : community_aware_fair_greedy
+Best Interpretable Baseline   : community_aware_fair_greedy
+Professor-Priority Choice     : least-bad method only
+Decision Summary              : no method passed fairness gates; do not claim as final default.
+
+Baseline inclusion: explicit
+
+
+ML Benchmark Insights
+- Best overall method: graphsage_community_siea
+- Best ML-only method: graphsage_community_siea
+- Best current overall ML stack: graphsage_community_siea
+- Best fairness-first ML stack: graphsage_community_siea
+- Best spread-first ML stack: graphsage_community_siea
+- Best fast ML stack: graphsage_community_siea
+- Best interpretable baseline: community_aware_fair_greedy
+- Strongest practical default: n/a (no ML stack passed professor-priority fairness gates)
+- Fairness collapse warning: graphsage_community_siea
+- No method passed professor-priority fairness gates; showing the least-bad method by F-score, MF, DCV, scalability, spread, extra spread, then runtime.
+- Least-bad ML method under professor priority: graphsage_community_siea (warning: fairness gates failed).
+
+ML Benchmark Recommendation
+- best_overall_method=graphsage_community_siea
+- best_ml_only_method=graphsage_community_siea
+- best_current_overall_ml_stack=graphsage_community_siea
+- best_fairness_first_ml_stack=graphsage_community_siea
+- best_spread_first_ml_stack=graphsage_community_siea
+- best_fast_ml_stack=graphsage_community_siea
+- best_interpretable_baseline=community_aware_fair_greedy
+- strongest_practical_default=n/a
+- best_fairness_quality_method=graphsage_community_siea
+- best_scalable_method=graphsage_community_siea
+- best_spread_method=graphsage_community_siea
+- best_runtime_method=graphsage_community_siea
+- final_professor_priority_recommendation=graphsage_community_siea
+- stacks_needing_more_work=graphsage_community_siea

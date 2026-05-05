@@ -1,0 +1,118 @@
+FIM Algorithm-Stack Permutation Comparison
+------------------------------------------------------------------------
+Protected attribute: region
+Budget: 40
+Ranking policy: professor_priority
+Fairness gates: min_f_score=0.0, min_mf=0.0001, max_dcv=0.25, min_fraction_groups_covered=0.8, scalability_required=True, warn_only=False
+Final estimator: monte_carlo | mc_runs_eval=300
+
+No method passed professor-priority fairness gates; showing the least-bad method by F-score, MF, DCV, scalability, spread, extra spread, then runtime.
+
+Fairness failure diagnostics
+------------------------------------------------------------------------
+No method passed the professor-priority fairness gates.
+protected_group_counts={"acton": 11, "desert_view_highlands": 3, "lake_los_angeles": 18, "lancaster": 211, "leona_valley": 2, "littlerock": 2, "northeast_antelope_valley": 7, "northwest_antelope_valley": 5, "northwest_palmdale": 5, "palmdale": 198, "quartz_hill": 15, "southeast_antelope_valley": 8, "sun_village": 15}
+group_imbalance_ratio=105.5000
+budget_per_group_estimate={"acton": 0.88, "desert_view_highlands": 0.24, "lake_los_angeles": 1.44, "lancaster": 16.88, "leona_valley": 0.16, "littlerock": 0.16, "northeast_antelope_valley": 0.56, "northwest_antelope_valley": 0.4, "northwest_palmdale": 0.4, "palmdale": 15.84, "quartz_hill": 1.2, "southeast_antelope_valley": 0.64, "sun_village": 1.2}
+method_failure=community_aware_fair_greedy: reasons=min_f_score; F-score=-0.0268; MF=0.0324; DCV=0.0860; scalability_pass=True; zero_covered_groups=0.0
+group_influence_distribution[community_aware_fair_greedy]={"acton": 1.03, "desert_view_highlands": 3.0, "lake_los_angeles": 3.07, "lancaster": 8.51, "leona_valley": 2.0, "littlerock": 1.0133333333333334, "northeast_antelope_valley": 1.03, "northwest_antelope_valley": 5.0, "northwest_palmdale": 5.0, "palmdale": 6.42, "quartz_hill": 2.06, "southeast_antelope_valley": 1.0133333333333334, "sun_village": 2.08}
+normalized_group_influence_distribution[community_aware_fair_greedy]={"acton": 0.09363636363636364, "desert_view_highlands": 1.0, "lake_los_angeles": 0.17055555555555554, "lancaster": 0.040331753554502366, "leona_valley": 1.0, "littlerock": 0.5066666666666667, "northeast_antelope_valley": 0.14714285714285716, "northwest_antelope_valley": 1.0, "northwest_palmdale": 1.0, "palmdale": 0.032424242424242425, "quartz_hill": 0.13733333333333334, "southeast_antelope_valley": 0.12666666666666668, "sun_village": 0.13866666666666666}
+Recommended actions:
+- increase budget
+- increase weak_group_bonus_weight
+- increase fair_ris_score_weight
+- enable group quota repair
+- use support-aware fairness metrics
+- run budget sweep
+
+Budget may be too small for stable fairness on this graph. Reasons: budget below protected-group seed warning threshold; smallest protected group is very small; protected-group imbalance ratio above warning threshold
+
+1. community_aware_fair_greedy [ok]
+   spread=41.2267 | extra=1.2267 | MF=0.0324 | DCV=0.0860 | F-score=-0.0268 | runtime=1.355s
+   zero_covered_groups=0.0 | fraction_groups_covered=1.0 | scalability_pass=True | candidate_pool=150.0 | ris_rr_sets=256
+   fairness_diagnostics: seed_group_counts={"acton": 1, "desert_view_highlands": 3, "lake_los_angeles": 3, "lancaster": 8, "leona_valley": 2, "littlerock": 1, "northeast_antelope_valley": 1, "northwest_antelope_valley": 5, "northwest_palmdale": 5, "palmdale": 6, "quartz_hill": 2, "southeast_antelope_valley": 1, "sun_village": 2} | influence={'acton': 1.03, 'desert_view_highlands': 3.0, 'lake_los_angeles': 3.07, 'lancaster': 8.51, 'leona_valley': 2.0, 'littlerock': 1.0133333333333334, 'northeast_antelope_valley': 1.03, 'northwest_antelope_valley': 5.0, 'northwest_palmdale': 5.0, 'palmdale': 6.42, 'quartz_hill': 2.06, 'southeast_antelope_valley': 1.0133333333333334, 'sun_village': 2.08} | normalized_influence={'acton': 0.09363636363636364, 'desert_view_highlands': 1.0, 'lake_los_angeles': 0.17055555555555554, 'lancaster': 0.040331753554502366, 'leona_valley': 1.0, 'littlerock': 0.5066666666666667, 'northeast_antelope_valley': 0.14714285714285716, 'northwest_antelope_valley': 1.0, 'northwest_palmdale': 1.0, 'palmdale': 0.032424242424242425, 'quartz_hill': 0.13733333333333334, 'southeast_antelope_valley': 0.12666666666666668, 'sun_village': 0.13866666666666666} | weakest=palmdale | strongest=northwest_palmdale
+   DCV Parity Diagnostics
+   ------------------------------------------------------------
+   Parity Target               : 0.4148787773574503
+   Normalized Influence        : {'acton': 0.09363636363636364, 'desert_view_highlands': 1.0, 'lake_los_angeles': 0.17055555555555554, 'lancaster': 0.040331753554502366, 'leona_valley': 1.0, 'littlerock': 0.5066666666666667, 'northeast_antelope_valley': 0.14714285714285716, 'northwest_antelope_valley': 1.0, 'northwest_palmdale': 1.0, 'palmdale': 0.032424242424242425, 'quartz_hill': 0.13733333333333334, 'southeast_antelope_valley': 0.12666666666666668, 'sun_village': 0.13866666666666666}
+   Over-served Groups          : ['desert_view_highlands', 'leona_valley', 'littlerock', 'northwest_antelope_valley', 'northwest_palmdale']
+   Under-served Groups         : ['acton', 'lake_los_angeles', 'lancaster', 'northeast_antelope_valley', 'palmdale', 'quartz_hill', 'southeast_antelope_valley', 'sun_village']
+   Parity Abs Error            : 4.86454555975883
+   DCV                         : 0.08597000076617253
+   Repair Successes            : 0.0
+   runtime_breakdown: dataset=0.00694629999998142 | community=0.03966049999871757 | embedding=None | ris=0.003260299999965355 | candidate_scoring=0.17552359999899636 | optimizer=0.8759304000050179 | local_search=0.22087639999881503 | final_mc=0.04259520000050543
+   seed_diagnostics: seed_count=40.0/40.0 | duplicates=0.0 | seed_groups={"acton": 1, "desert_view_highlands": 3, "lake_los_angeles": 3, "lancaster": 8, "leona_valley": 2, "littlerock": 1, "northeast_antelope_valley": 1, "northwest_antelope_valley": 5, "northwest_palmdale": 5, "palmdale": 6, "quartz_hill": 2, "southeast_antelope_valley": 1, "sun_village": 2} | seed_communities={"0": 8, "1": 6, "10": 3, "11": 2, "12": 1, "14": 1, "16": 2, "18": 2, "2": 1, "5": 2, "7": 3, "8": 2, "9": 7} | communities_covered=13.0
+   score_diagnostics: component_stats={"cluster_coverage_bonus": {"constant": true, "count": 500, "max": 0.0, "mean": 0.0, "min": 0.0, "std": 0.0}, "cluster_diversity_bonus": {"constant": true, "count": 500, "max": 0.0, "mean": 0.0, "min": 0.0, "std": 0.0}, "combined_score": {"constant": false, "count": 500, "max": 3.5802230760212965, "mean": 0.6173359343714095, "min": 0.0010014705991073373, "std": 0.6786441531519695}, "community_diversity_bonus": {"constant": false, "count": 500, "max": 1.0, "mean": 0.07366666666666666, "min": 0.0, "std": 0.15371655011018748}, "fair_ris_score": {"constant": false, "count": 500, "max": 1.0, "mean": 0.12925760640201428, "min": 0.0, "std": 0.18316948734487612}, "fairness_bonus": {"constant": false, "count": 500, "max": 1.0, "mean": 0.023367805233981707, "min": 0.0, "std": 0.09765485276729943}, "ml_score": {"constant": false, "count": 500, "max": 1.0, "mean": 0.11148068968783732, "min": 0.0, "std": 0.11425978955810491}, "over_served_group_penalty": {"constant": true, "count": 500, "max": 0.0, "mean": 0.0, "min": 0.0, "std": 0.0}, "parity_adjusted_score": {"constant": false, "count": 500, "max": 3.5802230760212965, "mean": 0.6173359343714095, "min": 0.0010014705991073373, "std": 0.6786441531519695}, "protected_group_coverage_bonus": {"constant": false, "count": 500, "max": 1.0, "mean": 0.04292822966507177, "min": 0.0, "std": 0.12618497110545465}, "ris_score": {"constant": false, "count": 500, "max": 1.0, "mean": 0.133, "min": 0.0, "std": 0.18455622449540954}, "spread_proxy_score": {"constant": false, "count": 500, "max": 1.0, "mean": 0.11148068968783732, "min": 0.0, "std": 0.11425978955810491}, "under_served_group_bonus": {"constant": true, "count": 500, "max": 0.0, "mean": 0.0, "min": 0.0, "std": 0.0}, "weak_group_bonus": {"constant": false, "count": 500, "max": 1.0, "mean": 0.023367805233981707, "min": 0.0, "std": 0.09765485276729943}} | constant_components=["cluster_coverage_bonus", "cluster_diversity_bonus", "under_served_group_bonus", "over_served_group_penalty"]
+   negative_f_score_reason=DCV exceeds MF after lambda weighting; weakest protected group has low normalized influence.
+   modules: diffusion=ic | search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=256 | community=leiden | embedding=none | clustering=none | ranking=fairness_weighted_greedy | optimizer=local_search | debias=none
+   algorithms: embedding=None | ml_ranking=None | community=Leiden | clustering=None | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=Fairness-weighted greedy + local search | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+   pipeline: fim_stack=community_aware_fair_greedy | ranking_policy=professor_priority | mode=baseline | method_type=non_ml_baseline | repair=True | swap_local_search=True
+   features: use_community_features=True | community_feature_mode=basic | allow_protected_features_in_ml=False
+   guidance: ml=0.7 | ris=0.7 | fair_ris=2.4 | ris_verified=True | fair_ris_verified=True | ris_score_nonzero=206 | fair_ris_score_nonzero=206 | weak_group=2.0 | community_diversity=0.5 | protected_group_coverage=2.0 | spread_proxy=0.4 | large_imbalance_active=False | score_normalization=global
+   dcv_targeting: enabled=nan | over_served_penalty=nan | dcv_first_swap=nan | parity_repair=nan | repair_successes=0.0 | dcv_before_repair=None | dcv_after_repair_est=None
+   RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=256 | ris_verified=True | fair_ris_verified=True | ris_cache_hit=False | force_ris_for_all_stacks=True | require_ris=True
+   search_objective_calls: fair_ris=6166.0 | ris=0.0 | search_mc=0.0 | final_mc=1.0 | rr_sets_used=256.0 | approx_final_fscore=-0.13611022327547023 | final_mc_fscore=-0.026772879170965054
+   candidate_pool_diagnostics: stratified=None | group_counts=None | group_quota=None | quota_shortfall=None
+   optimizer_diagnostics: initial_seed_source=fairness_weighted_greedy | repaired_seed_sets=None | repair_attempts=None | weak_group_repairs=None | successful_swaps=None | swap_attempts=None | swap_accepted=None | swap_rejected_fairness=None | swap_accepted_dcv=None | swap_rejected_dcv=None | community_coverage={"0": 8, "1": 6, "10": 3, "11": 2, "12": 1, "14": 1, "16": 2, "18": 2, "2": 1, "5": 2, "7": 3, "8": 2, "9": 7} | community_coverage_ratio=0.6842105263157895 | protected_group_coverage={"acton": 1, "desert_view_highlands": 3, "lake_los_angeles": 3, "lancaster": 8, "leona_valley": 2, "littlerock": 1, "northeast_antelope_valley": 1, "northwest_antelope_valley": 5, "northwest_palmdale": 5, "palmdale": 6, "quartz_hill": 2, "southeast_antelope_valley": 1, "sun_village": 2}
+   caches: embedding= | community=miss | ris=miss | score= | fitness_hits=None | swap_hits=None
+   artifacts: score_table=C:\Users\User\Desktop\VKU-Internship-2026\results\clustering_none_regression\runs\seed_42\budget_40\region\graph_spa_500_0\region\graph_spa_500_0_community_aware_fair_greedy_combined_candidate_scores.csv | embeddings= | community_assignments=C:\Users\User\Desktop\VKU-Internship-2026\results\clustering_none_regression\runs\seed_42\budget_40\region\graph_spa_500_0\region\graph_spa_500_0_community_aware_fair_greedy_leiden_community_assignments.csv
+   notes=fair_ris_explicit=true; initial_rr=[12, 13, 14, 15, 17, 18, 21, 223, 229, 238, 24, 241, 264, 265, 267, 268, 269, 271, 278, 281, 284, 287, 30, 303, 312, 326, 33, 331, 38, 39, 40, 44, 464, 465, 481, 485, 5, 53, 59, 6]; greedy=[0, 1, 10, 114, 13, 141, 175, 192, 196, 2, 223, 231, 240, 243, 246, 256, 257, 258, 259, 260, 261, 262, 271, 3, 384, 4, 403, 428, 429, 441, 461, 462, 463, 464, 465, 479, 480, 481, 492, 63]; objective=professor_priority; communities=19; modularity=0.802180; ris_greedy_approximation=true; ris_rr_sets=256; final_eval=monte_carlo; Search objective used Fair RIS; final metrics reported by Monte Carlo.
+
+2. graphsage_community_siea [skipped]
+   skip_reason=TypeError: _clustering_config() missing 2 required keyword-only arguments: 'dataset' and 'community_result'
+   modules: diffusion=ic | search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=256 | community=leiden | embedding=graphsage | clustering=none | ranking=graphsage | optimizer=hybrid_si_ea | debias=none
+   algorithms: embedding=GraphSAGE | ml_ranking=GraphSAGE + Fair RIS scoring | community=Leiden | clustering=None | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=Swarm Intelligence + Evolutionary Algorithm | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+   pipeline: fim_stack=nan | ranking_policy=professor_priority | mode=nan | method_type=ml_guided_hybrid_siea | repair=None | swap_local_search=None
+   features: use_community_features=True | community_feature_mode=basic | allow_protected_features_in_ml=False
+   guidance: ml=nan | ris=nan | fair_ris=nan | ris_verified=False | fair_ris_verified=False | ris_score_nonzero=0 | fair_ris_score_nonzero=0 | weak_group=nan | community_diversity=nan | protected_group_coverage=nan | spread_proxy=nan | large_imbalance_active=False | score_normalization=global
+   dcv_targeting: enabled=False | over_served_penalty=False | dcv_first_swap=False | parity_repair=False | repair_successes=nan | dcv_before_repair=None | dcv_after_repair_est=None
+   RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=256 | ris_verified=False | fair_ris_verified=False | ris_cache_hit=None | force_ris_for_all_stacks=True | require_ris=True
+   search_objective_calls: fair_ris=nan | ris=nan | search_mc=nan | final_mc=nan | rr_sets_used=nan | approx_final_fscore=nan | final_mc_fscore=nan
+   candidate_pool_diagnostics: stratified=None | group_counts=None | group_quota=None | quota_shortfall=None
+   optimizer_diagnostics: initial_seed_source=nan | repaired_seed_sets=None | repair_attempts=None | weak_group_repairs=None | successful_swaps=None | swap_attempts=None | swap_accepted=None | swap_rejected_fairness=None | swap_accepted_dcv=None | swap_rejected_dcv=None | community_coverage=nan | community_coverage_ratio=nan | protected_group_coverage=nan
+   caches: embedding=nan | community=nan | ris=nan | score=nan | fitness_hits=None | swap_hits=None
+   artifacts: score_table=nan | embeddings=nan | community_assignments=nan
+   notes=main_method=true; ml_guided_only=true; fair_ris_explicit=true
+
+3. node2vec_xgboost_community_siea [skipped]
+   skip_reason=TypeError: _clustering_config() missing 2 required keyword-only arguments: 'dataset' and 'community_result'
+   modules: diffusion=ic | search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=256 | community=leiden | embedding=node2vec | clustering=none | ranking=xgboost | optimizer=hybrid_si_ea | debias=none
+   algorithms: embedding=Node2Vec | ml_ranking=XGBoost node scorer | community=Leiden | clustering=None | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=Swarm Intelligence + Evolutionary Algorithm | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+   pipeline: fim_stack=nan | ranking_policy=professor_priority | mode=nan | method_type=ml_guided_hybrid_siea | repair=None | swap_local_search=None
+   features: use_community_features=True | community_feature_mode=basic | allow_protected_features_in_ml=False
+   guidance: ml=nan | ris=nan | fair_ris=nan | ris_verified=False | fair_ris_verified=False | ris_score_nonzero=0 | fair_ris_score_nonzero=0 | weak_group=nan | community_diversity=nan | protected_group_coverage=nan | spread_proxy=nan | large_imbalance_active=False | score_normalization=global
+   dcv_targeting: enabled=False | over_served_penalty=False | dcv_first_swap=False | parity_repair=False | repair_successes=nan | dcv_before_repair=None | dcv_after_repair_est=None
+   RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=256 | ris_verified=False | fair_ris_verified=False | ris_cache_hit=None | force_ris_for_all_stacks=True | require_ris=True
+   search_objective_calls: fair_ris=nan | ris=nan | search_mc=nan | final_mc=nan | rr_sets_used=nan | approx_final_fscore=nan | final_mc_fscore=nan
+   candidate_pool_diagnostics: stratified=None | group_counts=None | group_quota=None | quota_shortfall=None
+   optimizer_diagnostics: initial_seed_source=nan | repaired_seed_sets=None | repair_attempts=None | weak_group_repairs=None | successful_swaps=None | swap_attempts=None | swap_accepted=None | swap_rejected_fairness=None | swap_accepted_dcv=None | swap_rejected_dcv=None | community_coverage=nan | community_coverage_ratio=nan | protected_group_coverage=nan
+   caches: embedding=nan | community=nan | ris=nan | score=nan | fitness_hits=None | swap_hits=None
+   artifacts: score_table=nan | embeddings=nan | community_assignments=nan
+   notes=main_method=true; lightweight_quality_runtime=true; ml_guided_only=true; fair_ris_explicit=true
+
+4. gcn_community_siea [skipped]
+   skip_reason=TypeError: _clustering_config() missing 2 required keyword-only arguments: 'dataset' and 'community_result'
+   modules: diffusion=ic | search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=256 | community=leiden | embedding=gcn | clustering=none | ranking=gcn | optimizer=hybrid_si_ea | debias=none
+   algorithms: embedding=Graph Convolutional Network | ml_ranking=GCN + Fair RIS scoring | community=Leiden | clustering=None | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=Swarm Intelligence + Evolutionary Algorithm | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+   pipeline: fim_stack=nan | ranking_policy=professor_priority | mode=nan | method_type=ml_guided_hybrid_siea | repair=None | swap_local_search=None
+   features: use_community_features=True | community_feature_mode=basic | allow_protected_features_in_ml=False
+   guidance: ml=nan | ris=nan | fair_ris=nan | ris_verified=False | fair_ris_verified=False | ris_score_nonzero=0 | fair_ris_score_nonzero=0 | weak_group=nan | community_diversity=nan | protected_group_coverage=nan | spread_proxy=nan | large_imbalance_active=False | score_normalization=global
+   dcv_targeting: enabled=False | over_served_penalty=False | dcv_first_swap=False | parity_repair=False | repair_successes=nan | dcv_before_repair=None | dcv_after_repair_est=None
+   RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=256 | ris_verified=False | fair_ris_verified=False | ris_cache_hit=None | force_ris_for_all_stacks=True | require_ris=True
+   search_objective_calls: fair_ris=nan | ris=nan | search_mc=nan | final_mc=nan | rr_sets_used=nan | approx_final_fscore=nan | final_mc_fscore=nan
+   candidate_pool_diagnostics: stratified=None | group_counts=None | group_quota=None | quota_shortfall=None
+   optimizer_diagnostics: initial_seed_source=nan | repaired_seed_sets=None | repair_attempts=None | weak_group_repairs=None | successful_swaps=None | swap_attempts=None | swap_accepted=None | swap_rejected_fairness=None | swap_accepted_dcv=None | swap_rejected_dcv=None | community_coverage=nan | community_coverage_ratio=nan | protected_group_coverage=nan
+   caches: embedding=nan | community=nan | ris=nan | score=nan | fitness_hits=None | swap_hits=None
+   artifacts: score_table=nan | embeddings=nan | community_assignments=nan
+   notes=optional_gnn_comparison=true; ml_guided_only=true; fair_ris_explicit=true
+
+Recommendations
+------------------------------------------------------------------------
+best_interpretable_baseline=n/a
+best_practical_ml_default=n/a
+best_exploratory_fairness_heavy=n/a
+best_fairness_quality_method=community_aware_fair_greedy
+best_scalable_method=n/a
+best_spread_method=n/a
+best_runtime_method=n/a
+final_professor_priority_recommendation=community_aware_fair_greedy

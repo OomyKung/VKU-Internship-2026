@@ -1,0 +1,112 @@
+FIM Result Evaluation
+====================================================================================================
+Report: ml_fim_benchmark
+Inputs: ml_fim_benchmark
+Rows loaded: 4
+Ranking mode: professor_priority
+
+Group 1: dataset=synth3 | protected_attribute=color | budget=40
+------------------------------------------------------------------------
+Rows: 4 methods | ranking=professor_priority | aggregated_runs=no
+
+Rank  Method                         F-score   MF      DCV     Spread   Extra   Runtime
+1     gcn_community_siea             0.0334   0.0830  0.0162  43.188   3.188   5.815s
+2     graphsage_community_siea       0.0328   0.0820  0.0165  42.775   2.775   8.482s
+3     community_aware_fair_greedy    0.0302   0.0805  0.0201  42.337   2.337   4.404s
+4     node2vec_xgboost_community_... 0.0279   0.0810  0.0252  42.638   2.638   9.390s
+
+Delta vs community_aware_fair_greedy
+------------------------------------------------------------------------
+Method                         dF-score  dMF      dDCV     dSpread   dExtra    Speedup
+gcn_community_siea             0.0032    0.0025   -0.0038  0.850     0.850     0.76x
+graphsage_community_siea       0.0026    0.0015   -0.0036  0.438     0.438     0.52x
+node2vec_xgboost_community_... -0.0023   0.0005   0.0051   0.300     0.300     0.47x
+
+Professor-Priority Decision Trace
+------------------------------------------------------------------------
+Winner                        : gcn_community_siea
+Reason                        : highest valid F-score under professor-priority ordering
+F-score gap vs 2nd            : 0.0006
+MF gap vs 2nd                 : 0.0010
+DCV gap vs 2nd                : -0.0002
+Fairness gate passed?         : pass
+Scalability gate passed?      : Yes
+Spread rank                   : 1
+Runtime rank                  : 2
+Final decision                : Selected by fairness quality before runtime.
+
+Instant Insights
+- Overall winner: gcn_community_siea
+- Best ML-only method: gcn_community_siea
+- Best spread: gcn_community_siea
+- Best fairness profile: gcn_community_siea
+- Fastest method: community_aware_fair_greedy
+- Result closeness: close overall result; top f_score gap is 0.0006
+- Best practical choice: gcn_community_siea
+- Best interpretable baseline: community_aware_fair_greedy
+- Professor-priority recommendation: gcn_community_siea
+
+Fairness Collapse Explanation
+------------------------------------------------------------------------
+No fairness-collapse explanations were triggered.
+
+Per-Method Notes
+- gcn_community_siea: Best overall fairness-adjusted result; RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=128 | ris_verified=True | fair_ris_verified=True; Algorithms: embedding=Graph Convolutional Network | ml_ranking=GCN + Fair RIS scoring | community=Leiden | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=Swarm Intelligence + Evolutionary Algorithm | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+- graphsage_community_siea: RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=128 | ris_verified=True | fair_ris_verified=True; Algorithms: embedding=GraphSAGE | ml_ranking=GraphSAGE + Fair RIS scoring | community=Leiden | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=Swarm Intelligence + Evolutionary Algorithm | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+- community_aware_fair_greedy: Fastest evaluated method; Best interpretable baseline; RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=128 | ris_verified=True | fair_ris_verified=True; Algorithms: embedding=None | ml_ranking=None | community=Leiden | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=Fairness-weighted greedy + local search | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+- node2vec_xgboost_community_siea: RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=128 | ris_verified=True | fair_ris_verified=True; Algorithms: embedding=Node2Vec | ml_ranking=XGBoost node scorer | community=Leiden | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=Swarm Intelligence + Evolutionary Algorithm | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+
+Recommendation
+- best_overall_method=gcn_community_siea
+- best_ml_only_method=gcn_community_siea
+- best_fairness_first_method=gcn_community_siea
+- best_spread_first_method=gcn_community_siea
+- best_runtime_first_method=community_aware_fair_greedy
+- best_interpretable_baseline=community_aware_fair_greedy
+- best_exploratory_comparator=n/a
+- best_practical_choice=gcn_community_siea
+- best_fairness_quality_method=gcn_community_siea
+- best_scalable_method=gcn_community_siea
+- best_spread_method=gcn_community_siea
+- best_runtime_method=community_aware_fair_greedy
+- final_professor_priority_recommendation=gcn_community_siea
+
+Final Recommendation
+------------------------------------------------------------------------
+Best Fairness-Quality Method  : gcn_community_siea
+Best Scalable Method          : gcn_community_siea
+Best Spread Method            : gcn_community_siea
+Best Runtime Method           : community_aware_fair_greedy
+Best Interpretable Baseline   : community_aware_fair_greedy
+Professor-Priority Choice     : gcn_community_siea
+Decision Summary              : Selected by fairness quality before runtime.
+
+Baseline inclusion: explicit
+
+
+ML Benchmark Insights
+- Best overall method: gcn_community_siea
+- Best ML-only method: gcn_community_siea
+- Best current overall ML stack: gcn_community_siea
+- Best fairness-first ML stack: gcn_community_siea
+- Best spread-first ML stack: gcn_community_siea
+- Best fast ML stack: gcn_community_siea
+- Best interpretable baseline: community_aware_fair_greedy
+- Strongest practical default: gcn_community_siea
+- Close result; top two ML F-scores differ by 0.0006.
+
+ML Benchmark Recommendation
+- best_overall_method=gcn_community_siea
+- best_ml_only_method=gcn_community_siea
+- best_current_overall_ml_stack=gcn_community_siea
+- best_fairness_first_ml_stack=gcn_community_siea
+- best_spread_first_ml_stack=gcn_community_siea
+- best_fast_ml_stack=gcn_community_siea
+- best_interpretable_baseline=community_aware_fair_greedy
+- strongest_practical_default=gcn_community_siea
+- best_fairness_quality_method=gcn_community_siea
+- best_scalable_method=gcn_community_siea
+- best_spread_method=gcn_community_siea
+- best_runtime_method=gcn_community_siea
+- final_professor_priority_recommendation=gcn_community_siea
+- stacks_needing_more_work=n/a

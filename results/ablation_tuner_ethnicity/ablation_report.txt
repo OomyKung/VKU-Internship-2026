@@ -1,0 +1,62 @@
+
+Ablation Tuning Summary
+------------------------------------------------------------
+Dataset                : graph_spa_500_0
+Protected Attribute    : gender
+Budget                 : 40
+Stacks Tested          : community_aware_fair_greedy, graphsage_community_siea, node2vec_xgboost_community_siea, gcn_community_siea, graphsage_community_ea_memetic, node2vec_xgboost_community_ea_memetic, gcn_community_ea_memetic
+Configs Tested         : 5
+------------------------------------------------------------
+Best Overall Config    : baseline_fair_ris
+Best Method            : node2vec_xgboost_community_siea
+Best F-score           : 0.0376
+Best MF                : 0.0828
+Best DCV               : 0.0076
+Best Spread            : 42.06
+Runtime                : 24.0s
+------------------------------------------------------------
+Worst Config           : adaptive_fairness
+Reason                 : Gate=PASS, F=0.0335, MF=0.0806, DCV=0.0136
+------------------------------------------------------------
+Recommendation:
+  Use config 'baseline_fair_ris' for final evaluation.
+  Description: Standard Fair RIS with global score normalization
+  Active overrides:
+    clustering_method                      = none
+    score_normalization                    = global
+    fair_ris_score_weight                  = 2.0
+    weak_group_bonus_weight                = 1.2
+    protected_group_coverage_weight        = 1.0
+    diversity_bonus_weight                 = 0.4
+------------------------------------------------------------
+
+Comparison Table
+Config                      Norm    Best Method                   F-score  MF      DCV     Spread   Runtime  Gate  
+-------------------------------------------------------------------------------------------------------------------
+baseline_fair_ris           global  node2vec_xgboost_community_si 0.0376   0.0828  0.0076  42.1     24.0s    PASS  
+soft_clustering             global  graphsage_community_siea      0.0370   0.0823  0.0084  41.9     23.2s    PASS  
+group_stratified_hybrid     hybrid  graphsage_community_ea_memeti 0.0338   0.0809  0.0133  41.5     22.4s    PASS  
+aggressive_fairness         per_grp gcn_community_ea_memetic      0.0347   0.0807  0.0114  41.3     21.7s    PASS  
+adaptive_fairness           hybrid  gcn_community_ea_memetic      0.0335   0.0806  0.0136  41.4     39.8s    PASS  
+
+Config Analysis
+------------------------------------------------------------
+baseline_fair_ris  [PASS]
+  clustering_method=none  score_normalization=global  fair_ris_score_weight=2.0  weak_group_bonus_weight=1.2  protected_group_coverage_weight=1.0  diversity_bonus_weight=0.4
+  F=0.0376  MF=0.0828  DCV=0.0076  Spread=42.06  Method=node2vec_xgboost_community_siea
+
+soft_clustering  [PASS]
+  clustering_method=kmeans  use_clustering_features=True  use_cluster_diversity_bonus=True  cluster_diversity_weight=0.1  cluster_repair_enabled=False
+  F=0.0370  MF=0.0823  DCV=0.0084  Spread=41.87  Method=graphsage_community_siea
+
+group_stratified_hybrid  [PASS]
+  use_group_stratified_candidate_pool=True  score_normalization=hybrid  fair_ris_score_weight=2.0  weak_group_bonus_weight=1.2
+  F=0.0338  MF=0.0809  DCV=0.0133  Spread=41.54  Method=graphsage_community_ea_memetic
+
+aggressive_fairness  [PASS]
+  use_group_stratified_candidate_pool=True  score_normalization=per_group  fair_ris_score_weight=4.0  weak_group_bonus_weight=4.0  protected_group_coverage_weight=4.0
+  F=0.0347  MF=0.0807  DCV=0.0114  Spread=41.32  Method=gcn_community_ea_memetic
+
+adaptive_fairness  [PASS]
+  use_group_stratified_candidate_pool=True  score_normalization=hybrid  use_dcv_parity_repair=True  use_dcv_targeting=True  use_fairness_first_repair=True
+  F=0.0335  MF=0.0806  DCV=0.0136  Spread=41.44  Method=gcn_community_ea_memetic
