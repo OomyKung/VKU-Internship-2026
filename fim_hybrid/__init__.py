@@ -70,7 +70,7 @@ from .diffusion import (
     simulate_weighted_cascade_once,
     validate_diffusion_model,
 )
-from .evaluation import SeedSetEvaluation, compute_f_score, compute_ideal_influences_proportional, evaluate_seed_set
+from .evaluation import SeedSetEvaluation, compute_f_score, compute_ideal_influences_feasible, compute_ideal_influences_proportional, evaluate_seed_set
 from .embeddings import (
     BenchmarkRunResult,
     EmbeddingFrameworkError,
@@ -103,7 +103,7 @@ from .fairness import (
     evaluate_fairness,
 )
 from .gnn_training import GNNTrainingResult, train_gnn_node_utility_model
-from .hybrid_optimizer import CandidateEvaluation, HybridOptimizationResult, HybridSIEAConfig, HybridSIEAOptimizer
+from .optimizer_core import CandidateEvaluation, EAOptimizerConfig, OptimizationResult
 from .memetic_optimizer import MemeticConfig, MemeticOptimizer
 from .label_generation import NodeUtilityLabelResult, generate_singleton_node_utility_labels
 from .ml_training import (
@@ -203,6 +203,7 @@ __all__ = [
     "SearchObjectiveEvaluator",
     "compute_f_score",
     "compute_ideal_influences_proportional",
+    "compute_ideal_influences_feasible",
     "compute_dcv",
     "compute_dcv_shortfall",
     "compute_community_quality_metrics",
@@ -223,9 +224,8 @@ __all__ = [
     "get_fim_permutation_spec",
     "get_node_community",
     "get_nodes_in_community",
-    "HybridOptimizationResult",
-    "HybridSIEAConfig",
-    "HybridSIEAOptimizer",
+    "EAOptimizerConfig",
+    "OptimizationResult",
     "builtin_dataset_exists",
     "derive_community_id_protected_attribute",
     "load_dataset",

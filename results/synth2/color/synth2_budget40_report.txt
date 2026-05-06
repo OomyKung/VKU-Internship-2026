@@ -1,55 +1,46 @@
-======================================================================================================================
+========================================================================================================================
 Fair Influence Maximization Experiment Summary
-======================================================================================================================
+========================================================================================================================
 Dataset: synth2
 Diffusion model: ic (Independent Cascade)
 Protected attribute: color
-Budget: 40 | MC runs: search=20, eval=1000 | Random seed: 42
+Budget: 40 | MC runs: search=30, eval=1000 | Random seed: 42
 Final evaluation seed: random_seed + 1000000
 Spread semantics: total activated nodes including seed nodes; extra_spread = total_spread - budget
 Community methods: leiden
 ML: enabled | requested mode=two_tier | backend=gnn_ris | singleton label runs=15
-GNN config: type=graphsage | hidden_dim=64 | layers=2 | dropout=0.2 | lr=0.001 | weight_decay=0.0005 | epochs=50 | node2vec_mode=off
+GNN config: type=gcn | hidden_dim=64 | layers=2 | dropout=0.2 | lr=0.001 | weight_decay=0.0005 | epochs=100 | node2vec_mode=compare
+Node2Vec config: dimensions=8 | walk_length=20 | num_walks=10 | window=5 | p=1.0 | q=1.0 | scale=False | pca=None
 RIS config: num_rr_sets=256 | random_seed=42 | reuse_rr_sets=True | mode=weak_group_weighted
-Guidance weights: graphsage=1.25 | ris=1.0 | fair_ris=0.5 | fairness=0.25 | diversity=0.15
-Final recheck: disabled
+Guidance weights: graphsage=1.0 | ris=1.0 | fair_ris=0.0 | fairness=0.25 | diversity=0.15
+Final recheck: enabled | mc_runs=1000 | top_k=2
+Final recheck seed: random_seed + 2000000
 Node2Vec: supported only as an optional GNN input feature source
 
-----------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
 Community: leiden
-----------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
 Modes present: full
 
-1. hybrid_siea_ml_gnn_ris_two_tier_tuned_swap_local_search [full]
-   F=0.041122 | dF=+0.000591 | runtime=48.006s | spread=44.118 | extra=4.118
-   search=47.595s | eval=0.410s | MF=0.087337 | DCV=0.005093
-   pool=500 | kind=ml_guided
-   ZeroCov=0 | FracCov=1.000 | Bottom3=22.059
-   ML=two_tier | guidance=gnn_ris | backend=gnn_ris | GNN=graphsage | GraphSAGE=on | N2V=off | RIS=weak_group_weighted | rho=0.593751 | p@k=0.625000
+1. cea_fim [full]
+   F=0.039583 | dF=- | runtime=4.709s | spread=44.259 | extra=4.259
+   search=4.291s | eval=0.418s | MF=0.087111 | DCV=0.007945
+   pool=500 | kind=comparator
+   ZeroCov=0 | FracCov=1.000 | Bottom3=22.130
+   ML=- | ranker=none | guidance=none | backend=none | GNN=- | GraphSAGE=off | N2V=off | RIS=off | rho=- | p@k=-
+   recheck@1000MC [rank=1]: F=0.039801 | spread=44.254 | extra=4.254 | MF=0.087169 | DCV=0.007567 | rt=0.429s
 
-2. hybrid_siea [full]
-   F=0.040531 | dF=+0.000000 | runtime=279.935s | spread=44.457 | extra=4.457
-   search=279.498s | eval=0.437s | MF=0.087729 | DCV=0.006666
-   pool=500 | kind=proposed
-   ZeroCov=0 | FracCov=1.000 | Bottom3=22.229
-   ML=- | guidance=none | backend=none | GNN=- | GraphSAGE=off | N2V=off | RIS=off | rho=- | p@k=-
+2. hybrid_siea_ml_gnn_ris_node2vec_two_tier_tuned_swap_local_search [full]
+   F=0.038598 | dF=- | runtime=37.068s | spread=43.798 | extra=3.798
+   search=36.682s | eval=0.386s | MF=0.086046 | DCV=0.008849
+   pool=500 | kind=ml_guided
+   ZeroCov=0 | FracCov=1.000 | Bottom3=21.899
+   ML=two_tier | ranker=gcn | guidance=gnn_ris | backend=gnn_ris | GNN=gcn | GraphSAGE=off | N2V=input_concat | RIS=weak_group_weighted | rho=0.147719 | p@k=0.325000
+   recheck@1000MC [rank=2]: F=0.038254 | spread=43.892 | extra=3.892 | MF=0.086100 | DCV=0.009592 | rt=0.392s
 
 Highlights
-  Best F-score: hybrid_siea_ml_gnn_ris_two_tier_tuned_swap_local_search (0.041122)
-  Fastest run : hybrid_siea_ml_gnn_ris_two_tier_tuned_swap_local_search (48.006s)
-  Best ML run: hybrid_siea_ml_gnn_ris_two_tier_tuned_swap_local_search (F-score=0.041122, runtime=48.006s)
-
-Delta vs hybrid_siea
-hybrid_siea_ml_gnn_ris_two_tier_tuned_swap_local_search [full]
-   dF=+0.000591 | dT=-231.929s | F=0.041122 | runtime=48.006s
-   search=47.595s | eval=0.410s | spread=44.118 | extra=4.118
-   pool=500 | ZeroCov=0 | FracCov=1.000
-   ML=two_tier | guidance=gnn_ris | backend=gnn_ris | GNN=graphsage | GraphSAGE=on | N2V=off | RIS=weak_group_weighted
-
-hybrid_siea [full]
-   dF=+0.000000 | dT=+0.000s | F=0.040531 | runtime=279.935s
-   search=279.498s | eval=0.437s | spread=44.457 | extra=4.457
-   pool=500 | ZeroCov=0 | FracCov=1.000
-   ML=- | guidance=none | backend=none | GNN=- | GraphSAGE=off | N2V=off | RIS=off
+  Best F-score: cea_fim (0.039583)
+  Fastest run : cea_fim (4.709s)
+  Best ML run: hybrid_siea_ml_gnn_ris_node2vec_two_tier_tuned_swap_local_search (F-score=0.038598, runtime=37.068s)
 
 Saved CSV: C:\Users\User\Desktop\VKU-Internship-2026\results\synth2\color\synth2_budget40_results.csv

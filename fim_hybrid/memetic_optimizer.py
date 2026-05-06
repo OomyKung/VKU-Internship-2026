@@ -10,11 +10,11 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
-from .hybrid_optimizer import (
+from .optimizer_core import (
     CandidateEvaluation,
-    HybridOptimizationResult,
-    HybridSIEAConfig,
-    HybridSIEAOptimizer,
+    OptimizationResult,
+    EAOptimizerConfig,
+    EAOptimizerBase,
     WeakGroupContext,
     _sort_key,
 )
@@ -22,7 +22,7 @@ from .safe_math import safe_divide
 
 
 @dataclass(slots=True)
-class MemeticConfig(HybridSIEAConfig):
+class MemeticConfig(EAOptimizerConfig):
     """Configuration for the fairness-first Memetic Algorithm."""
 
     memetic_initialization_mode: str = "fairness_guided"
@@ -44,7 +44,7 @@ class MemeticConfig(HybridSIEAConfig):
     memetic_community_coverage_weight: float = 0.5
 
 
-class MemeticOptimizer(HybridSIEAOptimizer):
+class MemeticOptimizer(EAOptimizerBase):
     """Memetic seed-set optimizer using fairness-first evolutionary refinement."""
 
     config: MemeticConfig
@@ -546,7 +546,7 @@ class MemeticOptimizer(HybridSIEAOptimizer):
 
         return sorted(survivors, key=self._candidate_rank_key, reverse=True)[: self.config.population_size]
 
-    def optimize(self) -> HybridOptimizationResult:
+    def optimize(self) -> OptimizationResult:
         """Run the fairness-first Memetic Algorithm end-to-end."""
 
         start = perf_counter()
@@ -636,7 +636,7 @@ class MemeticOptimizer(HybridSIEAOptimizer):
         self.final_diversity_score = self._population_diversity(population)
         search_verify = self.search_evaluator.verify() if self.search_evaluator is not None else {}
 
-        return HybridOptimizationResult(
+        return OptimizationResult(
             best_seed_set=best_evaluation.seed_set,
             best_score=best_evaluation.score,
             best_spread=best_evaluation.total_spread_mean,
@@ -651,6 +651,7 @@ class MemeticOptimizer(HybridSIEAOptimizer):
             swap_cache_hits=int(self.swap_cache_hits),
             repair_attempts=int(self.repair_attempts),
             weak_group_repairs=int(self.weak_group_repairs),
+            seeds_redirected_by_overshoot_cap=int(self.seeds_redirected_by_overshoot_cap),
             protected_group_seed_counts_before_repair=dict(self.last_repair_group_counts_before),
             protected_group_seed_counts_after_repair=dict(self.last_repair_group_counts_after),
             swap_attempts=int(self.swap_attempts),
@@ -668,7 +669,7 @@ class MemeticOptimizer(HybridSIEAOptimizer):
             dcv_before_parity_repair=self.dcv_before_parity_repair,
             dcv_after_parity_repair_estimated=self.dcv_after_parity_repair_estimated,
             groups_rebalanced=tuple(sorted(self.groups_rebalanced, key=_sort_key)),
-            optimizer_mode="memetic",
+            optimizer_mode="ea_memetic",
             crossover_rate=float(self.config.crossover_probability),
             mutation_rate=float(self.config.mutation_probability),
             local_search_enabled=bool(self.config.memetic_local_search_enabled),

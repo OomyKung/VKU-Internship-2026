@@ -1522,9 +1522,7 @@ def _format_context(context: dict[str, object]) -> str:
 def _optimizer_type_tag(row: pd.Series) -> str:
     mode = str(row.get("optimizer_mode", "")).lower()
     name = str(row.get("stack_name", "")).lower()
-    if "hybrid_si_ea" in mode or name.endswith("_siea") or "_siea_" in name or "_community_siea" in name:
-        return "SI"
-    if "evolutionary_memetic" in mode or "ea_memetic" in name:
+    if "ea_memetic" in mode or "ea_memetic" in name:
         return "EA-Mem"
     if "memetic" in mode or name.endswith("_memetic") or "_community_memetic" in name:
         return "Mem"

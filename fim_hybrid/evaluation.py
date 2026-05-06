@@ -166,3 +166,83 @@ def compute_ideal_influences_proportional(
         ideal_influences[group_name] = float(np.mean(spreads))
 
     return ideal_influences
+
+
+def compute_ideal_influences_feasible(
+    dataset: LoadedDataset,
+    protected_group_report: ProtectedGroupReport,
+    budget: int,
+    propagation_probability: float = 0.01,
+    mc_runs: int = 20,
+    random_seed: int = 42,
+    diffusion_model: str = DEFAULT_DIFFUSION_MODEL,
+    ceiling_factor: float = 0.95,
+) -> dict[str, float]:
+    """Two-pass feasibility-aware ideal influences.
+
+    Pass 1 (proportional): same as compute_ideal_influences_proportional —
+      k_g = ceil(budget * |g| / |V|), IC spread with top-degree k_g seeds.
+
+    Pass 2 (ceiling): IC spread with min(budget, n_sg) seeds (full-budget upper bound).
+      achievable_ceiling_g = IC(top-min(budget, n_sg) seeds in induced subgraph).
+
+    Final: ideal_g = min(pass1_g, achievable_ceiling_g * ceiling_factor).
+
+    This prevents setting targets that exceed what the group's subgraph can realistically
+    absorb — e.g., sparse or disconnected groups where even the full budget stalls.
+    """
+    rng_pass1 = np.random.default_rng(int(random_seed))
+    rng_pass2 = np.random.default_rng(int(random_seed) + 1)
+    total_nodes = max(1, int(dataset.graph.number_of_nodes()))
+    full_budget = max(1, int(budget))
+    cf = float(ceiling_factor)
+    ideal_influences: dict[str, float] = {}
+
+    for group_name, group_size in protected_group_report.group_sizes.items():
+        k_g = max(1, math.ceil(full_budget * int(group_size) / total_nodes))
+        group_nodes = sorted(
+            protected_group_report.protected_groups.get(group_name, set()),
+            key=str,
+        )
+
+        if not group_nodes:
+            ideal_influences[group_name] = float(min(group_size, k_g))
+            continue
+
+        subgraph = dataset.graph.subgraph(group_nodes)
+        n_sg = subgraph.number_of_nodes()
+
+        if n_sg == 0:
+            ideal_influences[group_name] = float(k_g)
+            continue
+
+        deg_fn = subgraph.out_degree if subgraph.is_directed() else subgraph.degree
+        deg = dict(deg_fn())
+        sorted_nodes = sorted(deg, key=lambda n: (-deg[n], str(n)))
+
+        def _ic_spread(seeds: list, rng: np.random.Generator) -> float:
+            spreads: list[float] = []
+            for _ in range(int(mc_runs)):
+                reached = set(seeds)
+                queue = list(seeds)
+                while queue:
+                    node = queue.pop()
+                    for neighbor in subgraph.neighbors(node):
+                        if neighbor not in reached and rng.random() < float(propagation_probability):
+                            reached.add(neighbor)
+                            queue.append(neighbor)
+                spreads.append(float(len(reached)))
+            return float(np.mean(spreads))
+
+        # Pass 1: proportional budget seeds.
+        seeds_p1 = sorted_nodes if k_g >= n_sg else sorted_nodes[:k_g]
+        raw_ideal = _ic_spread(seeds_p1, rng_pass1)
+
+        # Pass 2: full-budget seeds (achievable ceiling).
+        k_ceil = min(full_budget, n_sg)
+        seeds_p2 = sorted_nodes if k_ceil >= n_sg else sorted_nodes[:k_ceil]
+        achievable_ceiling = _ic_spread(seeds_p2, rng_pass2)
+
+        ideal_influences[group_name] = float(min(raw_ideal, achievable_ceiling * cf))
+
+    return ideal_influences

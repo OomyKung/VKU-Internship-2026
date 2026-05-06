@@ -34,6 +34,15 @@ class FairnessMetrics:
     groups_met_target: tuple[str, ...] = ()
     target_coverage_ratio: float = 1.0
     ideal_influences: dict[str, float] = field(default_factory=dict)
+    raw_gap_by_group: dict[str, float] = field(default_factory=dict)
+    shortfall_ratio_by_group: dict[str, float] = field(default_factory=dict)
+    capped_group_influence: dict[str, float] = field(default_factory=dict)
+    overcoverage_ratio_by_group: dict[str, float] = field(default_factory=dict)
+    total_raw_shortfall: float = 0.0
+    total_shortfall: float = 0.0
+    total_ideal_influence: float = 0.0
+    capped_total_influence: float = 0.0
+    overcoverage_waste: float = 0.0
 
 
 def _normalize_group_spread_input(
@@ -190,6 +199,60 @@ def compute_dcv_shortfall(
     return dcv_shortfall, violations, tuple(groups_below), tuple(groups_met), target_coverage_ratio
 
 
+def compute_target_shortfall_diagnostics(
+    group_influence: dict[str, float],
+    ideal_influences: dict[str, float],
+) -> dict[str, object]:
+    """Return target-gap diagnostics without changing DCV/F-score definitions.
+
+    total_shortfall is normalized by total ideal influence so it is usable as a
+    scalar fitness penalty. total_raw_shortfall preserves the absolute gap.
+    """
+
+    all_groups = sorted(set(group_influence) | set(ideal_influences))
+    raw_gap_by_group: dict[str, float] = {}
+    shortfall_ratio_by_group: dict[str, float] = {}
+    capped_group_influence: dict[str, float] = {}
+    overcoverage_ratio_by_group: dict[str, float] = {}
+    total_raw_shortfall = 0.0
+    total_ideal_influence = 0.0
+    capped_total_influence = 0.0
+    overcoverage_waste = 0.0
+
+    for group_name in all_groups:
+        actual = float(group_influence.get(group_name, 0.0))
+        ideal = float(ideal_influences.get(group_name, 0.0))
+        raw_gap = max(0.0, ideal - actual)
+        shortfall_ratio = raw_gap / ideal if ideal > 0.0 else 0.0
+        capped = min(actual, ideal) if ideal > 0.0 else actual
+        overcoverage_ratio = max(0.0, actual - ideal) / ideal if ideal > 0.0 else 0.0
+        raw_gap_by_group[group_name] = float(raw_gap)
+        shortfall_ratio_by_group[group_name] = float(shortfall_ratio)
+        capped_group_influence[group_name] = float(capped)
+        overcoverage_ratio_by_group[group_name] = float(overcoverage_ratio)
+        total_raw_shortfall += float(raw_gap)
+        total_ideal_influence += max(0.0, float(ideal))
+        capped_total_influence += float(capped)
+        overcoverage_waste += float(overcoverage_ratio)
+
+    total_shortfall = (
+        total_raw_shortfall / total_ideal_influence
+        if total_ideal_influence > 0.0
+        else 0.0
+    )
+    return {
+        "raw_gap_by_group": raw_gap_by_group,
+        "shortfall_ratio_by_group": shortfall_ratio_by_group,
+        "capped_group_influence": capped_group_influence,
+        "overcoverage_ratio_by_group": overcoverage_ratio_by_group,
+        "total_raw_shortfall": float(total_raw_shortfall),
+        "total_shortfall": float(total_shortfall),
+        "total_ideal_influence": float(total_ideal_influence),
+        "capped_total_influence": float(capped_total_influence),
+        "overcoverage_waste": float(overcoverage_waste),
+    }
+
+
 def evaluate_fairness(
     group_spread: dict[str, float],
     group_sizes: dict[str, int],
@@ -235,6 +298,10 @@ def evaluate_fairness(
             ideal_influences=ideal_influences,
         )
         ideal_influences_used = dict(ideal_influences)
+        target_diagnostics = compute_target_shortfall_diagnostics(
+            group_influence=completed_group_spread,
+            ideal_influences=ideal_influences,
+        )
     else:
         dcv_shortfall = dcv
         per_group_shortfall_violation = {}
@@ -242,6 +309,17 @@ def evaluate_fairness(
         groups_met_target = ()
         target_coverage_ratio = 1.0
         ideal_influences_used: dict[str, float] = {}
+        target_diagnostics = {
+            "raw_gap_by_group": {},
+            "shortfall_ratio_by_group": {},
+            "capped_group_influence": {},
+            "overcoverage_ratio_by_group": {},
+            "total_raw_shortfall": 0.0,
+            "total_shortfall": 0.0,
+            "total_ideal_influence": 0.0,
+            "capped_total_influence": 0.0,
+            "overcoverage_waste": 0.0,
+        }
 
     return FairnessMetrics(
         group_spread=completed_group_spread,
@@ -262,4 +340,13 @@ def evaluate_fairness(
         groups_met_target=groups_met_target,
         target_coverage_ratio=target_coverage_ratio,
         ideal_influences=ideal_influences_used,
+        raw_gap_by_group=dict(target_diagnostics["raw_gap_by_group"]),
+        shortfall_ratio_by_group=dict(target_diagnostics["shortfall_ratio_by_group"]),
+        capped_group_influence=dict(target_diagnostics["capped_group_influence"]),
+        overcoverage_ratio_by_group=dict(target_diagnostics["overcoverage_ratio_by_group"]),
+        total_raw_shortfall=float(target_diagnostics["total_raw_shortfall"]),
+        total_shortfall=float(target_diagnostics["total_shortfall"]),
+        total_ideal_influence=float(target_diagnostics["total_ideal_influence"]),
+        capped_total_influence=float(target_diagnostics["capped_total_influence"]),
+        overcoverage_waste=float(target_diagnostics["overcoverage_waste"]),
     )

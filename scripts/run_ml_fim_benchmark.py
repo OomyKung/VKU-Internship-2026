@@ -1,4 +1,4 @@
-"""Run a unified ML-focused FIM benchmark with shared final Monte Carlo evaluation."""
+﻿"""Run a unified ML-focused FIM benchmark with shared final Monte Carlo evaluation."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from fim_hybrid.ml_training import available_ranking_models  # noqa: E402
 from fim_hybrid.permutations import (  # noqa: E402
     FIMPermutationRunConfig,
     FIMPermutationSpec,
+    format_compact_experiment_summary,
     get_fim_permutation_spec,
     run_fim_permutation_benchmark_from_config,
 )
@@ -30,6 +31,7 @@ from fim_hybrid.priority_policy import (  # noqa: E402
     professor_priority_warning,
     rank_frame_professor_priority,
 )
+from fim_hybrid.removed_swarm import ensure_active_optimizer, ensure_active_stack_name  # noqa: E402
 from scripts.evaluate_fim_results import (  # noqa: E402
     InsightThresholds,
     build_evaluation_report,
@@ -42,43 +44,31 @@ from scripts.run_experiment import build_dataset_config  # noqa: E402
 
 DEFAULT_BENCHMARK_NAME = "ml_fim_benchmark"
 DEFAULT_STRONG_STACKS = (
-    "community_fair_greedy_baseline",
-    "graphsage_community_siea",
-    "node2vec_xgboost_community_siea",
-    "gcn_community_siea",
+    "graphsage_leiden_ris_ic_ea_memetic",
+    "graphsage_community_ea_memetic",
+    "node2vec_xgboost_community_ea_memetic",
+    "gcn_community_ea_memetic",
 )
 WEAK_ML_BASELINES = (
     "deepwalk_mlp",
     "line_fast_ml",
 )
 DEFAULT_ALL_STACKS = DEFAULT_STRONG_STACKS + (
-    "graphsage_community_memetic",
-    "node2vec_xgboost_community_memetic",
-    "gcn_community_memetic",
-    "fairness_first_scalable_ml_siea",
-    "node2vec_xgboost_fair_siea",
-    "gcn_fair_siea",
-    "graphsage_fair_ris_hybrid",
-    "gcn_fair_ris_hybrid",
+    "community_fair_greedy_baseline",
     "graphcl_maximin",
     "dgi_fair_ris",
     "vgae_fair_ris",
     "node2vec_xgboost",
-    "node2vec_kmeans_logreg_hybrid",
 ) + WEAK_ML_BASELINES
 _VALID_SPREAD_SEARCH = {"monte_carlo", "ris", "ris_guidance", "fairness_aware_ris"}
 _CLI_SPREAD_SEARCH = {"auto"} | _VALID_SPREAD_SEARCH
 _VALID_FINAL_ESTIMATORS = {"monte_carlo"}
-_VALID_OPTIMIZER_MODES = {"greedy", "local_search", "hybrid_si_ea", "memetic", "evolutionary_memetic"}
-_ML_GUIDED_COMMUNITY_SIEA_STACKS = {
-    "graphsage_community_siea",
-    "graphsage_community_memetic",
-    "gcn_community_siea",
-    "gcn_community_memetic",
-    "node2vec_xgboost_community_siea",
-    "node2vec_xgboost_community_memetic",
-    "graphsage_fair_ris_hybrid",
-    "gcn_fair_ris_hybrid",
+_VALID_OPTIMIZER_MODES = {"ea_memetic"}
+_ML_GUIDED_EA_MEMETIC_STACKS = {
+    "graphsage_community_ea_memetic",
+    "gcn_community_ea_memetic",
+    "node2vec_xgboost_community_ea_memetic",
+    "graphsage_leiden_ris_ic_ea_memetic",
     "node2vec_xgboost",
 }
 
@@ -126,12 +116,12 @@ def _normalize_spread_estimator_search(value: object) -> str:
     return normalized
 
 
-def _is_ml_guided_community_siea(spec: FIMPermutationSpec) -> bool:
-    if spec.name in _ML_GUIDED_COMMUNITY_SIEA_STACKS:
+def _is_graphsage_leiden_ris_ic_ea_memetic(spec: FIMPermutationSpec) -> bool:
+    if spec.name in _ML_GUIDED_EA_MEMETIC_STACKS:
         return True
     return (
-        spec.runner_kind in {"ranked_hybrid", "experiment_runner_gnn_ris"}
-        and spec.optimizer_mode == "hybrid_si_ea"
+        spec.runner_kind == "ranked_hybrid"
+        and spec.optimizer_mode == "ea_memetic"
         and spec.embedding_method not in {"", "none"}
     )
 
@@ -178,7 +168,7 @@ def _configure_spec_ris(
             fair_ris_weight=0.0,
             notes=_with_appended_note(spec, "ris_disabled_explicit=true"),
         )
-    if _is_ml_guided_community_siea(spec):
+    if _is_graphsage_leiden_ris_ic_ea_memetic(spec):
         return replace(
             spec,
             spread_estimator_search="fairness_aware_ris",
@@ -213,9 +203,9 @@ def _ea_memetic_override_spec(spec: FIMPermutationSpec, registry: dict[str, FIMP
     if spec.variant_family == "baseline" or spec.embedding_method in {"", "none"}:
         return spec
     ea_memetic_name_by_stack = {
-        "graphsage_community_siea": "graphsage_community_ea_memetic",
-        "node2vec_xgboost_community_siea": "node2vec_xgboost_community_ea_memetic",
-        "gcn_community_siea": "gcn_community_ea_memetic",
+        "graphsage_community_ea_memetic": "graphsage_community_ea_memetic",
+        "node2vec_xgboost_community_ea_memetic": "node2vec_xgboost_community_ea_memetic",
+        "gcn_community_ea_memetic": "gcn_community_ea_memetic",
         "graphsage_community_memetic": "graphsage_community_ea_memetic",
         "node2vec_xgboost_community_memetic": "node2vec_xgboost_community_ea_memetic",
         "gcn_community_memetic": "gcn_community_ea_memetic",
@@ -226,8 +216,8 @@ def _ea_memetic_override_spec(spec: FIMPermutationSpec, registry: dict[str, FIMP
     return replace(
         spec,
         runner_kind="ranked_hybrid",
-        optimizer_mode="evolutionary_memetic",
-        notes=_with_appended_note(spec, "optimizer_override=evolutionary_memetic"),
+        optimizer_mode="ea_memetic",
+        notes=_with_appended_note(spec, "optimizer_override=ea_memetic"),
     )
 
 
@@ -235,9 +225,9 @@ def _memetic_override_spec(spec: FIMPermutationSpec, registry: dict[str, FIMPerm
     if spec.variant_family == "baseline" or spec.embedding_method in {"", "none"}:
         return spec
     memetic_name_by_stack = {
-        "graphsage_community_siea": "graphsage_community_memetic",
-        "node2vec_xgboost_community_siea": "node2vec_xgboost_community_memetic",
-        "gcn_community_siea": "gcn_community_memetic",
+        "graphsage_community_ea_memetic": "graphsage_community_memetic",
+        "node2vec_xgboost_community_ea_memetic": "node2vec_xgboost_community_memetic",
+        "gcn_community_ea_memetic": "gcn_community_memetic",
     }
     mapped_name = memetic_name_by_stack.get(spec.name)
     if mapped_name is not None and mapped_name in registry:
@@ -300,12 +290,12 @@ def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
     registry = {
         "community_aware_fair_greedy": get_fim_permutation_spec("community_aware_fair_greedy"),
         "community_fair_greedy_baseline": get_fim_permutation_spec("community_fair_greedy_baseline"),
-        "fairness_first_scalable_ml_siea": get_fim_permutation_spec("fairness_first_scalable_ml_siea"),
-        "node2vec_xgboost_fair_siea": get_fim_permutation_spec("node2vec_xgboost_fair_siea"),
-        "gcn_fair_siea": get_fim_permutation_spec("gcn_fair_siea"),
-        "graphsage_community_siea": FIMPermutationSpec(
-            name="graphsage_community_siea",
-            description="Leiden communities with GraphSAGE guidance, Fair RIS, and Hybrid SI+EA.",
+        "graphsage_leiden_ris_ic_ea_memetic": get_fim_permutation_spec("graphsage_leiden_ris_ic_ea_memetic"),
+        "node2vec_xgboost_community_ea_memetic": get_fim_permutation_spec("node2vec_xgboost_community_ea_memetic"),
+        "gcn_community_ea_memetic": get_fim_permutation_spec("gcn_community_ea_memetic"),
+        "graphsage_community_ea_memetic": FIMPermutationSpec(
+            name="graphsage_community_ea_memetic",
+            description="Leiden communities with GraphSAGE guidance, Fair RIS, and EA+Memetic.",
             runner_kind="ranked_hybrid",
             diffusion_model="ic",
             community_method="leiden",
@@ -313,7 +303,7 @@ def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
             spread_estimator_final="monte_carlo",
             embedding_method="graphsage",
             ranking_model="graphsage",
-            optimizer_mode="hybrid_si_ea",
+            optimizer_mode="ea_memetic",
             fairness_objective="f_score",
             variant_family="ml",
             candidate_top_fraction=0.5,
@@ -339,9 +329,9 @@ def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
             use_fair_ris=True,
             notes="main_method=true; ml_guided_only=true; memetic=true",
         ),
-        "node2vec_xgboost_community_siea": FIMPermutationSpec(
-            name="node2vec_xgboost_community_siea",
-            description="Leiden communities with Node2Vec+XGBoost guidance and Hybrid SI+EA.",
+        "node2vec_xgboost_community_ea_memetic": FIMPermutationSpec(
+            name="node2vec_xgboost_community_ea_memetic",
+            description="Leiden communities with Node2Vec+XGBoost guidance and EA+Memetic.",
             runner_kind="ranked_hybrid",
             diffusion_model="ic",
             community_method="leiden",
@@ -349,7 +339,7 @@ def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
             spread_estimator_final="monte_carlo",
             embedding_method="node2vec",
             ranking_model="xgboost",
-            optimizer_mode="hybrid_si_ea",
+            optimizer_mode="ea_memetic",
             fairness_objective="f_score",
             variant_family="ml",
             candidate_top_fraction=0.5,
@@ -375,9 +365,9 @@ def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
             use_fair_ris=True,
             notes="main_method=true; lightweight_quality_runtime=true; ml_guided_only=true; memetic=true",
         ),
-        "gcn_community_siea": FIMPermutationSpec(
-            name="gcn_community_siea",
-            description="Leiden communities with GCN guidance, Fair RIS, and Hybrid SI+EA.",
+        "gcn_community_ea_memetic": FIMPermutationSpec(
+            name="gcn_community_ea_memetic",
+            description="Leiden communities with GCN guidance, Fair RIS, and EA+Memetic.",
             runner_kind="ranked_hybrid",
             diffusion_model="ic",
             community_method="leiden",
@@ -385,7 +375,7 @@ def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
             spread_estimator_final="monte_carlo",
             embedding_method="gcn",
             ranking_model="gcn",
-            optimizer_mode="hybrid_si_ea",
+            optimizer_mode="ea_memetic",
             fairness_objective="f_score",
             variant_family="ml",
             candidate_top_fraction=0.5,
@@ -424,7 +414,7 @@ def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
             spread_estimator_final="monte_carlo",
             embedding_method="graphsage",
             ranking_model="graphsage",
-            optimizer_mode="evolutionary_memetic",
+            optimizer_mode="ea_memetic",
             fairness_objective="f_score",
             variant_family="ml",
             candidate_top_fraction=0.5,
@@ -445,7 +435,7 @@ def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
             spread_estimator_final="monte_carlo",
             embedding_method="node2vec",
             ranking_model="xgboost",
-            optimizer_mode="evolutionary_memetic",
+            optimizer_mode="ea_memetic",
             fairness_objective="f_score",
             variant_family="ml",
             candidate_top_fraction=0.5,
@@ -466,7 +456,7 @@ def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
             spread_estimator_final="monte_carlo",
             embedding_method="gcn",
             ranking_model="gcn",
-            optimizer_mode="evolutionary_memetic",
+            optimizer_mode="ea_memetic",
             fairness_objective="f_score",
             variant_family="ml",
             candidate_top_fraction=0.5,
@@ -505,7 +495,7 @@ def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
             name="dgi_fair_ris",
             description=(
                 "Leiden communities with DGI embeddings, logistic-regression ranking, fair RIS guidance, "
-                "and a hybrid SI+EA optimizer."
+                "and a EA+Memetic optimizer."
             ),
             runner_kind="ranked_hybrid",
             diffusion_model="ic",
@@ -514,7 +504,7 @@ def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
             spread_estimator_final="monte_carlo",
             embedding_method="dgi",
             ranking_model="logistic_regression",
-            optimizer_mode="hybrid_si_ea",
+            optimizer_mode="ea_memetic",
             debias_mode="none",
             fairness_objective="f_score",
             variant_family="ml",
@@ -527,7 +517,7 @@ def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
             name="vgae_fair_ris",
             description=(
                 "Leiden communities with VGAE embeddings, logistic-regression ranking, fair RIS guidance, "
-                "and a hybrid SI+EA optimizer."
+                "and a EA+Memetic optimizer."
             ),
             runner_kind="ranked_hybrid",
             diffusion_model="ic",
@@ -536,7 +526,7 @@ def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
             spread_estimator_final="monte_carlo",
             embedding_method="vgae",
             ranking_model="logistic_regression",
-            optimizer_mode="hybrid_si_ea",
+            optimizer_mode="ea_memetic",
             debias_mode="none",
             fairness_objective="f_score",
             variant_family="ml",
@@ -565,7 +555,21 @@ def _named_ml_stack_registry() -> dict[str, FIMPermutationSpec]:
             notes="weak_baseline=true; not_default=true; fairness_collapse_risk=true; Shallow embedding plus MLP ranking benchmark stack.",
         ),
     }
-    return registry
+    active_names = (
+        "community_aware_fair_greedy",
+        "community_fair_greedy_baseline",
+        "graphsage_leiden_ris_ic_ea_memetic",
+        "graphsage_community_ea_memetic",
+        "gcn_community_ea_memetic",
+        "node2vec_xgboost_community_ea_memetic",
+        "node2vec_xgboost",
+        "graphcl_maximin",
+        "dgi_fair_ris",
+        "vgae_fair_ris",
+        "line_fast_ml",
+        "deepwalk_mlp",
+    )
+    return {name: registry[name] for name in active_names if name in registry}
 
 
 def available_ml_benchmark_stacks() -> tuple[str, ...]:
@@ -638,21 +642,15 @@ def _generic_runner_kind(
             raise ValueError(
                 f"ranking_model='{ranking_model}' requires embedding_method='{ranking_model}' for the GNN-guided path."
             )
-        if normalized_optimizer == "memetic" and normalized_search == "fairness_aware_ris":
-            return "ranked_hybrid", "f_score"
-        if normalized_optimizer != "hybrid_si_ea" or normalized_search != "fairness_aware_ris":
+        if normalized_optimizer != "ea_memetic" or normalized_search != "fairness_aware_ris":
             raise ValueError(
-                f"{ranking_model} benchmark stacks require optimizer_mode='hybrid_si_ea' or 'memetic' and "
+                f"{ranking_model} benchmark stacks require optimizer_mode='ea_memetic' and "
                 "spread_estimator_search='fairness_aware_ris'."
             )
-        return "experiment_runner_gnn_ris", "f_score"
-
-    if normalized_optimizer in {"hybrid_si_ea", "memetic"}:
         return "ranked_hybrid", "f_score"
-    if normalized_optimizer == "greedy":
-        return "ranked_greedy", "f_score"
-    if normalized_optimizer == "local_search":
-        return "ranked_maximin", "maximin"
+
+    if normalized_optimizer == "ea_memetic":
+        return "ranked_hybrid", "f_score"
 
     raise ValueError(f"Unsupported optimizer_mode '{optimizer_mode}'.")
 
@@ -754,6 +752,8 @@ def resolve_ml_benchmark_specs(
     force_ris_for_all_stacks: bool = False,
 ) -> list[FIMPermutationSpec]:
     registry = _named_ml_stack_registry()
+    if optimizer_mode is not None:
+        optimizer_mode = ensure_active_optimizer(optimizer_mode)
     requested_tokens = [str(value).strip().lower() for value in (ml_stacks or ["strong_ml"]) if str(value).strip()]
     effective_search_request = _effective_requested_search_estimator(
         spread_estimator_search=spread_estimator_search,
@@ -778,6 +778,7 @@ def resolve_ml_benchmark_specs(
 
     selected_specs: list[FIMPermutationSpec] = []
     for name in selected_names:
+        name = ensure_active_stack_name(name).strip().lower()
         if name not in registry:
             supported = sorted(set(registry) | {"all_available", "strong_ml"})
             raise ValueError(f"Unknown ML benchmark stack '{name}'. Supported values: {supported}.")
@@ -788,10 +789,7 @@ def resolve_ml_benchmark_specs(
         selected_specs.insert(0, registry["community_aware_fair_greedy"])
 
     optimizer_filter = optimizer_mode
-    if optimizer_mode is not None and str(optimizer_mode).strip().lower() == "memetic":
-        selected_specs = [_memetic_override_spec(spec, registry) for spec in selected_specs]
-        optimizer_filter = None
-    elif optimizer_mode is not None and str(optimizer_mode).strip().lower() == "evolutionary_memetic":
+    if optimizer_mode is not None and str(optimizer_mode).strip().lower() == "ea_memetic":
         selected_specs = [_ea_memetic_override_spec(spec, registry) for spec in selected_specs]
         optimizer_filter = None
 
@@ -849,7 +847,7 @@ def resolve_ml_benchmark_specs(
                         else search_filter
                     ),
                     spread_estimator_final=final_filter,
-                    optimizer_mode=(optimizer_mode or ("hybrid_si_ea" if ranking_model in {"graphsage", "gcn", "xgboost", "logistic_regression"} else "greedy")),
+                    optimizer_mode=(optimizer_mode or "ea_memetic"),
                 )
             )
     if include_baseline:
@@ -1312,8 +1310,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--use-clustering-features", action=argparse.BooleanOptionalAction, default=False, help="Add cluster_id and cluster_size columns to ML feature table.")
     parser.add_argument("--use-cluster-diversity-bonus", action=argparse.BooleanOptionalAction, default=False, help="Apply cluster diversity bonus to combined candidate scores.")
     parser.add_argument("--cluster-diversity-weight", type=float, default=0.3, help="Weight for cluster diversity bonus in combined score (default 0.3).")
-    parser.add_argument("--cluster-balance-enabled", action=argparse.BooleanOptionalAction, default=False, help="Enable cluster-aware initialization and mutation in SI+EA.")
-    parser.add_argument("--cluster-repair-enabled", action=argparse.BooleanOptionalAction, default=False, help="Enable cluster rebalancing repair pass in SI+EA.")
+    parser.add_argument("--cluster-balance-enabled", action=argparse.BooleanOptionalAction, default=False, help="Enable cluster-aware initialization and mutation in EA+Memetic.")
+    parser.add_argument("--cluster-repair-enabled", action=argparse.BooleanOptionalAction, default=False, help="Enable cluster rebalancing repair pass in EA+Memetic.")
     parser.add_argument(
         "--spread-estimator-search",
         default="auto",
@@ -1328,9 +1326,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--optimizer-mode",
+        "--optimizer",
+        dest="optimizer_mode",
         default=None,
-        choices=sorted(_VALID_OPTIMIZER_MODES),
-        help="Optional stack filter or generator override.",
+        help="Optimizer for generated ML stacks. Valid value: ea_memetic.",
     )
     parser.add_argument("--propagation-prob", type=float, default=0.01)
     parser.add_argument("--mc-runs-search", type=int, default=20)
@@ -1365,23 +1364,41 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--memetic-fairness-tolerance-dcv", type=float, default=0.005)
     parser.add_argument("--memetic-elitism-rate", type=float, default=0.10)
     parser.add_argument("--memetic-diversity-preservation", action=argparse.BooleanOptionalAction, default=True)
-    # ── Evolutionary Memetic (ea_*) args — independent tuning knobs for evolutionary_memetic mode ──
-    parser.add_argument("--ea-selection", choices=["tournament", "rank", "roulette"], default="tournament", help="Parent selection method for evolutionary_memetic optimizer.")
+    # -- Evolutionary Memetic (ea_*) args - independent tuning knobs for ea_memetic mode --
+    parser.add_argument("--ea-selection", choices=["tournament", "rank", "roulette"], default="tournament", help="Parent selection method for ea_memetic optimizer.")
     parser.add_argument("--ea-tournament-size", type=int, default=3, help="Tournament size for ea-selection=tournament.")
-    parser.add_argument("--ea-crossover-rate", type=float, default=0.90, help="Crossover probability for evolutionary_memetic.")
-    parser.add_argument("--ea-crossover-mode", choices=["uniform", "fairness_preserving"], default="fairness_preserving", help="Crossover operator for evolutionary_memetic.")
-    parser.add_argument("--ea-mutation-rate", type=float, default=0.25, help="Mutation probability for evolutionary_memetic.")
+    parser.add_argument("--ea-crossover-rate", type=float, default=0.90, help="Crossover probability for ea_memetic.")
+    parser.add_argument("--ea-crossover-mode", choices=["uniform", "fairness_preserving"], default="fairness_preserving", help="Crossover operator for ea_memetic.")
+    parser.add_argument("--ea-mutation-rate", type=float, default=0.25, help="Mutation probability for ea_memetic.")
     parser.add_argument("--ea-mutation-strength", type=int, default=None, help="Seeds to swap per mutation (default: max(1, budget*0.05)).")
     parser.add_argument("--weak-group-mutation-bias", type=float, default=0.70, help="Bias towards weak-group candidates during EA mutation.")
-    parser.add_argument("--memetic-elite-fraction", type=float, default=0.25, help="Fraction of offspring receiving local search in evolutionary_memetic.")
-    parser.add_argument("--random-immigrant-rate", type=float, default=0.10, help="Fraction of random immigrants injected each generation in evolutionary_memetic.")
-    parser.add_argument("--diversity-preservation", action=argparse.BooleanOptionalAction, default=True, help="Enable Jaccard-diversity filtering during survival selection in evolutionary_memetic.")
+    parser.add_argument("--memetic-elite-fraction", type=float, default=0.25, help="Fraction of offspring receiving local search in ea_memetic.")
+    parser.add_argument("--random-immigrant-rate", type=float, default=0.10, help="Fraction of random immigrants injected each generation in ea_memetic.")
+    parser.add_argument("--diversity-preservation", action=argparse.BooleanOptionalAction, default=True, help="Enable Jaccard-diversity filtering during survival selection in ea_memetic.")
     parser.add_argument("--gnn-epochs", type=int, default=30)
     parser.add_argument("--gnn-hidden-dim", type=int, default=32)
     parser.add_argument("--gnn-num-layers", type=int, default=2)
     parser.add_argument("--gnn-dropout", type=float, default=0.2)
     parser.add_argument("--gnn-learning-rate", type=float, default=1e-3)
     parser.add_argument("--gnn-weight-decay", type=float, default=5e-4)
+    parser.add_argument(
+        "--graphsage-training-target",
+        choices=["fairness_ris_score", "shortfall_gain", "combined_fairness_gain"],
+        default="combined_fairness_gain",
+    )
+    parser.add_argument("--graphsage-hidden-dim", type=int, default=32)
+    parser.add_argument("--graphsage-embedding-dim", type=int, default=64)
+    parser.add_argument("--graphsage-epochs", type=int, default=100)
+    parser.add_argument("--graphsage-learning-rate", type=float, default=0.005)
+    parser.add_argument("--graphsage-dropout", type=float, default=0.2)
+    parser.add_argument("--graphsage-weight-decay", type=float, default=1e-4)
+    parser.add_argument("--graphsage-early-stopping-patience", type=int, default=15)
+    parser.add_argument("--graphsage-train-ratio", type=float, default=0.70)
+    parser.add_argument("--graphsage-val-ratio", type=float, default=0.15)
+    parser.add_argument("--graphsage-loss", choices=["mse", "smooth_l1"], default="smooth_l1")
+    parser.add_argument("--graphsage-cache", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--regenerate-graphsage-cache", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--allow-structural-fallback", action="store_true")
     parser.add_argument("--embedding-dim", type=int, default=64)
     parser.add_argument("--use-ris", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--use-fair-ris", action=argparse.BooleanOptionalAction, default=False)
@@ -1413,6 +1430,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--community-diversity-weight", type=float, default=None)
     parser.add_argument("--protected-group-coverage-weight", type=float, default=None)
     parser.add_argument("--spread-proxy-weight", type=float, default=None)
+    parser.add_argument("--graphsage-score-weight", type=float, default=0.8)
+    parser.add_argument("--shortfall-gain-weight", type=float, default=3.0)
+    parser.add_argument("--auto-downweight-bad-ml", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--disable-graphsage-guidance", action="store_true")
+    parser.add_argument("--disable-shortfall-gain", action="store_true")
+    parser.add_argument("--disable-fair-ris-guidance", action="store_true")
+    parser.add_argument("--disable-community-diversity", action="store_true")
     parser.add_argument("--fscore-weight", type=float, default=4.0)
     parser.add_argument("--mf-weight", type=float, default=2.0)
     parser.add_argument("--dcv-weight", type=float, default=2.5)
@@ -1479,6 +1503,88 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--auto-disable-constant-score-components", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--constant-score-epsilon", type=float, default=1e-12)
     parser.add_argument("--use-ris-parity-weighted-weak-bonus", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument(
+        "--use-ideal-influence-group-bonus",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Replace the ML-score-parity group bonus with an ideal-influence-proportional bonus. "
+            "Nodes in groups with a larger share of total ideal influence receive a higher "
+            "under_served_group_bonus, making the component non-constant and targeting "
+            "under-served large groups (e.g. lancaster, palmdale). Requires ideal_influences "
+            "to be computed (set --primary-dcv-mode shortfall or pass --ideal-influence-mode). "
+            "Default: off (backward compatible)."
+        ),
+    )
+    parser.add_argument(
+        "--use-cluster-coverage-bonus",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Add a per-node cluster_coverage_bonus equal to the fraction of distinct protected "
+            "groups reachable via the node's direct neighbors. Cross-group bridge nodes score "
+            "highest. Provides a non-constant, topology-derived signal at zero MC-run cost. "
+            "Default: off."
+        ),
+    )
+    parser.add_argument(
+        "--cluster-coverage-bonus-weight",
+        type=float,
+        default=0.3,
+        help="Weight for cluster_coverage_bonus in the combined candidate score (default 0.3).",
+    )
+    parser.add_argument(
+        "--weak-group-overshoot-cap",
+        type=float,
+        default=0.0,
+        help=(
+            "When > 0, prevent the weak-group repair loop from placing seeds into a group "
+            "whose current seed count already exceeds this multiple of its proportional quota "
+            "(e.g. 1.10 = cap at 110%% of proportional share). Seeds that would go to a "
+            "capped group are redirected to the next-most-underserved group. "
+            "Reported as 'Seeds redirected by overshoot cap' in diagnostics. "
+            "Default: 0.0 (disabled, backward compatible)."
+        ),
+    )
+    parser.add_argument(
+        "--large-group-min-quota-ratio",
+        type=float,
+        default=0.0,
+        help=(
+            "When > 0, groups whose node-fraction >= large-group-size-threshold receive a "
+            "minimum repair quota of ceil(budget x size_ratio x ratio) seeds. "
+            "Applied on top of any other quota mode. Default: 0.0 (disabled)."
+        ),
+    )
+    parser.add_argument(
+        "--large-group-size-threshold",
+        type=float,
+        default=0.20,
+        help="Groups with node-fraction >= this value are considered 'large' for quota and in-group RIS purposes (default 0.20).",
+    )
+    parser.add_argument(
+        "--use-ingroup-ris-for-large-groups",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Compute IC reverse-reachability within each large group's induced subgraph. "
+            "Nodes that can reach many in-group peers (internal bridge nodes) receive a bonus "
+            "in the candidate score frame. Rewards lancaster/palmdale internal connectivity. "
+            "Default: off."
+        ),
+    )
+    parser.add_argument(
+        "--ingroup-ris-score-weight",
+        type=float,
+        default=1.0,
+        help="Weight for the ingroup_ris_score component in the combined candidate score (default 1.0).",
+    )
+    parser.add_argument(
+        "--ingroup-ris-num-rr-sets",
+        type=int,
+        default=50,
+        help="Number of RR sets per large group for in-group RIS computation (default 50).",
+    )
     parser.add_argument("--scalability-mode", choices=["auto", "off", "large_graph"], default="auto")
     parser.add_argument("--max-candidate-pool-size", type=int, default=500)
     parser.add_argument("--candidate-pool-fraction", type=float, default=0.30)
@@ -1558,10 +1664,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--print-decision-trace", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--print-collapse-explanations", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument(
+        "--output-mode",
+        choices=["compact", "verbose"],
+        default="compact",
+        help=(
+            "Terminal output verbosity. 'compact' (default) shows a clean results table only. "
+            "'verbose' shows all per-stack diagnostics, seed distributions, and fairness tables."
+        ),
+    )
+    parser.add_argument(
         "--verbose-evaluation-report",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Enable all detailed terminal/report diagnostics.",
+        help="Enable all detailed terminal/report diagnostics. Equivalent to --output-mode verbose.",
     )
     parser.add_argument(
         "--include-baseline",
@@ -1588,7 +1703,7 @@ def parse_args() -> argparse.Namespace:
         help="Reuse saved node-score caches when available.",
     )
     parser.add_argument("--save-json", action=argparse.BooleanOptionalAction, default=False)
-    # ── Shortfall DCV arguments (Steps 2–13 of the shortfall-DCV refactor) ──────
+    # -- Shortfall DCV arguments (Steps 2-13 of the shortfall-DCV refactor) ------
     parser.add_argument(
         "--primary-dcv-mode",
         choices=["disparity", "shortfall"],
@@ -1603,9 +1718,27 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--ideal-influence-mode",
-        choices=["proportional_budget_internal"],
+        choices=["proportional_budget_internal", "proportional_budget_feasible"],
         default="proportional_budget_internal",
-        help="How to compute per-group ideal influence targets.",
+        help=(
+            "How to compute per-group ideal influence targets. "
+            "'proportional_budget_internal': IC spread from k_g = ceil(budget * |g| / |V|) "
+            "seeds in the induced subgraph (default). "
+            "'proportional_budget_feasible': two-pass variant that also estimates the "
+            "achievable ceiling using the full budget in the induced subgraph and caps "
+            "ideal_g = min(proportional, ceiling * feasible-ceiling-factor). "
+            "Prevents setting targets that exceed what a sparse/disconnected group subgraph "
+            "can realistically absorb."
+        ),
+    )
+    parser.add_argument(
+        "--feasible-ceiling-factor",
+        type=float,
+        default=0.95,
+        help=(
+            "Multiplier applied to the achievable ceiling in proportional_budget_feasible mode "
+            "(default 0.95). Lower values set more conservative targets."
+        ),
     )
     parser.add_argument(
         "--shortfall-dcv-weight",
@@ -1657,14 +1790,29 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--shortfall-repair-rounds", type=int, default=3)
     parser.add_argument("--shortfall-repair-candidate-limit", type=int, default=100)
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.optimizer_mode is not None:
+        try:
+            args.optimizer_mode = ensure_active_optimizer(args.optimizer_mode)
+        except ValueError as exc:
+            parser.error(str(exc))
+    normalized_stacks: list[str] = []
+    for stack_name in args.ml_stacks:
+        try:
+            normalized_stacks.append(ensure_active_stack_name(stack_name))
+        except ValueError as exc:
+            parser.error(str(exc))
+    args.ml_stacks = normalized_stacks
+    return args
 
 
 def main() -> None:
     args = parse_args()
+    _output_mode = str(getattr(args, "output_mode", "compact")).strip().lower()
     if bool(args.debug_diagnostics):
         args.print_raw_diagnostics = True
-    if bool(args.verbose_evaluation_report):
+    if bool(args.verbose_evaluation_report) or _output_mode == "verbose":
+        _output_mode = "verbose"
         for flag_name in (
             "print_experiment_header",
             "print_budget_check",
@@ -1679,18 +1827,35 @@ def main() -> None:
             "print_collapse_explanations",
         ):
             setattr(args, flag_name, True)
+    elif _output_mode == "compact":
+        for flag_name in (
+            "print_experiment_header",
+            "print_budget_check",
+            "print_stack_summary",
+            "print_runtime_breakdown",
+            "print_seed_diagnostics",
+            "print_group_influence",
+            "print_score_diagnostics",
+            "print_optimizer_diagnostics",
+            "print_delta_vs_baseline",
+            "print_decision_trace",
+            "print_collapse_explanations",
+        ):
+            setattr(args, flag_name, False)
     dataset_config = build_dataset_config(args)
     if args.include_baseline is None:
         include_baseline = True
         baseline_inclusion_status = "auto-included"
-        print("Baseline auto-included by default.")
+        if _output_mode != "compact":
+            print("Baseline auto-included by default.")
     elif bool(args.include_baseline):
         include_baseline = True
         baseline_inclusion_status = "explicit"
     else:
         include_baseline = False
         baseline_inclusion_status = "disabled"
-    print(f"Baseline inclusion: {baseline_inclusion_status}.")
+    if _output_mode != "compact":
+        print(f"Baseline inclusion: {baseline_inclusion_status}.")
     specs = resolve_ml_benchmark_specs(
         ml_stacks=args.ml_stacks,
         include_baseline=include_baseline,
@@ -1793,6 +1958,20 @@ def main() -> None:
         gnn_dropout=float(args.gnn_dropout),
         gnn_learning_rate=float(args.gnn_learning_rate),
         gnn_weight_decay=float(args.gnn_weight_decay),
+        graphsage_training_target=str(args.graphsage_training_target),
+        graphsage_hidden_dim=int(args.graphsage_hidden_dim),
+        graphsage_embedding_dim=int(args.graphsage_embedding_dim),
+        graphsage_epochs=int(args.graphsage_epochs),
+        graphsage_learning_rate=float(args.graphsage_learning_rate),
+        graphsage_dropout=float(args.graphsage_dropout),
+        graphsage_weight_decay=float(args.graphsage_weight_decay),
+        graphsage_early_stopping_patience=int(args.graphsage_early_stopping_patience),
+        graphsage_train_ratio=float(args.graphsage_train_ratio),
+        graphsage_val_ratio=float(args.graphsage_val_ratio),
+        graphsage_loss=str(args.graphsage_loss),
+        graphsage_cache=bool(args.graphsage_cache),
+        regenerate_graphsage_cache=bool(args.regenerate_graphsage_cache),
+        allow_structural_fallback=bool(args.allow_structural_fallback),
         ris_num_rr_sets=int(args.ris_num_rr_sets),
         use_ris=bool(args.use_ris),
         use_fair_ris=bool(args.use_fair_ris),
@@ -1807,6 +1986,14 @@ def main() -> None:
         ml_score_weight=ml_score_weight,
         ris_score_weight=ris_score_weight,
         fair_ris_score_weight=fair_ris_score_weight,
+        graphsage_score_weight=float(args.graphsage_score_weight),
+        shortfall_gain_weight=float(args.shortfall_gain_weight),
+        community_diversity_weight=community_diversity_weight,
+        auto_downweight_bad_ml=bool(args.auto_downweight_bad_ml),
+        disable_graphsage_guidance=bool(args.disable_graphsage_guidance),
+        disable_shortfall_gain=bool(args.disable_shortfall_gain),
+        disable_fair_ris_guidance=bool(args.disable_fair_ris_guidance),
+        disable_community_diversity=bool(args.disable_community_diversity),
         fairness_bonus_weight=fairness_bonus_weight,
         weak_group_bonus_weight=weak_group_bonus_weight,
         diversity_bonus_weight=community_diversity_weight,
@@ -1886,6 +2073,15 @@ def main() -> None:
         auto_disable_constant_score_components=bool(args.auto_disable_constant_score_components),
         constant_score_epsilon=float(args.constant_score_epsilon),
         use_ris_parity_weighted_weak_bonus=bool(args.use_ris_parity_weighted_weak_bonus),
+        use_ideal_influence_group_bonus=bool(args.use_ideal_influence_group_bonus),
+        use_cluster_coverage_bonus=bool(args.use_cluster_coverage_bonus),
+        cluster_coverage_bonus_weight=float(args.cluster_coverage_bonus_weight),
+        weak_group_overshoot_cap=float(args.weak_group_overshoot_cap),
+        large_group_min_quota_ratio=float(args.large_group_min_quota_ratio),
+        large_group_size_threshold=float(args.large_group_size_threshold),
+        use_ingroup_ris_for_large_groups=bool(args.use_ingroup_ris_for_large_groups),
+        ingroup_ris_score_weight=float(args.ingroup_ris_score_weight),
+        ingroup_ris_num_rr_sets=int(args.ingroup_ris_num_rr_sets),
         swap_reject_spread_gain_if_fairness_collapses=bool(args.swap_reject_spread_gain_if_fairness_collapses),
         min_budget_node_ratio_warning=float(args.min_budget_node_ratio_warning),
         imbalance_ratio_warning_threshold=float(args.imbalance_ratio_warning_threshold),
@@ -1937,6 +2133,7 @@ def main() -> None:
         primary_dcv_mode=str(args.primary_dcv_mode),
         report_both_dcv=bool(args.report_both_dcv),
         ideal_influence_mode=str(args.ideal_influence_mode),
+        feasible_ceiling_factor=float(args.feasible_ceiling_factor),
         shortfall_dcv_weight=float(args.shortfall_dcv_weight),
         disparity_dcv_weight=float(args.disparity_dcv_weight),
         fscore_mode=str(args.fscore_mode),
@@ -1975,7 +2172,10 @@ def main() -> None:
         save_json=bool(args.save_json),
         baseline_inclusion_status=baseline_inclusion_status,
     )
-    print(result.report_text.rstrip())
+    if _output_mode == "compact":
+        print(format_compact_experiment_summary(result.raw_comparison_frame, base_run_config))
+    else:
+        print(result.report_text.rstrip())
     if result.comparison_csv_path is not None:
         print("")
         print(f"Saved comparison CSV: {result.comparison_csv_path}")

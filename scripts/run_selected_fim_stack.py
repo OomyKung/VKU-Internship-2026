@@ -583,7 +583,7 @@ def _summarize_validation(
         final_reason = (
             "rejected_after_validation: selected-stack validation is experimental and self-comparison "
             "cannot prove a trade-off; use --fallback-stack with an independent stack or run the direct "
-            "community+ML+SI+EA pipeline instead"
+            "community+ML+EA+Memetic pipeline instead"
         )
     elif not candidate_success:
         accepted = False

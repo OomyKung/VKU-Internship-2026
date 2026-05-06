@@ -10,8 +10,8 @@ combination and selects the best using professor-priority ranking:
 Usage example:
   python scripts/run_fim_ablation_tuner.py \\
     --dataset graph_spa_500_0 --protected-attribute ethnicity --budget 40 \\
-    --ml-stacks community_aware_fair_greedy graphsage_community_siea \\
-                node2vec_xgboost_community_siea gcn_community_siea \\
+    --ml-stacks community_aware_fair_greedy graphsage_community_ea_memetic \\
+                node2vec_xgboost_community_ea_memetic gcn_community_ea_memetic \\
     --random-seed 42 --mc-runs-search 20 --mc-runs-eval 300 \\
     --population-size 16 --generations 10 \\
     --ablation-configs all \\
@@ -540,9 +540,9 @@ def parse_args() -> argparse.Namespace:
         nargs="+",
         default=[
             "community_aware_fair_greedy",
-            "graphsage_community_siea",
-            "node2vec_xgboost_community_siea",
-            "gcn_community_siea",
+            "graphsage_community_ea_memetic",
+            "node2vec_xgboost_community_ea_memetic",
+            "gcn_community_ea_memetic",
         ],
         help="FIM stack names to run under each ablation config.",
     )

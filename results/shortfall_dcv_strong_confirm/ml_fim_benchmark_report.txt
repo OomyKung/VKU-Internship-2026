@@ -1,0 +1,157 @@
+FIM Result Evaluation
+========================================================================================================================
+Report: ml_fim_benchmark
+Inputs: ml_fim_benchmark
+Rows loaded: 4
+Ranking mode: professor_priority
+
+Global Warnings
+------------------------------------------------------------------------
+- 4 method(s) were placed after fairness-collapse filters.
+- No method met all group shortfall targets; showing the least-bad method by DCV_shortfall, target_coverage_ratio, MF, DCV_disparity, spread, then runtime.
+- No method passed professor-priority fairness gates; recommending the least-bad method with warning.
+
+Group 1: dataset=graph_spa_500_0 | protected_attribute=region | budget=50
+------------------------------------------------------------------------
+Rows: 4 methods | ranking=professor_priority | aggregated_runs=no
+
+Rank  Method                         Type    F-score   MF      DCV     Spread   Extra   Runtime
+1     node2vec_xgboost_community_... EA-Mem  0.0109   0.0845  0.0466  51.756   1.756   11.789s
+2     gcn_community_ea_memetic       EA-Mem  0.0057   0.0833  0.0489  51.748   1.748   12.662s
+3     graphsage_community_ea_memetic EA-Mem  -0.0089  0.0751  0.0528  51.707   1.707   10.607s
+4     community_aware_fair_greedy    -       -0.2280  0.0060  0.1419  50.994   0.994   2.408s
+
+Delta vs community_aware_fair_greedy
+------------------------------------------------------------------------
+Method                         Type    dF-score  dMF      dDCV     dSpread   dExtra    Speedup
+node2vec_xgboost_community_... EA-Mem  0.2389    0.0786   -0.0953  0.762     0.762     0.20x
+gcn_community_ea_memetic       EA-Mem  0.2336    0.0774   -0.0930  0.754     0.754     0.19x
+graphsage_community_ea_memetic EA-Mem  0.2191    0.0691   -0.0891  0.713     0.713     0.23x
+
+Professor-Priority Decision Trace
+------------------------------------------------------------------------
+Winner                        : node2vec_xgboost_community_ea_memetic
+Reason                        : least-bad method; no method passed fairness gates
+F-score gap vs 2nd            : 0.0052
+MF gap vs 2nd                 : 0.0012
+DCV gap vs 2nd                : -0.0023
+Fairness gate passed?         : fail
+Scalability gate passed?      : Yes
+Spread rank                   : 1
+Runtime rank                  : 3
+Final decision                : No method passed fairness gates; selected row is least-bad only, not a strong default.
+
+Instant Insights
+- Overall winner: node2vec_xgboost_community_ea_memetic
+- Best ML-only method: node2vec_xgboost_community_ea_memetic
+- Best spread: node2vec_xgboost_community_ea_memetic
+- Best fairness profile: node2vec_xgboost_community_ea_memetic
+- Fastest method: community_aware_fair_greedy
+- Result closeness: moderate overall result; top f_score gap is 0.0052
+- Warning: graphsage_community_ea_memetic, community_aware_fair_greedy shows a fairness collapse signal.
+- Best practical choice: node2vec_xgboost_community_ea_memetic
+- Best interpretable baseline: community_aware_fair_greedy
+- Professor-priority recommendation: node2vec_xgboost_community_ea_memetic
+
+Fairness Collapse Explanation
+------------------------------------------------------------------------
+Method                      : node2vec_xgboost_community_ea_memetic
+Reason                      : max_shortfall_dcv; min_target_coverage_ratio
+MF                          : 0.0845
+DCV                         : 0.0466
+F-score                     : 0.0109
+Weakest Group               : lancaster
+Likely Cause                : spread-heavy seed selection under-covered the weakest protected group
+Recommended Fix             : increase Fair RIS / weak-group weights; enable group-stratified candidate pool or per-group normalization
+
+Method                      : gcn_community_ea_memetic
+Reason                      : max_shortfall_dcv; min_target_coverage_ratio
+MF                          : 0.0833
+DCV                         : 0.0489
+F-score                     : 0.0057
+Weakest Group               : palmdale
+Likely Cause                : spread-heavy seed selection under-covered the weakest protected group
+Recommended Fix             : increase Fair RIS / weak-group weights; enable group-stratified candidate pool or per-group normalization
+
+Method                      : graphsage_community_ea_memetic
+Reason                      : F-score below threshold; F-score is negative; min_f_score; max_shortfall_dcv; min_target_coverage_ratio
+MF                          : 0.0751
+DCV                         : 0.0528
+F-score                     : -0.0089
+Weakest Group               : lancaster
+Likely Cause                : spread-heavy seed selection under-covered the weakest protected group
+Recommended Fix             : increase Fair RIS / weak-group weights; enable group-stratified candidate pool or per-group normalization; reduce spread_proxy/ml weights if fairness remains unstable
+
+Method                      : community_aware_fair_greedy
+Reason                      : F-score below threshold; F-score is negative; min_f_score; max_shortfall_dcv; min_target_coverage_ratio
+MF                          : 0.0060
+DCV                         : 0.1419
+F-score                     : -0.2280
+Weakest Group               : lancaster
+Likely Cause                : spread-heavy seed selection under-covered the weakest protected group
+Recommended Fix             : increase Fair RIS / weak-group weights; enable group-stratified candidate pool or per-group normalization; reduce spread_proxy/ml weights if fairness remains unstable
+
+Per-Method Notes
+- node2vec_xgboost_community_ea_memetic: Best overall fairness-adjusted result; RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=512 | ris_verified=True | fair_ris_verified=True; Search objective used Fair RIS; final metrics reported by Monte Carlo.; Algorithms: embedding=Node2Vec | ml_ranking=XGBoost node scorer | community=Leiden | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=evolutionary_memetic | repair=Fairness-first repair | local_refinement=Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+- gcn_community_ea_memetic: RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=512 | ris_verified=True | fair_ris_verified=True; Search objective used Fair RIS; final metrics reported by Monte Carlo.; Algorithms: embedding=Graph Convolutional Network | ml_ranking=GCN + Fair RIS scoring | community=Leiden | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=evolutionary_memetic | repair=Fairness-first repair | local_refinement=Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+- graphsage_community_ea_memetic: F-score below fairness threshold; not recommended as default; RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=512 | ris_verified=True | fair_ris_verified=True; Search objective used Fair RIS; final metrics reported by Monte Carlo.; Algorithms: embedding=GraphSAGE | ml_ranking=GraphSAGE + Fair RIS scoring | community=Leiden | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=evolutionary_memetic | repair=Fairness-first repair | local_refinement=Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+- community_aware_fair_greedy: Fastest evaluated method; Best interpretable baseline; F-score below fairness threshold; not recommended as default; RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=512 | ris_verified=True | fair_ris_verified=True; Search objective used Fair RIS; final metrics reported by Monte Carlo.; Algorithms: embedding=None | ml_ranking=None | community=Leiden | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=Fairness-weighted greedy + local search | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+
+Warnings
+- 4 method(s) were placed after fairness-collapse filters.
+- No method met all group shortfall targets; showing the least-bad method by DCV_shortfall, target_coverage_ratio, MF, DCV_disparity, spread, then runtime.
+- No method passed professor-priority fairness gates; recommending the least-bad method with warning.
+
+Recommendation
+- best_overall_method=node2vec_xgboost_community_ea_memetic
+- best_ml_only_method=node2vec_xgboost_community_ea_memetic
+- best_fairness_first_method=node2vec_xgboost_community_ea_memetic
+- best_spread_first_method=node2vec_xgboost_community_ea_memetic
+- best_runtime_first_method=community_aware_fair_greedy
+- best_interpretable_baseline=community_aware_fair_greedy
+- best_exploratory_comparator=n/a
+- best_practical_choice=node2vec_xgboost_community_ea_memetic
+- best_fairness_quality_method=node2vec_xgboost_community_ea_memetic
+- best_scalable_method=node2vec_xgboost_community_ea_memetic
+- best_spread_method=node2vec_xgboost_community_ea_memetic
+- best_runtime_method=community_aware_fair_greedy
+- final_professor_priority_recommendation=node2vec_xgboost_community_ea_memetic
+
+Final Recommendation
+------------------------------------------------------------------------
+Best Fairness-Quality Method  : node2vec_xgboost_community_ea_memetic
+Best Scalable Method          : node2vec_xgboost_community_ea_memetic
+Best Spread Method            : node2vec_xgboost_community_ea_memetic
+Best Runtime Method           : community_aware_fair_greedy
+Best Interpretable Baseline   : community_aware_fair_greedy
+Professor-Priority Choice     : least-bad method only
+Decision Summary              : no method passed fairness gates; do not claim as final default.
+
+Baseline inclusion: explicit
+
+
+ML Benchmark Insights
+- Best overall method: node2vec_xgboost_community_ea_memetic
+- Best ML-only method: node2vec_xgboost_community_ea_memetic
+- Best current overall ML stack: node2vec_xgboost_community_ea_memetic
+- Best fairness-first ML stack: node2vec_xgboost_community_ea_memetic
+- Best spread-first ML stack: node2vec_xgboost_community_ea_memetic
+- Best fast ML stack: node2vec_xgboost_community_ea_memetic
+- Best interpretable baseline: community_aware_fair_greedy
+- Strongest practical default: node2vec_xgboost_community_ea_memetic
+
+ML Benchmark Recommendation
+- best_overall_method=node2vec_xgboost_community_ea_memetic
+- best_ml_only_method=node2vec_xgboost_community_ea_memetic
+- best_current_overall_ml_stack=node2vec_xgboost_community_ea_memetic
+- best_fairness_first_ml_stack=node2vec_xgboost_community_ea_memetic
+- best_spread_first_ml_stack=node2vec_xgboost_community_ea_memetic
+- best_fast_ml_stack=node2vec_xgboost_community_ea_memetic
+- best_interpretable_baseline=community_aware_fair_greedy
+- strongest_practical_default=node2vec_xgboost_community_ea_memetic
+- best_fairness_quality_method=node2vec_xgboost_community_ea_memetic
+- best_scalable_method=node2vec_xgboost_community_ea_memetic
+- best_spread_method=node2vec_xgboost_community_ea_memetic
+- best_runtime_method=node2vec_xgboost_community_ea_memetic
+- final_professor_priority_recommendation=node2vec_xgboost_community_ea_memetic
+- stacks_needing_more_work=n/a

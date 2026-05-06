@@ -2,16 +2,14 @@
 
 Combines EA global search with memetic local refinement using
 professor-priority fitness (F-score > MF > DCV > spread > runtime).
-Configured via dedicated --ea-* CLI flags, independent of the existing
-memetic optimizer.  Functionally identical to MemeticOptimizer but
-reports optimizer_mode='evolutionary_memetic' for separate tracking.
+Configured via EA+Memetic runtime flags and reports optimizer_mode='ea_memetic'.
 """
 
 from __future__ import annotations
 
 from dataclasses import replace
 
-from .hybrid_optimizer import HybridOptimizationResult
+from .optimizer_core import OptimizationResult
 from .memetic_optimizer import MemeticOptimizer
 
 
@@ -24,10 +22,9 @@ class EvolutionaryMemeticOptimizer(MemeticOptimizer):
 
     Configured from ea_* RunConfig fields so it can be tuned
     independently from the existing --memetic-* knobs, and stamps
-    the result with optimizer_mode='evolutionary_memetic' so CSV/JSON
-    reports distinguish the two variants.
+    the result with optimizer_mode='ea_memetic' for CSV/JSON reporting.
     """
 
-    def optimize(self) -> HybridOptimizationResult:
+    def optimize(self) -> OptimizationResult:
         result = super().optimize()
-        return replace(result, optimizer_mode="evolutionary_memetic")
+        return replace(result, optimizer_mode="ea_memetic")

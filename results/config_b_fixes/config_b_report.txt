@@ -1,0 +1,103 @@
+FIM Result Evaluation
+========================================================================================================================
+Report: config_b
+Inputs: ml_fim_benchmark
+Rows loaded: 3
+Ranking mode: professor_priority
+
+Global Warnings
+------------------------------------------------------------------------
+- 3 method(s) were placed after fairness-collapse filters.
+- No method met all group shortfall targets; showing the least-bad method by DCV_shortfall, target_coverage_ratio, MF, DCV_disparity, spread, then runtime.
+- No method passed professor-priority fairness gates; recommending the least-bad method with warning.
+
+Group 1: dataset=graph_spa_500_0 | protected_attribute=region | budget=40
+------------------------------------------------------------------------
+Rows: 3 methods | ranking=professor_priority | aggregated_runs=no
+
+Rank  Method                         Type    F-score   MF      DCV     Spread   Extra   Runtime
+1     community_aware_fair_greedy    -       0.0159   0.0632  0.0406  41.950   1.950   7.647s
+2     community_fair_greedy_baseline -       0.0159   0.0632  0.0406  41.950   1.950   7.844s
+3     node2vec_xgboost_community_... SI      -0.0111  0.0456  0.0761  41.962   1.962   8.327s
+
+Instant Insights
+- Overall winner: community_aware_fair_greedy
+- Best ML-only method: node2vec_xgboost_community_siea
+- Best spread: node2vec_xgboost_community_siea
+- Best fairness profile: community_aware_fair_greedy
+- Fastest method: community_aware_fair_greedy
+- Result closeness: close overall result; top f_score gap is 0.0000
+- Trade-off: node2vec_xgboost_community_siea delivers the best spread, but community_aware_fair_greedy keeps the stronger fairness-adjusted score.
+- Warning: node2vec_xgboost_community_siea shows a fairness collapse signal.
+- Best practical choice: community_aware_fair_greedy
+- Best interpretable baseline: community_aware_fair_greedy
+- Professor-priority recommendation: community_aware_fair_greedy
+- Overall recommendation differs from ML-only recommendation because baseline rows are included.
+
+Per-Method Notes
+- community_aware_fair_greedy: Best overall fairness-adjusted result; Fastest evaluated method; Best interpretable baseline; RIS config: search_estimator=monte_carlo | final_estimator=monte_carlo | fair_ris=False | ris_rr_sets=256 | ris_verified=False | fair_ris_verified=False; Algorithms: embedding=None | ml_ranking=None | community=Leiden | diffusion=Independent Cascade | search=Monte Carlo | optimizer=Fairness-weighted greedy + local search | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+- community_fair_greedy_baseline: RIS config: search_estimator=monte_carlo | final_estimator=monte_carlo | fair_ris=False | ris_rr_sets=256 | ris_verified=False | fair_ris_verified=False; Algorithms: embedding=None | ml_ranking=None | community=Leiden | diffusion=Independent Cascade | search=Monte Carlo | optimizer=Fairness-weighted greedy + local search | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+- node2vec_xgboost_community_siea: Best spread-oriented method, but not best fairness-adjusted method; F-score below fairness threshold; not recommended as default; RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=256 | ris_verified=True | fair_ris_verified=True; Search objective used Fair RIS; final metrics reported by Monte Carlo.; Algorithms: embedding=Node2Vec | ml_ranking=XGBoost node scorer | community=Leiden | diffusion=Independent Cascade | search=Fair Reverse Influence Sampling / Fair RIS | optimizer=Swarm Intelligence + Evolutionary Algorithm | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo simulation | ranking_policy=Professor-priority ranking
+
+Warnings
+- 3 method(s) were placed after fairness-collapse filters.
+- No method met all group shortfall targets; showing the least-bad method by DCV_shortfall, target_coverage_ratio, MF, DCV_disparity, spread, then runtime.
+- No method passed professor-priority fairness gates; recommending the least-bad method with warning.
+
+Recommendation
+- best_overall_method=community_aware_fair_greedy
+- best_ml_only_method=node2vec_xgboost_community_siea
+- best_fairness_first_method=community_aware_fair_greedy
+- best_spread_first_method=node2vec_xgboost_community_siea
+- best_runtime_first_method=community_aware_fair_greedy
+- best_interpretable_baseline=community_aware_fair_greedy
+- best_exploratory_comparator=n/a
+- best_practical_choice=community_aware_fair_greedy
+- best_fairness_quality_method=community_aware_fair_greedy
+- best_scalable_method=community_aware_fair_greedy
+- best_spread_method=node2vec_xgboost_community_siea
+- best_runtime_method=community_aware_fair_greedy
+- final_professor_priority_recommendation=community_aware_fair_greedy
+
+Final Recommendation
+------------------------------------------------------------------------
+Best Fairness-Quality Method  : community_aware_fair_greedy
+Best Scalable Method          : community_aware_fair_greedy
+Best Spread Method            : node2vec_xgboost_community_siea
+Best Runtime Method           : community_aware_fair_greedy
+Best Interpretable Baseline   : community_aware_fair_greedy
+Professor-Priority Choice     : least-bad method only
+Decision Summary              : no method passed fairness gates; do not claim as final default.
+
+Baseline inclusion: auto-included
+
+
+ML Benchmark Insights
+- Best overall method: community_aware_fair_greedy
+- Best ML-only method: node2vec_xgboost_community_siea
+- Best current overall ML stack: node2vec_xgboost_community_siea
+- Best fairness-first ML stack: node2vec_xgboost_community_siea
+- Best spread-first ML stack: node2vec_xgboost_community_siea
+- Best fast ML stack: node2vec_xgboost_community_siea
+- Best interpretable baseline: community_aware_fair_greedy
+- Strongest practical default: n/a (no ML stack passed professor-priority fairness gates)
+- Fairness collapse warning: node2vec_xgboost_community_siea
+- No method passed professor-priority fairness gates; showing the least-bad method by F-score, MF, DCV, scalability, spread, extra spread, then runtime.
+- Least-bad ML method under professor priority: node2vec_xgboost_community_siea (warning: fairness gates failed).
+- Overall recommendation differs from ML-only recommendation because baseline rows are included.
+
+ML Benchmark Recommendation
+- best_overall_method=community_aware_fair_greedy
+- best_ml_only_method=node2vec_xgboost_community_siea
+- best_current_overall_ml_stack=node2vec_xgboost_community_siea
+- best_fairness_first_ml_stack=node2vec_xgboost_community_siea
+- best_spread_first_ml_stack=node2vec_xgboost_community_siea
+- best_fast_ml_stack=node2vec_xgboost_community_siea
+- best_interpretable_baseline=community_aware_fair_greedy
+- strongest_practical_default=n/a
+- best_fairness_quality_method=node2vec_xgboost_community_siea
+- best_scalable_method=node2vec_xgboost_community_siea
+- best_spread_method=node2vec_xgboost_community_siea
+- best_runtime_method=node2vec_xgboost_community_siea
+- final_professor_priority_recommendation=community_aware_fair_greedy
+- stacks_needing_more_work=node2vec_xgboost_community_siea

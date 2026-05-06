@@ -14,6 +14,7 @@ from fim_hybrid.diffusion import DEFAULT_DIFFUSION_MODEL, SUPPORTED_DIFFUSION_MO
 from fim_hybrid.permutations import (  # noqa: E402
     FIMPermutationRunConfig,
     available_fim_permutations,
+    format_compact_experiment_summary,
     format_fim_permutation_report,
     run_fim_permutation_benchmark_from_config,
     run_fim_permutation_benchmark_multiseed,
@@ -183,11 +184,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-seeds-per-group-warning", type=int, default=5)
     parser.add_argument("--multi-seed", type=int, default=1, help="Number of random seeds to run and aggregate (default 1 = single run).")
     parser.add_argument("--multi-seed-list", nargs="+", type=int, default=None, help="Explicit list of random seeds for multi-seed evaluation.")
+    parser.add_argument(
+        "--output-mode",
+        choices=["compact", "verbose"],
+        default="compact",
+        help=(
+            "Terminal output verbosity. 'compact' (default) shows a clean results table only. "
+            "'verbose' shows all per-stack diagnostics, seed distributions, and fairness tables."
+        ),
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    _output_mode = str(getattr(args, "output_mode", "compact")).strip().lower()
     dataset_config = build_dataset_config(args)
     score_normalization = (
         "per_group"
@@ -285,6 +296,7 @@ def main() -> None:
         swap_reject_spread_gain_if_fairness_collapses=bool(args.swap_reject_spread_gain_if_fairness_collapses),
         min_budget_node_ratio_warning=float(args.min_budget_node_ratio_warning),
         min_seeds_per_group_warning=int(args.min_seeds_per_group_warning),
+        output_mode=_output_mode,
     )
     if args.multi_seed_list:
         multi_seeds = list(args.multi_seed_list)
@@ -305,8 +317,10 @@ def main() -> None:
             config=run_config,
             permutations=args.permutations,
         )
-    report = format_fim_permutation_report(result.summary_frame, run_config)
-    print(report)
+    if _output_mode == "compact":
+        print(format_compact_experiment_summary(result.summary_frame, run_config, dataset_name=str(args.dataset)))
+    else:
+        print(format_fim_permutation_report(result.summary_frame, run_config))
     if result.comparison_csv_path is not None:
         print(f"\nSaved comparison CSV: {result.comparison_csv_path}")
     if result.report_path is not None:
