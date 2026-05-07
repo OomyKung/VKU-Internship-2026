@@ -4,12 +4,12 @@ Training Target               : combined_fairness_gain
 Hidden Dim                    : 32
 Embedding Dim                 : 64
 Epochs Run                    : 100
-Best Epoch                    : 89
-Train Loss                    : 0.001479
-Validation Loss               : 0.003976
-Spearman                      : 0.931732
-Precision@Budget              : 0.675000
-Prediction Std                : 0.137434
+Best Epoch                    : 91
+Train Loss                    : 0.000357
+Validation Loss               : 0.000273
+Spearman                      : 0.979353
+Precision@Budget              : 0.741667
+Prediction Std                : 0.110958
 GraphSAGE Effective Weight    : 0.800000
 
 Candidate Scoring
@@ -28,62 +28,81 @@ Monte Carlo Used For          : final evaluation
 
 Final Result
 ------------------------------------------------------------
-F-score                       : 0.073245
-MF                            : 0.077695
+F-score                       : 0.027618
+MF                            : 0.031717
 DCV_shortfall                 : 0.000000
-DCV_disparity                 : 0.017803
+DCV_disparity                 : 0.016394
 Target Coverage Ratio         : 1.000000
 Target Alpha                  : 0.800000
-Spread                        : 41.893000
-Runtime                       : 95.914206
+Spread                        : 125.189000
+Runtime                       : 1142.817150
 
 FIM Algorithm-Stack Permutation Comparison
 ------------------------------------------------------------------------
-Protected attribute: ethnicity
-Budget: 40
+Protected attribute: color
+Budget: 120
 Ranking policy: professor_priority
 Fairness gates: min_f_score=0.0, min_mf=0.0001, max_dcv=0.25, min_fraction_groups_covered=0.8, scalability_required=True, warn_only=False
 Final estimator: monte_carlo | mc_runs_eval=1000
 
+No method met all group shortfall targets; showing the least-bad method by DCV_shortfall, target_coverage_ratio, MF, DCV_disparity, spread, then runtime.
+
+Fairness failure diagnostics
+------------------------------------------------------------------------
+No method passed the professor-priority fairness gates.
+protected_group_counts={"0": 812, "1": 2755, "2": 186}
+group_imbalance_ratio=14.8118
+budget_per_group_estimate={"0": 25.963229416466827, "1": 88.08952837729817, "2": 5.947242206235012}
+method_failure=graphsage_leiden_ris_ic_ea_memetic: reasons=scalability_required; F-score=0.0276; MF=0.0317; DCV=0.0000; scalability_pass=False; zero_covered_groups=0
+group_influence_distribution[graphsage_leiden_ris_ic_ea_memetic]={"0": 30.609, "1": 87.379, "2": 7.201}
+normalized_group_influence_distribution[graphsage_leiden_ris_ic_ea_memetic]={"0": 0.03769581280788178, "1": 0.03171651542649728, "2": 0.03871505376344086}
+Recommended actions:
+- increase budget
+- increase weak_group_bonus_weight
+- increase fair_ris_score_weight
+- enable group quota repair
+- use support-aware fairness metrics
+- run budget sweep
+
 Budget may be too small for stable fairness on this graph. Reasons: protected-group imbalance ratio above warning threshold
 
 1. graphsage_leiden_ris_ic_ea_memetic [ok]
-   spread=41.8930 | extra=1.8930 | MF=0.0777 | DCV=0.0000 | F-score=0.0732 | runtime=95.914s
-   zero_covered_groups=0 | fraction_groups_covered=1.0 | scalability_pass=True | candidate_pool=400 | ris_rr_sets=2048
-   fairness_diagnostics: seed_group_counts={"asian": 2, "black": 6, "latino": 12, "other": 2, "white": 18} | influence={'asian': 2.117, 'black': 6.2, 'latino': 12.61, 'other': 2.086, 'white': 18.88} | normalized_influence={'asian': 0.1323125, 'black': 0.0911764705882353, 'latino': 0.08241830065359476, 'other': 0.10429999999999999, 'white': 0.0776954732510288} | weakest=white | strongest=asian
+   spread=125.1890 | extra=5.1890 | MF=0.0317 | DCV=0.0000 | F-score=0.0276 | runtime=1142.817s
+   zero_covered_groups=0 | fraction_groups_covered=1.0 | scalability_pass=False | candidate_pool=2252 | ris_rr_sets=2048
+   fairness_diagnostics: seed_group_counts={"0": 28, "1": 85, "2": 7} | influence={'0': 30.609, '1': 87.379, '2': 7.201} | normalized_influence={'0': 0.03769581280788178, '1': 0.03171651542649728, '2': 0.03871505376344086} | weakest=1 | strongest=2
    DCV Parity Diagnostics
    ------------------------------------------------------------
-   Parity Target               : 0.09758054889857178
-   Normalized Influence        : {'asian': 0.1323125, 'black': 0.0911764705882353, 'latino': 0.08241830065359476, 'other': 0.10429999999999999, 'white': 0.0776954732510288}
-   Over-served Groups          : ['asian', 'other']
-   Under-served Groups         : ['black', 'latino', 'white']
-   Parity Abs Error            : 0.0829028044057129
+   Parity Target               : 0.036042460665939975
+   Normalized Influence        : {'0': 0.03769581280788178, '1': 0.03171651542649728, '2': 0.03871505376344086}
+   Over-served Groups          : []
+   Under-served Groups         : []
+   Parity Abs Error            : 0.008651890478885378
    DCV                         : 0.0
    Repair Successes            : None
-   runtime_breakdown: dataset=0.0034290000003238674 | community=0.0007577999986096984 | embedding=0.014226799999960349 | ris=0.0012867000004916918 | candidate_scoring=3.757988800000021 | optimizer=91.80522669999846 | local_search=None | final_mc=0.20087489999968966
-   seed_diagnostics: seed_count=40/40 | duplicates=0 | seed_groups={"asian": 2, "black": 6, "latino": 12, "other": 2, "white": 18} | seed_communities={"0": 3, "1": 4, "10": 2, "11": 5, "12": 6, "13": 2, "14": 2, "16": 1, "18": 2, "2": 4, "3": 1, "4": 2, "5": 1, "8": 2, "9": 3} | communities_covered=15
-   score_diagnostics: component_stats={"cluster_coverage_bonus": {"constant": true, "count": 500, "max": 0.0, "mean": 0.0, "min": 0.0, "std": 0.0}, "cluster_diversity_bonus": {"constant": true, "count": 500, "max": 0.0, "mean": 0.0, "min": 0.0, "std": 0.0}, "combined_score": {"constant": false, "count": 500, "max": 13.163332499004616, "mean": 4.0263857928124756, "min": 1.096236627629965, "std": 2.0533202444688663}, "community_diversity_bonus": {"constant": false, "count": 500, "max": 1.0, "mean": 0.4512157376632538, "min": 0.0, "std": 0.4046593496162457}, "community_diversity_score": {"constant": false, "count": 500, "max": 1.0, "mean": 0.4512157376632538, "min": 0.0, "std": 0.4046593496162457}, "dynamic_shortfall_gain": {"constant": false, "count": 500, "max": 0.8137222222222222, "mean": 0.5964490000000001, "min": 0.08055555555555556, "std": 0.2459991713781839}, "fair_ris_score": {"constant": false, "count": 500, "max": 1.0, "mean": 0.4111165674342335, "min": 0.0, "std": 0.21511100701003713}, "fairness_bonus": {"constant": false, "count": 500, "max": 1.0, "mean": 0.19852794084999964, "min": 0.0, "std": 0.33400068791406246}, "graphsage_embedding_norm": {"constant": false, "count": 500, "max": 1.0, "mean": 0.3483817219572727, "min": 0.0, "std": 0.20153688388942761}, "graphsage_pred_score": {"constant": false, "count": 500, "max": 1.0, "mean": 0.3581226178759752, "min": 0.0, "std": 0.18714805228687453}, "group_shortfall_ratio": {"constant": true, "count": 500, "max": 1.0, "mean": 1.0, "min": 1.0, "std": 0.0}, "ml_score": {"constant": false, "count": 500, "max": 1.0, "mean": 0.3581226178759752, "min": 0.0, "std": 0.18714805228687453}, "over_served_group_penalty": {"constant": true, "count": 500, "max": 0.0, "mean": 0.0, "min": 0.0, "std": 0.0}, "parity_adjusted_score": {"constant": false, "count": 500, "max": 13.163332499004616, "mean": 4.0263857928124756, "min": 1.096236627629965, "std": 2.0533202444688663}, "protected_group_coverage_bonus": {"constant": false, "count": 500, "max": 1.0, "mean": 0.10079295154185022, "min": 0.0, "std": 0.2270407020827778}, "ris_score": {"constant": false, "count": 500, "max": 1.0, "mean": 0.4106799422799422, "min": 0.0, "std": 0.21443315287964054}, "shortfall_gain": {"constant": false, "count": 500, "max": 1.0, "mean": 0.0390048480015717, "min": 0.0, "std": 0.15801535834939362}, "spread_proxy_score": {"constant": false, "count": 500, "max": 1.0, "mean": 0.24131712986514944, "min": 0.0, "std": 0.1712440924988562}, "under_served_group_bonus": {"constant": true, "count": 500, "max": 0.0, "mean": 0.0, "min": 0.0, "std": 0.0}, "weak_group_bonus": {"constant": false, "count": 500, "max": 1.0, "mean": 0.19852794084999964, "min": 0.0, "std": 0.33400068791406246}} | constant_components=["group_shortfall_ratio", "cluster_coverage_bonus", "cluster_diversity_bonus", "under_served_group_bonus", "over_served_group_penalty"]
+   runtime_breakdown: dataset=0.01658690000022034 | community=0.4840972000001784 | embedding=10.1521173000001 | ris=0.062313999999787484 | candidate_scoring=4.164408300000105 | optimizer=1126.1052528 | local_search=None | final_mc=0.5869769999999335
+   seed_diagnostics: seed_count=120/120 | duplicates=0 | seed_groups={"0": 28, "1": 85, "2": 7} | seed_communities={"0": 6, "1": 7, "10": 19, "100": 1, "106": 1, "11": 1, "110": 1, "113": 1, "115": 1, "13": 2, "14": 2, "16": 2, "17": 2, "18": 1, "19": 5, "2": 11, "20": 2, "21": 1, "22": 3, "24": 4, "25": 1, "27": 3, "29": 9, "3": 1, "36": 1, "37": 1, "38": 2, "4": 2, "44": 1, "46": 1, "5": 3, "51": 2, "52": 1, "58": 1, "7": 1, "70": 1, "74": 1, "78": 2, "8": 1, "81": 1, "89": 1, "9": 6, "91": 1, "95": 1, "96": 1, "97": 1} | communities_covered=46
+   score_diagnostics: component_stats={"cluster_coverage_bonus": {"constant": true, "count": 3753, "max": 0.0, "mean": 0.0, "min": 0.0, "std": 0.0}, "cluster_diversity_bonus": {"constant": true, "count": 3753, "max": 0.0, "mean": 0.0, "min": 0.0, "std": 0.0}, "combined_score": {"constant": false, "count": 3753, "max": 11.16635346448381, "mean": 3.56679561876558, "min": 1.0923749434452708, "std": 1.7304277683332172}, "community_diversity_bonus": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.7712626905475378, "min": 0.0, "std": 0.2881474114218201}, "community_diversity_score": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.7712626905475378, "min": 0.0, "std": 0.2881474114218201}, "dynamic_shortfall_gain": {"constant": false, "count": 3753, "max": 0.9061665495432185, "mean": 0.7256994752147045, "min": 0.06214418817658531, "std": 0.3026078280908069}, "fair_ris_score": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.1214026191114137, "min": 0.0, "std": 0.16247471337123323}, "fairness_bonus": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.29030626812644966, "min": 0.0, "std": 0.3761251735502992}, "graphsage_embedding_norm": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.1079324272888686, "min": 0.0, "std": 0.12169863197461817}, "graphsage_pred_score": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.26178279082306105, "min": 0.0, "std": 0.14298181951609257}, "group_shortfall_ratio": {"constant": true, "count": 3753, "max": 1.0, "mean": 1.0, "min": 1.0, "std": 0.0}, "ml_score": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.26178279082306105, "min": 0.0, "std": 0.14298181951609257}, "over_served_group_penalty": {"constant": true, "count": 3753, "max": 0.0, "mean": 0.0, "min": 0.0, "std": 0.0}, "parity_adjusted_score": {"constant": false, "count": 3753, "max": 11.16635346448381, "mean": 3.56679561876558, "min": 1.0923749434452708, "std": 1.7304277683332172}, "protected_group_coverage_bonus": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.08704410547078102, "min": 0.0, "std": 0.22017634213991413}, "ris_score": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.11834088284927613, "min": 0.0, "std": 0.1576622431830389}, "shortfall_gain": {"constant": true, "count": 3753, "max": 0.0, "mean": 0.0, "min": 0.0, "std": 0.0}, "spread_proxy_score": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.042137375167600896, "min": 0.0, "std": 0.05486233750829672}, "under_served_group_bonus": {"constant": true, "count": 3753, "max": 0.0, "mean": 0.0, "min": 0.0, "std": 0.0}, "weak_group_bonus": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.29030626812644966, "min": 0.0, "std": 0.3761251735502992}} | constant_components=["shortfall_gain", "group_shortfall_ratio", "cluster_coverage_bonus", "cluster_diversity_bonus", "under_served_group_bonus", "over_served_group_penalty"]
    modules: diffusion=ic | search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=2048 | community=leiden | embedding=graphsage | clustering=none | ranking=graphsage_plus_fair_ris | optimizer=ea_memetic | debias=worst_group_boost
    algorithms: embedding=GraphSAGE | ml_ranking=GraphSAGE + Fair RIS scoring | community=Leiden | clustering=None | diffusion=Independent Cascade | search=RIS / Fair RIS | optimizer=Evolutionary Algorithm + Memetic Algorithm | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo | ranking_policy=Professor-priority ranking
    pipeline: fim_stack=graphsage_leiden_ris_ic_ea_memetic | ranking_policy=professor_priority | mode=graphsage_leiden_ris_ic_ea_memetic | method_type=graphsage_leiden_ris_ic_ea_memetic | repair=True | swap_local_search=True
    features: use_community_features=True | community_feature_mode=basic | allow_protected_features_in_ml=False
-   guidance: ml=0.8 | ris=1.0 | fair_ris=2.0 | ris_verified=True | fair_ris_verified=True | ris_score_nonzero=487 | fair_ris_score_nonzero=487 | weak_group=4.0 | community_diversity=0.5 | protected_group_coverage=4.0 | spread_proxy=0.3 | large_imbalance_active=True | score_normalization=per_group
+   guidance: ml=0.8 | ris=1.0 | fair_ris=2.0 | ris_verified=True | fair_ris_verified=True | ris_score_nonzero=1647 | fair_ris_score_nonzero=1647 | weak_group=4.0 | community_diversity=0.5 | protected_group_coverage=4.0 | spread_proxy=0.3 | large_imbalance_active=True | score_normalization=per_group
    dcv_targeting: enabled=<NA> | over_served_penalty=<NA> | dcv_first_swap=<NA> | parity_repair=<NA> | repair_successes=None | dcv_before_repair=None | dcv_after_repair_est=None
-   RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=2048 | ris_verified=True | fair_ris_verified=True | ris_cache_hit=True | force_ris_for_all_stacks=True | require_ris=True
-   search_objective_calls: fair_ris=2 | ris=0 | search_mc=0 | final_mc=1 | rr_sets_used=2048 | approx_final_fscore=0.035203722218233834 | final_mc_fscore=0.02994621835829024
-   candidate_pool_diagnostics: stratified=True | group_counts={'asian': 16, 'black': 56, 'latino': 112, 'other': 20, 'white': 196} | group_quota=30 | quota_shortfall={'asian': 14, 'black': 0, 'latino': 0, 'other': 10, 'white': 0}
-   optimizer_diagnostics: initial_seed_source=target_shortfall_group_quota | repaired_seed_sets=25 | repair_attempts=25 | weak_group_repairs=25 | successful_swaps=767 | swap_attempts=25 | swap_accepted=767 | swap_rejected_fairness=0 | swap_accepted_dcv=25 | swap_rejected_dcv=None | community_coverage={"0": 3, "1": 4, "10": 2, "11": 5, "12": 6, "13": 2, "14": 2, "16": 1, "18": 2, "2": 4, "3": 1, "4": 2, "5": 1, "8": 2, "9": 3} | community_coverage_ratio=0.7894736842105263 | protected_group_coverage={"asian": 2, "black": 6, "latino": 12, "other": 2, "white": 18}
-   caches: embedding=hit | community=hit | ris=hit | score=miss | fitness_hits=None | swap_hits=None
+   RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=2048 | ris_verified=True | fair_ris_verified=True | ris_cache_hit=False | force_ris_for_all_stacks=True | require_ris=True
+   search_objective_calls: fair_ris=2 | ris=0 | search_mc=0 | final_mc=1 | rr_sets_used=2048 | approx_final_fscore=-0.008899746958151163 | final_mc_fscore=0.007661427847531332
+   candidate_pool_diagnostics: stratified=True | group_counts={'0': 481, '1': 1585, '2': 186} | group_quota=120 | quota_shortfall={'0': 0, '1': 0, '2': 0}
+   optimizer_diagnostics: initial_seed_source=target_shortfall_group_quota | repaired_seed_sets=0 | repair_attempts=0 | weak_group_repairs=0 | successful_swaps=750 | swap_attempts=0 | swap_accepted=750 | swap_rejected_fairness=0 | swap_accepted_dcv=0 | swap_rejected_dcv=None | community_coverage={"0": 6, "1": 7, "10": 19, "100": 1, "106": 1, "11": 1, "110": 1, "113": 1, "115": 1, "13": 2, "14": 2, "16": 2, "17": 2, "18": 1, "19": 5, "2": 11, "20": 2, "21": 1, "22": 3, "24": 4, "25": 1, "27": 3, "29": 9, "3": 1, "36": 1, "37": 1, "38": 2, "4": 2, "44": 1, "46": 1, "5": 3, "51": 2, "52": 1, "58": 1, "7": 1, "70": 1, "74": 1, "78": 2, "8": 1, "81": 1, "89": 1, "9": 6, "91": 1, "95": 1, "96": 1, "97": 1} | community_coverage_ratio=0.3898305084745763 | protected_group_coverage={"0": 28, "1": 85, "2": 7}
+   caches: embedding=miss | community=miss | ris=miss | score=miss | fitness_hits=None | swap_hits=None
    artifacts: score_table=saved | embeddings=saved | community_assignments=saved
-   notes=target_shortfall_repair=true; target_coverage_first=true; overcoverage_control=true; communities=19; modularity=0.802180; embedding_cache=hit; target=combined_fairness_gain; backend=gnn; candidate_pool=400; validation_spearman=0.9317; validation_precision_at_budget=0.6750; Search objective used Fair RIS; final metrics reported by Monte Carlo.; target-shortfall repair used capped target utility and overcoverage waste penalty
+   notes=target_shortfall_repair=true; target_coverage_first=true; overcoverage_control=true; communities=118; modularity=0.655835; embedding_cache=miss; target=combined_fairness_gain; backend=gnn; candidate_pool=2252; validation_spearman=0.9794; validation_precision_at_budget=0.7417; Search objective used Fair RIS; final metrics reported by Monte Carlo.; target-shortfall repair used capped target utility and overcoverage waste penalty
 
 Recommendations
 ------------------------------------------------------------------------
 best_interpretable_baseline=n/a
-best_ea_memetic_stack=graphsage_leiden_ris_ic_ea_memetic
-best_fairness_focused_ea_memetic_stack=graphsage_leiden_ris_ic_ea_memetic
+best_ea_memetic_stack=n/a
+best_fairness_focused_ea_memetic_stack=n/a
 best_fairness_quality_method=graphsage_leiden_ris_ic_ea_memetic
-best_scalable_method=graphsage_leiden_ris_ic_ea_memetic
-best_spread_method=graphsage_leiden_ris_ic_ea_memetic
-best_runtime_method=graphsage_leiden_ris_ic_ea_memetic
+best_scalable_method=n/a
+best_spread_method=n/a
+best_runtime_method=n/a
 final_professor_priority_recommendation=graphsage_leiden_ris_ic_ea_memetic
