@@ -377,7 +377,7 @@ class FIMPermutationRunConfig:
     use_over_served_group_penalty: bool = False
     use_dcv_first_swap_acceptance: bool = False
     dcv_improvement_epsilon: float = 0.0005
-    mf_drop_tolerance: float = 0.001
+    mf_drop_tolerance: float = 0.0005
     fscore_drop_tolerance: float = 0.001
     spread_safe_dcv_tolerance: float = 0.002
     use_dcv_parity_repair: bool = False
@@ -407,7 +407,7 @@ class FIMPermutationRunConfig:
     shortfall_dcv_weight: float = 1.0
     disparity_dcv_weight: float = 0.25
     fscore_mode: str = "disparity_primary"
-    shortfall_dcv_worsen_tolerance: float = 0.001
+    shortfall_dcv_worsen_tolerance: float = 0.0001
     disparity_warning_threshold: float = 0.10
     max_shortfall_dcv: float = 0.01
     min_target_coverage_ratio: float = 1.0
@@ -425,6 +425,16 @@ class FIMPermutationRunConfig:
     target_shortfall_overcoverage_weight: float = 0.0
     ideal_influences: dict[str, float] | None = None
     original_ideal_influences: dict[str, float] | None = None
+    use_mf_lift: bool = True
+    mf_lift_rounds: int = 5
+    mf_lift_candidate_limit: int = 300
+    mf_lift_weight: float = 3.0
+    mf_lift_disparity_tolerance: float = 0.02
+    mf_lift_spread_drop_tolerance: float = 0.02
+    mf_lift_require_shortfall_zero: bool = True
+    mf_lift_require_target_coverage: float = 1.0
+    include_mf_gain_in_graphsage_label: bool = True
+    mf_gain_label_weight: float = 1.5
     # ── Ideal-influence group bonus (Task 2) ──────────────────────────────────
     # When use_ideal_influence_group_bonus=True, nodes in groups with a larger
     # share of total ideal influence receive a proportional under_served_group_bonus
@@ -1037,6 +1047,37 @@ def permutation_summary_columns() -> list[str]:
         "crossover_children_improved_target_coverage",
         "seeds_removed_from_overcovered_groups",
         "swaps_rejected_due_to_target_loss",
+        "use_mf_lift",
+        "mf_lift_enabled",
+        "mf_lift_started",
+        "mf_lift_reason_not_started",
+        "mf_lift_rounds",
+        "mf_lift_candidate_limit",
+        "mf_lift_weight",
+        "mf_lift_disparity_tolerance",
+        "mf_lift_spread_drop_tolerance",
+        "mf_lift_require_shortfall_zero",
+        "mf_lift_require_target_coverage",
+        "mf_lift_initial_mf",
+        "mf_lift_final_approx_mf",
+        "mf_lift_final_mc_mf",
+        "mf_lift_mc_selection",
+        "mf_lift_mc_reverted_to_pre_lift",
+        "mf_lift_pre_mc_mf",
+        "mf_lift_pre_mc_dcv_shortfall",
+        "mf_lift_pre_mc_target_coverage",
+        "mf_lift_weakest_group_before",
+        "mf_lift_weakest_group_after",
+        "mf_lift_weakest_group_after_mc",
+        "mf_lift_attempts",
+        "mf_lift_successful_swaps",
+        "mf_lift_rejected_target_loss",
+        "mf_lift_rejected_dcv_shortfall_worsen",
+        "mf_lift_rejected_mf_drop",
+        "mf_lift_removed_from_overcovered_groups",
+        "mf_lift_removed_low_contribution_seeds",
+        "mf_lift_dcv_shortfall_preserved",
+        "mf_lift_target_coverage_preserved",
         "memetic_duplicate_repairs",
         "memetic_budget_repairs",
         "memetic_community_repairs",
@@ -1078,6 +1119,8 @@ def permutation_summary_columns() -> list[str]:
         "guidance_inactive_components",
         "ml_score_weight",
         "graphsage_score_weight",
+        "include_mf_gain_in_graphsage_label",
+        "mf_gain_label_weight",
         "ris_score_weight",
         "fair_ris_score_weight",
         "shortfall_gain_weight",
@@ -1739,8 +1782,11 @@ _SCORE_COMPONENT_COLUMNS = (
     "cluster_diversity_bonus",
     "protected_group_coverage_bonus",
     "spread_proxy_score",
+    "mf_gain_score",
+    "weakest_group_gain",
     "under_served_group_bonus",
     "over_served_group_penalty",
+    "mf_lift_adjusted_score",
     "parity_adjusted_score",
     "combined_score",
 )
@@ -3762,6 +3808,8 @@ def print_candidate_score_diagnostics(row: Mapping[str, object]) -> None:
         ("protected_group_coverage_bonus", "Coverage Bonus"),
         ("community_diversity_bonus", "Community Bonus"),
         ("spread_proxy_score", "Spread Proxy Score"),
+        ("mf_gain_score", "MF Gain Score"),
+        ("mf_lift_adjusted_score", "MF-Lift Adjusted"),
         ("combined_score", "Combined Score"),
     ):
         stat = stats.get(column_name, {}) if isinstance(stats.get(column_name), Mapping) else {}
@@ -3854,6 +3902,34 @@ def print_optimizer_diagnostics(row: Mapping[str, object]) -> None:
     print("")
 
 
+def print_mf_lift_diagnostics(row: Mapping[str, object]) -> None:
+    print("MF-Lift Diagnostics")
+    print("-" * 60)
+    rows = [
+        ("Enabled", row.get("mf_lift_enabled", row.get("use_mf_lift", pd.NA))),
+        ("Started", row.get("mf_lift_started", pd.NA)),
+        ("Reason Not Started", row.get("mf_lift_reason_not_started", "")),
+        ("Initial MF", row.get("mf_lift_initial_mf", pd.NA)),
+        ("Final Approx MF", row.get("mf_lift_final_approx_mf", pd.NA)),
+        ("Final MC MF", row.get("mf_lift_final_mc_mf", row.get("mf", pd.NA))),
+        ("MC Selection", row.get("mf_lift_mc_selection", pd.NA)),
+        ("Pre-lift MC MF", row.get("mf_lift_pre_mc_mf", pd.NA)),
+        ("Weakest Group Before", row.get("mf_lift_weakest_group_before", pd.NA)),
+        ("Weakest Group After", row.get("mf_lift_weakest_group_after_mc", row.get("mf_lift_weakest_group_after", pd.NA))),
+        ("MF-Lift Rounds", row.get("mf_lift_rounds", pd.NA)),
+        ("MF-Lift Attempts", row.get("mf_lift_attempts", pd.NA)),
+        ("MF-Lift Successful Swaps", row.get("mf_lift_successful_swaps", pd.NA)),
+        ("Rejected Target Loss", row.get("mf_lift_rejected_target_loss", pd.NA)),
+        ("Rejected DCV Shortfall Worsen", row.get("mf_lift_rejected_dcv_shortfall_worsen", pd.NA)),
+        ("Rejected MF Drop", row.get("mf_lift_rejected_mf_drop", pd.NA)),
+        ("DCV Shortfall Preserved", row.get("mf_lift_dcv_shortfall_preserved", pd.NA)),
+        ("Target Coverage Preserved", row.get("mf_lift_target_coverage_preserved", pd.NA)),
+    ]
+    for label, value in rows:
+        print(f"{label:<30}: {_format_diagnostic_value(value)}")
+    print("")
+
+
 def print_stack_result_diagnostics(frame: pd.DataFrame, config: FIMPermutationRunConfig) -> None:
     for _, row in frame.iterrows():
         status = str(row.get("status", "")).strip().lower()
@@ -3879,6 +3955,7 @@ def print_stack_result_diagnostics(frame: pd.DataFrame, config: FIMPermutationRu
             print_ris_mc_sanity_check(row)
         if bool(config.print_optimizer_diagnostics):
             print_optimizer_diagnostics(row)
+            print_mf_lift_diagnostics(row)
 
 
 def _key_enabled_modules(spec: FIMPermutationSpec, clustering_input_mode: str) -> str:
@@ -4122,6 +4199,37 @@ def _result_row(
         "memetic_accepted_fscore_moves": pd.NA,
         "memetic_accepted_mf_dcv_moves": pd.NA,
         "memetic_accepted_spread_safe_moves": pd.NA,
+        "use_mf_lift": bool(config.use_mf_lift),
+        "mf_lift_enabled": bool(config.use_mf_lift),
+        "mf_lift_started": False,
+        "mf_lift_reason_not_started": pd.NA,
+        "mf_lift_rounds": int(config.mf_lift_rounds),
+        "mf_lift_candidate_limit": int(config.mf_lift_candidate_limit),
+        "mf_lift_weight": float(config.mf_lift_weight),
+        "mf_lift_disparity_tolerance": float(config.mf_lift_disparity_tolerance),
+        "mf_lift_spread_drop_tolerance": float(config.mf_lift_spread_drop_tolerance),
+        "mf_lift_require_shortfall_zero": bool(config.mf_lift_require_shortfall_zero),
+        "mf_lift_require_target_coverage": float(config.mf_lift_require_target_coverage),
+        "mf_lift_initial_mf": pd.NA,
+        "mf_lift_final_approx_mf": pd.NA,
+        "mf_lift_final_mc_mf": pd.NA,
+        "mf_lift_mc_selection": pd.NA,
+        "mf_lift_mc_reverted_to_pre_lift": pd.NA,
+        "mf_lift_pre_mc_mf": pd.NA,
+        "mf_lift_pre_mc_dcv_shortfall": pd.NA,
+        "mf_lift_pre_mc_target_coverage": pd.NA,
+        "mf_lift_weakest_group_before": pd.NA,
+        "mf_lift_weakest_group_after": pd.NA,
+        "mf_lift_weakest_group_after_mc": pd.NA,
+        "mf_lift_attempts": pd.NA,
+        "mf_lift_successful_swaps": pd.NA,
+        "mf_lift_rejected_target_loss": pd.NA,
+        "mf_lift_rejected_dcv_shortfall_worsen": pd.NA,
+        "mf_lift_rejected_mf_drop": pd.NA,
+        "mf_lift_removed_from_overcovered_groups": pd.NA,
+        "mf_lift_removed_low_contribution_seeds": pd.NA,
+        "mf_lift_dcv_shortfall_preserved": pd.NA,
+        "mf_lift_target_coverage_preserved": pd.NA,
         "memetic_duplicate_repairs": pd.NA,
         "memetic_budget_repairs": pd.NA,
         "memetic_community_repairs": pd.NA,
@@ -4432,6 +4540,9 @@ def _combined_guidance_score_frame(
     cluster_coverage_bonus_scores: Mapping[Any, float] | None = None,
     protected_group_coverage_scores: Mapping[Any, float] | None = None,
     spread_proxy_scores: Mapping[Any, float] | None = None,
+    mf_gain_scores: Mapping[Any, float] | None = None,
+    mf_lift_weakest_group: str | None = None,
+    mf_lift_weight: float = 3.0,
     fairness_bonus_weight: float = 0.0,
     shortfall_gain_weight: float = 0.0,
     weak_group_bonus_weight: float | None = None,
@@ -4533,6 +4644,12 @@ def _combined_guidance_score_frame(
         score_normalization=score_normalization,
         component_name="spread_proxy_score",
     )
+    normalized_mf_gain = _normalize_score_map_for_mode(
+        mf_gain_scores or {},
+        protected_group_report=protected_group_report,
+        score_normalization=score_normalization,
+        component_name="mf_gain_score",
+    )
     normalized_cluster_diversity_bonus = _normalize_score_map_for_mode(
         cluster_diversity_bonus_scores or {},
         protected_group_report=protected_group_report,
@@ -4561,6 +4678,7 @@ def _combined_guidance_score_frame(
         | set(normalized_diversity_bonus)
         | set(normalized_protected_group_coverage)
         | set(normalized_spread_proxy)
+        | set(normalized_mf_gain)
         | set(normalized_cluster_diversity_bonus)
         | set(normalized_ingroup_ris)
         | set(normalized_cluster_coverage_bonus),
@@ -4593,6 +4711,12 @@ def _combined_guidance_score_frame(
                 "ingroup_ris_score",
                 "protected_group_coverage_bonus",
                 "spread_proxy_score",
+                "weakest_group",
+                "candidate_helps_weakest_group",
+                "weakest_group_gain",
+                "weakest_group_ris_coverage",
+                "mf_gain_score",
+                "mf_lift_adjusted_score",
                 "under_served_group_bonus",
                 "over_served_group_penalty",
                 "parity_adjusted_score",
@@ -4652,6 +4776,10 @@ def _combined_guidance_score_frame(
         ingroup_ris_score = float(normalized_ingroup_ris.get(node_id, 0.0))
         protected_group_coverage_bonus = float(normalized_protected_group_coverage.get(node_id, 0.0))
         spread_proxy_score = float(normalized_spread_proxy.get(node_id, 0.0))
+        mf_gain_score = float(normalized_mf_gain.get(node_id, 0.0))
+        weakest_group = "" if mf_lift_weakest_group is None else str(mf_lift_weakest_group)
+        candidate_group = node_group_lookup.get(node_id, "")
+        candidate_helps_weakest = bool(mf_gain_score > 0.0 or (weakest_group and str(candidate_group) == weakest_group))
         resolved_weak_group_weight = (
             float(fairness_bonus_weight)
             if weak_group_bonus_weight is None
@@ -4673,9 +4801,9 @@ def _combined_guidance_score_frame(
         rows.append(
             {
                 "node_id": node_id,
-                "candidate_group": node_group_lookup.get(node_id, ""),
+                "candidate_group": candidate_group,
                 "node": node_id,
-                "protected_group": node_group_lookup.get(node_id, ""),
+                "protected_group": candidate_group,
                 "ml_score": ml_score,
                 "graphsage_pred_score": ml_score,
                 "graphsage_embedding_norm": graphsage_embedding_norm,
@@ -4698,6 +4826,12 @@ def _combined_guidance_score_frame(
                 "ingroup_ris_score": ingroup_ris_score,
                 "protected_group_coverage_bonus": protected_group_coverage_bonus,
                 "spread_proxy_score": spread_proxy_score,
+                "weakest_group": weakest_group,
+                "candidate_helps_weakest_group": candidate_helps_weakest,
+                "weakest_group_gain": mf_gain_score,
+                "weakest_group_ris_coverage": mf_gain_score,
+                "mf_gain_score": mf_gain_score,
+                "mf_lift_adjusted_score": float(combined_score + (float(mf_lift_weight) * mf_gain_score if candidate_helps_weakest else 0.0)),
                 "under_served_group_bonus": 0.0,
                 "over_served_group_penalty": 0.0,
                 "parity_adjusted_score": combined_score,
@@ -4738,6 +4872,7 @@ def _combined_guidance_score_frame(
             row["target_deficit_adjusted_score"] = adjusted
             row["combined_score"] = adjusted
             row["parity_adjusted_score"] = adjusted
+            row["mf_lift_adjusted_score"] = float(adjusted + (float(mf_lift_weight) * float(row.get("mf_gain_score", 0.0)) if bool(row.get("candidate_helps_weakest_group", False)) else 0.0))
     if bool(use_ideal_influence_group_bonus) and ideal_influences and protected_group_report is not None and rows:
         # Ideal-influence-based group bonus: nodes in groups with a larger proportional
         # share of total ideal influence receive a higher under_served_group_bonus.
@@ -4767,6 +4902,7 @@ def _combined_guidance_score_frame(
             row["parity_adjusted_score"] = adjusted
             row["target_deficit_adjusted_score"] = adjusted
             row["combined_score"] = adjusted
+            row["mf_lift_adjusted_score"] = float(adjusted + (float(mf_lift_weight) * float(row.get("mf_gain_score", 0.0)) if bool(row.get("candidate_helps_weakest_group", False)) else 0.0))
     elif bool(use_over_served_group_penalty) and protected_group_report is not None and rows:
         # Original ML-score parity mode — backward compatible.
         group_by_node = {
@@ -4801,6 +4937,7 @@ def _combined_guidance_score_frame(
             row["parity_adjusted_score"] = adjusted_score
             row["target_deficit_adjusted_score"] = adjusted_score
             row["combined_score"] = adjusted_score
+            row["mf_lift_adjusted_score"] = float(adjusted_score + (float(mf_lift_weight) * float(row.get("mf_gain_score", 0.0)) if bool(row.get("candidate_helps_weakest_group", False)) else 0.0))
     return pd.DataFrame(rows)
 
 
@@ -5241,6 +5378,17 @@ def _optimizer_diagnostics_json(row: Mapping[str, object]) -> str:
         "children_repaired_for_target_coverage": row.get("children_repaired_for_target_coverage", pd.NA),
         "seeds_removed_from_overcovered_groups": row.get("seeds_removed_from_overcovered_groups", pd.NA),
         "swaps_rejected_due_to_target_loss": row.get("swaps_rejected_due_to_target_loss", pd.NA),
+        "mf_lift_enabled": row.get("mf_lift_enabled", pd.NA),
+        "mf_lift_started": row.get("mf_lift_started", pd.NA),
+        "mf_lift_attempts": row.get("mf_lift_attempts", pd.NA),
+        "mf_lift_successful_swaps": row.get("mf_lift_successful_swaps", pd.NA),
+        "mf_lift_rejected_target_loss": row.get("mf_lift_rejected_target_loss", pd.NA),
+        "mf_lift_rejected_dcv_shortfall_worsen": row.get("mf_lift_rejected_dcv_shortfall_worsen", pd.NA),
+        "mf_lift_rejected_mf_drop": row.get("mf_lift_rejected_mf_drop", pd.NA),
+        "mf_lift_removed_from_overcovered_groups": row.get("mf_lift_removed_from_overcovered_groups", pd.NA),
+        "mf_lift_removed_low_contribution_seeds": row.get("mf_lift_removed_low_contribution_seeds", pd.NA),
+        "mf_lift_dcv_shortfall_preserved": row.get("mf_lift_dcv_shortfall_preserved", pd.NA),
+        "mf_lift_target_coverage_preserved": row.get("mf_lift_target_coverage_preserved", pd.NA),
         "accepted_mf_dcv_moves": row.get("memetic_accepted_mf_dcv_moves", row.get("swap_accepted_mf_improvement", pd.NA)),
         "accepted_spread_safe_swaps": row.get("swap_accepted_spread_fairness_preserved", pd.NA),
         "parity_repair_attempts": row.get("parity_repair_attempts", pd.NA),
@@ -5665,6 +5813,8 @@ def _build_shared_stack_inputs(
                 top_fraction=top_fraction,
                 top_n=top_n,
                 max_nodes=max_nodes,
+                include_mf_gain_in_graphsage_label=bool(config.include_mf_gain_in_graphsage_label),
+                mf_gain_label_weight=float(config.mf_gain_label_weight),
                 output_dir=config.output_dir,
             ),
         )
@@ -5750,6 +5900,16 @@ def _build_shared_stack_inputs(
         if graphsage_scorer_result is None
         else graphsage_scorer_result.component_score_maps.get("shortfall_gain", {})
     )
+    mf_gain_scores = (
+        None
+        if graphsage_scorer_result is None
+        else graphsage_scorer_result.component_score_maps.get("mf_gain_score", {})
+    )
+    mf_lift_weakest_group = ""
+    if graphsage_scorer_result is not None:
+        metadata = dict(getattr(graphsage_scorer_result.training_result, "metadata", {}) or {})
+        label_stats = dict(metadata.get("label_stats", {}) or {})
+        mf_lift_weakest_group = str(label_stats.get("mf_gain_weakest_group", metadata.get("mf_gain_weakest_group", "")) or "")
     graphsage_embedding_norm_scores = (
         None
         if graphsage_scorer_result is None
@@ -5802,6 +5962,9 @@ def _build_shared_stack_inputs(
         cluster_coverage_bonus_scores=_coverage_bonus_scores,
         protected_group_coverage_scores=protected_group_coverage_scores,
         spread_proxy_scores=spread_proxy_scores,
+        mf_gain_scores=mf_gain_scores,
+        mf_lift_weakest_group=mf_lift_weakest_group,
+        mf_lift_weight=float(config.mf_lift_weight),
         fairness_bonus_weight=float(config.fairness_bonus_weight),
         shortfall_gain_weight=shortfall_gain_weight,
         weak_group_bonus_weight=score_weights["weak_group_bonus_weight"],
@@ -6016,6 +6179,8 @@ def _shared_stack_reporting_fields(
         "guidance_inactive_components": json.dumps(training_metadata.get("inactive_guidance_components", []) or [], sort_keys=True),
         "ml_score_weight": candidate_score_weights.get("ml_score_weight", pd.NA),
         "graphsage_score_weight": training_metadata.get("effective_graphsage_weight", candidate_score_weights.get("ml_score_weight", pd.NA)),
+        "include_mf_gain_in_graphsage_label": bool(training_metadata.get("include_mf_gain_in_graphsage_label", True)),
+        "mf_gain_label_weight": float(training_metadata.get("mf_gain_label_weight", 1.5)),
         "ris_score_weight": candidate_score_weights.get("ris_score_weight", pd.NA),
         "fair_ris_score_weight": candidate_score_weights.get("fair_ris_score_weight", pd.NA),
         "shortfall_gain_weight": shared.get("shortfall_gain_weight", pd.NA),
@@ -7369,6 +7534,16 @@ def _target_shortfall_optimizer_config(config: FIMPermutationRunConfig) -> Targe
             f_score=float(config.target_shortfall_fscore_weight),
             overcoverage_waste=float(config.target_shortfall_overcoverage_weight),
         ),
+        use_mf_lift=bool(config.use_mf_lift),
+        mf_lift_rounds=max(0, int(config.mf_lift_rounds)),
+        mf_lift_candidate_limit=max(1, int(config.mf_lift_candidate_limit)),
+        mf_lift_weight=float(config.mf_lift_weight),
+        mf_lift_disparity_tolerance=float(config.mf_lift_disparity_tolerance),
+        mf_lift_spread_drop_tolerance=float(config.mf_lift_spread_drop_tolerance),
+        mf_lift_require_shortfall_zero=bool(config.mf_lift_require_shortfall_zero),
+        mf_lift_require_target_coverage=float(config.mf_lift_require_target_coverage),
+        mf_drop_tolerance=float(config.mf_drop_tolerance),
+        shortfall_dcv_worsen_tolerance=float(config.shortfall_dcv_worsen_tolerance),
     )
 
 
@@ -7469,19 +7644,107 @@ def _run_target_shortfall_repair_memetic_ris_stack(
         candidate_scores=candidate_score_map,
         ris_result=ris_result,
         config=_target_shortfall_optimizer_config(effective_config),
+        community_by_node=shared["community_result"].community_id_by_node,
     )
     time_optimizer = float(perf_counter() - optimizer_start)
     search_runtime = float(perf_counter() - start)
+    target_diag = dict(optimization_result.diagnostics)
+    selected_seed_set = _normalized_seed_set(optimization_result.seed_set)
     final_eval = _final_evaluate(
         dataset,
         protected_group_report,
-        optimization_result.seed_set,
+        selected_seed_set,
         spec.diffusion_model,
         effective_config,
     )
+    target_diag["mf_lift_mc_selection"] = "post_lift"
+    target_diag["mf_lift_mc_reverted_to_pre_lift"] = False
+    pre_lift_seed_set = _normalized_seed_set(target_diag.get("mf_lift_initial_seed_set", ()))
+
+    def _mc_lift_priority(evaluation: SeedSetEvaluation) -> tuple[float, ...]:
+        fairness = evaluation.fairness
+        target_coverage = float(getattr(fairness, "target_coverage_ratio", 0.0))
+        shortfall = float(getattr(fairness, "dcv_shortfall", 0.0))
+        solved = target_coverage >= 1.0 - 1e-12 and shortfall <= 1e-12
+        dcv_disparity = float(getattr(fairness, "dcv_disparity", getattr(fairness, "dcv", 0.0)))
+        if solved:
+            return (
+                1.0,
+                float(getattr(fairness, "mf", 0.0)),
+                -dcv_disparity,
+                float(getattr(evaluation, "f_score", 0.0)),
+                float(getattr(evaluation, "total_spread_mean", 0.0)),
+            )
+        return (
+            0.0,
+            target_coverage,
+            -shortfall,
+            float(getattr(fairness, "mf", 0.0)),
+            -dcv_disparity,
+            float(getattr(evaluation, "f_score", 0.0)),
+            float(getattr(evaluation, "total_spread_mean", 0.0)),
+        )
+
+    if bool(target_diag.get("mf_lift_started", False)) and pre_lift_seed_set:
+        mc_candidates: list[tuple[str, tuple[Any, ...]]] = [("post_lift", selected_seed_set)]
+        if pre_lift_seed_set != selected_seed_set:
+            mc_candidates.append(("pre_lift", pre_lift_seed_set))
+        accepted_seed_sets = target_diag.get("mf_lift_accepted_seed_sets", [])
+        if isinstance(accepted_seed_sets, list):
+            for index, seed_set_candidate in enumerate(accepted_seed_sets, start=1):
+                normalized_candidate = _normalized_seed_set(seed_set_candidate)
+                if normalized_candidate and all(normalized_candidate != existing for _, existing in mc_candidates):
+                    mc_candidates.append((f"lift_swap_{index}", normalized_candidate))
+
+        evaluated_candidates: list[tuple[str, tuple[Any, ...], SeedSetEvaluation]] = []
+        for label, seed_candidate in mc_candidates:
+            if seed_candidate == selected_seed_set:
+                candidate_eval = final_eval
+            elif seed_candidate == pre_lift_seed_set:
+                candidate_eval = _final_evaluate(
+                    dataset,
+                    protected_group_report,
+                    seed_candidate,
+                    spec.diffusion_model,
+                    effective_config,
+                )
+                target_diag["mf_lift_pre_mc_mf"] = float(candidate_eval.fairness.mf)
+                target_diag["mf_lift_pre_mc_dcv_shortfall"] = float(candidate_eval.fairness.dcv_shortfall)
+                target_diag["mf_lift_pre_mc_target_coverage"] = float(candidate_eval.fairness.target_coverage_ratio)
+                target_diag["mf_lift_pre_mc_dcv_disparity"] = float(candidate_eval.fairness.dcv_disparity)
+                target_diag["mf_lift_pre_mc_f_score"] = float(candidate_eval.f_score)
+                target_diag["mf_lift_pre_mc_spread"] = float(candidate_eval.total_spread_mean)
+            else:
+                candidate_eval = _final_evaluate(
+                    dataset,
+                    protected_group_report,
+                    seed_candidate,
+                    spec.diffusion_model,
+                    effective_config,
+                )
+            evaluated_candidates.append((label, seed_candidate, candidate_eval))
+
+        best_label, best_seed_set, best_eval = max(
+            evaluated_candidates,
+            key=lambda item: _mc_lift_priority(item[2]),
+        )
+        selected_seed_set = best_seed_set
+        final_eval = best_eval
+        target_diag["mf_lift_mc_selection"] = best_label
+        target_diag["mf_lift_mc_reverted_to_pre_lift"] = bool(best_label == "pre_lift")
+        target_diag["mf_lift_mc_evaluated_seed_sets"] = int(len(evaluated_candidates))
+        target_diag["mf_lift_mc_candidate_mf"] = {
+            label: float(candidate_eval.fairness.mf)
+            for label, _, candidate_eval in evaluated_candidates
+        }
+    else:
+        target_diag["mf_lift_pre_mc_mf"] = pd.NA
+        target_diag["mf_lift_pre_mc_dcv_shortfall"] = pd.NA
+        target_diag["mf_lift_pre_mc_target_coverage"] = pd.NA
+        target_diag["mf_lift_mc_evaluated_seed_sets"] = 1
     if bool(effective_config.print_optimizer_diagnostics) or bool(effective_config.print_group_influence):
         _print_target_shortfall_debug(
-            seed_set=list(optimization_result.seed_set),
+            seed_set=list(selected_seed_set),
             evaluation=final_eval,
             protected_group_report=protected_group_report,
             community_result=shared["community_result"],
@@ -7494,7 +7757,20 @@ def _run_target_shortfall_repair_memetic_ris_stack(
         quality,
         extra_notes="target-shortfall repair used capped target utility and overcoverage waste penalty",
     )
-    target_diag = dict(optimization_result.diagnostics)
+    target_diag["mf_lift_final_mc_mf"] = float(final_eval.fairness.mf)
+    target_diag["mf_lift_final_mc_dcv_shortfall"] = float(final_eval.fairness.dcv_shortfall)
+    target_diag["mf_lift_final_mc_target_coverage"] = float(final_eval.fairness.target_coverage_ratio)
+    target_diag["mf_lift_final_mc_dcv_disparity"] = float(final_eval.fairness.dcv_disparity)
+    target_diag["mf_lift_final_mc_f_score"] = float(final_eval.f_score)
+    target_diag["mf_lift_final_mc_spread"] = float(final_eval.total_spread_mean)
+    target_diag["mf_lift_weakest_group_after_mc"] = str(
+        min(
+            final_eval.fairness.normalized_group_spread,
+            key=lambda group_name: (float(final_eval.fairness.normalized_group_spread[group_name]), _sort_key(group_name)),
+        )
+        if final_eval.fairness.normalized_group_spread
+        else ""
+    )
     expected_quotas = _expected_group_seed_quotas(protected_group_report, int(effective_config.budget))
     target_diag["expected_group_seed_quotas"] = expected_quotas
     return pd.DataFrame(
@@ -7519,7 +7795,7 @@ def _run_target_shortfall_repair_memetic_ris_stack(
                     **_clustering_reporting_fields(
                         shared["clustering_artifact"],
                         effective_config,
-                        list(optimization_result.seed_set),
+                        list(selected_seed_set),
                     ),
                     **_ris_mc_sanity_check_fields(
                         dataset,
@@ -7527,12 +7803,12 @@ def _run_target_shortfall_repair_memetic_ris_stack(
                         spec,
                         effective_config,
                         search_evaluator,
-                        optimization_result.seed_set,
+                        selected_seed_set,
                         candidate_nodes=shared.get("candidate_nodes", ()),
                     ),
                     **_search_objective_fields(
                         search_evaluator,
-                        final_seed_set=optimization_result.seed_set,
+                        final_seed_set=selected_seed_set,
                         final_evaluation=final_eval,
                     ),
                     "time_optimizer": time_optimizer,
@@ -7570,11 +7846,42 @@ def _run_target_shortfall_repair_memetic_ris_stack(
                     "crossover_children_improved_target_coverage": int(target_diag.get("crossover_children_improved_target_coverage", 0)),
                     "seeds_removed_from_overcovered_groups": int(target_diag.get("seeds_removed_from_overcovered_groups", 0)),
                     "swaps_rejected_due_to_target_loss": int(target_diag.get("swaps_rejected_due_to_target_loss", 0)),
-                    "final_community_coverage": _seed_community_coverage(optimization_result.seed_set, shared["community_result"]),
-                    "final_seed_count_per_community": _seed_community_coverage(optimization_result.seed_set, shared["community_result"]),
-                    "community_coverage_ratio": _seed_community_coverage_ratio(optimization_result.seed_set, shared["community_result"]),
-                    "final_protected_group_coverage": _seed_protected_group_coverage(optimization_result.seed_set, protected_group_report),
-                    "protected_group_coverage_summary": _seed_protected_group_coverage(optimization_result.seed_set, protected_group_report),
+                    "use_mf_lift": bool(effective_config.use_mf_lift),
+                    "mf_lift_enabled": bool(target_diag.get("mf_lift_enabled", effective_config.use_mf_lift)),
+                    "mf_lift_started": bool(target_diag.get("mf_lift_started", False)),
+                    "mf_lift_reason_not_started": str(target_diag.get("mf_lift_reason_not_started", "")),
+                    "mf_lift_rounds": int(target_diag.get("mf_lift_rounds", effective_config.mf_lift_rounds)),
+                    "mf_lift_candidate_limit": int(effective_config.mf_lift_candidate_limit),
+                    "mf_lift_weight": float(effective_config.mf_lift_weight),
+                    "mf_lift_disparity_tolerance": float(effective_config.mf_lift_disparity_tolerance),
+                    "mf_lift_spread_drop_tolerance": float(effective_config.mf_lift_spread_drop_tolerance),
+                    "mf_lift_require_shortfall_zero": bool(effective_config.mf_lift_require_shortfall_zero),
+                    "mf_lift_require_target_coverage": float(effective_config.mf_lift_require_target_coverage),
+                    "mf_lift_initial_mf": target_diag.get("mf_lift_initial_mf", pd.NA),
+                    "mf_lift_final_approx_mf": target_diag.get("mf_lift_final_approx_mf", pd.NA),
+                    "mf_lift_final_mc_mf": target_diag.get("mf_lift_final_mc_mf", pd.NA),
+                    "mf_lift_mc_selection": target_diag.get("mf_lift_mc_selection", pd.NA),
+                    "mf_lift_mc_reverted_to_pre_lift": bool(target_diag.get("mf_lift_mc_reverted_to_pre_lift", False)),
+                    "mf_lift_pre_mc_mf": target_diag.get("mf_lift_pre_mc_mf", pd.NA),
+                    "mf_lift_pre_mc_dcv_shortfall": target_diag.get("mf_lift_pre_mc_dcv_shortfall", pd.NA),
+                    "mf_lift_pre_mc_target_coverage": target_diag.get("mf_lift_pre_mc_target_coverage", pd.NA),
+                    "mf_lift_weakest_group_before": target_diag.get("mf_lift_weakest_group_before", ""),
+                    "mf_lift_weakest_group_after": target_diag.get("mf_lift_weakest_group_after", ""),
+                    "mf_lift_weakest_group_after_mc": target_diag.get("mf_lift_weakest_group_after_mc", ""),
+                    "mf_lift_attempts": int(target_diag.get("mf_lift_attempts", 0)),
+                    "mf_lift_successful_swaps": int(target_diag.get("mf_lift_successful_swaps", 0)),
+                    "mf_lift_rejected_target_loss": int(target_diag.get("mf_lift_rejected_target_loss", 0)),
+                    "mf_lift_rejected_dcv_shortfall_worsen": int(target_diag.get("mf_lift_rejected_dcv_shortfall_worsen", 0)),
+                    "mf_lift_rejected_mf_drop": int(target_diag.get("mf_lift_rejected_mf_drop", 0)),
+                    "mf_lift_removed_from_overcovered_groups": int(target_diag.get("mf_lift_removed_from_overcovered_groups", 0)),
+                    "mf_lift_removed_low_contribution_seeds": int(target_diag.get("mf_lift_removed_low_contribution_seeds", 0)),
+                    "mf_lift_dcv_shortfall_preserved": bool(target_diag.get("mf_lift_dcv_shortfall_preserved", False)),
+                    "mf_lift_target_coverage_preserved": bool(target_diag.get("mf_lift_target_coverage_preserved", False)),
+                    "final_community_coverage": _seed_community_coverage(selected_seed_set, shared["community_result"]),
+                    "final_seed_count_per_community": _seed_community_coverage(selected_seed_set, shared["community_result"]),
+                    "community_coverage_ratio": _seed_community_coverage_ratio(selected_seed_set, shared["community_result"]),
+                    "final_protected_group_coverage": _seed_protected_group_coverage(selected_seed_set, protected_group_report),
+                    "protected_group_coverage_summary": _seed_protected_group_coverage(selected_seed_set, protected_group_report),
                     "seed_quota_per_protected_group": expected_quotas,
                     "original_ideal_influences_json": json.dumps(effective_config.original_ideal_influences or {}, sort_keys=True, default=str),
                     "effective_ideal_influences_json": json.dumps(effective_config.ideal_influences or {}, sort_keys=True, default=str),
@@ -8357,6 +8664,20 @@ def format_fim_permutation_report(frame: pd.DataFrame, config: FIMPermutationRun
             negative_reason = "" if pd.isna(negative_reason_value) else str(negative_reason_value).strip()
             if negative_reason and negative_reason != "<NA>":
                 lines.append(f"   negative_f_score_reason={negative_reason}")
+            try:
+                _shortfall_satisfied = (
+                    float(row.get("dcv_shortfall", 1.0) or 0.0) <= 1e-9
+                    and float(row.get("target_coverage_ratio", 0.0) or 0.0) >= 1.0 - 1e-9
+                )
+            except (TypeError, ValueError):
+                _shortfall_satisfied = False
+            if _shortfall_satisfied:
+                lines.append("   Shortfall fairness target satisfied. Optimizing MF is now the next objective.")
+                try:
+                    if float(row.get("mf", 1.0) or 0.0) < 0.10:
+                        lines.append("   MF remains low because the weakest group has low normalized influence even though its shortfall target is met.")
+                except (TypeError, ValueError):
+                    pass
         else:
             lines.append(f"   skip_reason={row.get('skip_reason', '')}")
         lines.append(
@@ -8482,6 +8803,25 @@ def format_fim_permutation_report(frame: pd.DataFrame, config: FIMPermutationRun
                 f"community_coverage={row.get('final_community_coverage')} | "
                 f"community_coverage_ratio={row.get('community_coverage_ratio')} | "
                 f"protected_group_coverage={row.get('final_protected_group_coverage')}"
+            )
+            lines.append(
+                "   "
+                f"mf_lift: enabled={row.get('mf_lift_enabled', row.get('use_mf_lift'))} | "
+                f"started={row.get('mf_lift_started')} | "
+                f"reason_not_started={row.get('mf_lift_reason_not_started')} | "
+                f"initial_mf={row.get('mf_lift_initial_mf')} | "
+                f"final_approx_mf={row.get('mf_lift_final_approx_mf')} | "
+                f"final_mc_mf={row.get('mf_lift_final_mc_mf')} | "
+                f"mc_selection={row.get('mf_lift_mc_selection')} | "
+                f"weakest_before={row.get('mf_lift_weakest_group_before')} | "
+                f"weakest_after={row.get('mf_lift_weakest_group_after_mc', row.get('mf_lift_weakest_group_after'))} | "
+                f"attempts={row.get('mf_lift_attempts')} | "
+                f"successful_swaps={row.get('mf_lift_successful_swaps')} | "
+                f"rejected_target_loss={row.get('mf_lift_rejected_target_loss')} | "
+                f"rejected_dcv_shortfall={row.get('mf_lift_rejected_dcv_shortfall_worsen')} | "
+                f"rejected_mf_drop={row.get('mf_lift_rejected_mf_drop')} | "
+                f"dcv_shortfall_preserved={row.get('mf_lift_dcv_shortfall_preserved')} | "
+                f"target_coverage_preserved={row.get('mf_lift_target_coverage_preserved')}"
             )
             if str(row.get("optimizer_mode", "")).strip().lower() == "memetic":
                 lines.append(

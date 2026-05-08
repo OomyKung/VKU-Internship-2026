@@ -183,6 +183,8 @@ class GraphSAGEFairScorerConfig:
     top_fraction: float | None = None
     top_n: int | None = None
     max_nodes: int | None = None
+    include_mf_gain_in_graphsage_label: bool = True
+    mf_gain_label_weight: float = 1.5
     output_dir: Path | None = None
 
 
@@ -231,6 +233,8 @@ def _validate_config(config: GraphSAGEFairScorerConfig) -> None:
         raise ValueError(f"graphsage_loss must be one of {sorted(_LOSSES)}.")
     if config.budget < 1:
         raise ValueError("budget must be at least 1.")
+    if config.mf_gain_label_weight < 0.0:
+        raise ValueError("mf_gain_label_weight must be non-negative.")
 
 
 def _output_path(output_dir: Path | None, filename: str) -> Path | None:
@@ -425,6 +429,27 @@ def _build_fairness_ris_labels(
         )
         for group_name in protected_group_report.group_sizes
     }
+    baseline_normalized_influence = {
+        str(group_name): safe_divide(
+            float(baseline_influence.get(str(group_name), 0.0)),
+            float(max(1, int(group_size))),
+            default=0.0,
+            context=f"GraphSAGE baseline normalized influence for {group_name}",
+        )
+        for group_name, group_size in protected_group_report.group_sizes.items()
+    }
+    mf_gain_weakest_group = str(
+        min(
+            protected_group_report.group_sizes,
+            key=lambda group_name: (
+                float(baseline_normalized_influence.get(str(group_name), 0.0)),
+                -float(shortfall_ratio.get(str(group_name), 0.0)),
+                _sort_key(group_name),
+            ),
+        )
+        if protected_group_report.group_sizes
+        else ""
+    )
     group_weights = {
         group_name: max(0.1, 1.0 + float(shortfall_ratio.get(str(group_name), 0.0)))
         for group_name in protected_group_report.group_sizes
@@ -435,7 +460,9 @@ def _build_fairness_ris_labels(
     ris_scores = getattr(ris_artifact, "global_scores", None) or ris_result.global_node_scores
 
     raw_shortfall_gain: dict[Any, float] = {}
+    raw_mf_gain_score: dict[Any, float] = {}
     rr_denominator = float(max(1, len(ris_result.rr_sets)))
+    weakest_rr_denominator = float(max(1, int(ris_result.rr_set_counts_by_group.get(mf_gain_weakest_group, 1))))
     for node_id in ordered_nodes:
         group_counts = dict(ris_result.node_group_rr_counts.get(node_id, {}) or {})
         raw_shortfall_gain[node_id] = safe_divide(
@@ -446,6 +473,12 @@ def _build_fairness_ris_labels(
             rr_denominator,
             default=0.0,
             context="GraphSAGE shortfall gain label",
+        )
+        raw_mf_gain_score[node_id] = safe_divide(
+            float(group_counts.get(mf_gain_weakest_group, 0)),
+            weakest_rr_denominator,
+            default=0.0,
+            context="GraphSAGE MF gain label",
         )
 
     community_seed_counts: dict[Any, int] = {}
@@ -474,6 +507,7 @@ def _build_fairness_ris_labels(
     ris_norm = _normalize_map(ris_scores, ordered_nodes)
     fair_norm = _normalize_map(fair_scores, ordered_nodes)
     shortfall_norm = _normalize_map(raw_shortfall_gain, ordered_nodes)
+    mf_gain_norm = _normalize_map(raw_mf_gain_score, ordered_nodes)
     community_raw = {
         node_id: float(community_deficit.get(community_result.community_id_by_node[node_id], 0.0))
         for node_id in ordered_nodes
@@ -491,9 +525,15 @@ def _build_fairness_ris_labels(
 
     rows = []
     for node_id in ordered_nodes:
+        mf_gain_component = (
+            float(mf_gain_norm.get(node_id, 0.0))
+            if bool(config.include_mf_gain_in_graphsage_label)
+            else 0.0
+        )
         combined = (
             2.0 * float(fair_norm.get(node_id, 0.0))
             + 3.0 * float(shortfall_norm.get(node_id, 0.0))
+            + float(config.mf_gain_label_weight) * mf_gain_component
             + 1.0 * float(ris_norm.get(node_id, 0.0))
             + 0.5 * float(community_norm.get(node_id, 0.0))
             + 0.3 * float(spread_proxy_norm.get(node_id, 0.0))
@@ -504,6 +544,8 @@ def _build_fairness_ris_labels(
                 "ris_score": float(ris_norm.get(node_id, 0.0)),
                 "fair_ris_score": float(fair_norm.get(node_id, 0.0)),
                 "shortfall_gain": float(shortfall_norm.get(node_id, 0.0)),
+                "mf_gain_score": float(mf_gain_norm.get(node_id, 0.0)),
+                "weakest_group_gain": float(mf_gain_norm.get(node_id, 0.0)),
                 "community_diversity_score": float(community_norm.get(node_id, 0.0)),
                 "spread_proxy_score": float(spread_proxy_norm.get(node_id, 0.0)),
                 "combined_fairness_gain_raw": combined,
@@ -518,14 +560,20 @@ def _build_fairness_ris_labels(
         "training_target": str(config.training_target),
         "ideal_influences": resolved_ideal,
         "baseline_group_influence": baseline_influence,
+        "baseline_normalized_group_influence": baseline_normalized_influence,
         "baseline_seed_count": int(len(baseline_seed_set)),
         "shortfall_ratio": shortfall_ratio,
+        "mf_gain_weakest_group": mf_gain_weakest_group,
+        "include_mf_gain_in_graphsage_label": bool(config.include_mf_gain_in_graphsage_label),
+        "mf_gain_label_weight": float(config.mf_gain_label_weight),
         "label_component_stats": _component_stats(
             label_frame,
             [
                 "ris_score",
                 "fair_ris_score",
                 "shortfall_gain",
+                "mf_gain_score",
+                "weakest_group_gain",
                 "community_diversity_score",
                 "spread_proxy_score",
                 "combined_fairness_gain",
@@ -600,6 +648,8 @@ def _build_fingerprint(
         "weight_decay": float(config.weight_decay),
         "loss": str(config.loss),
         "allow_protected_features_in_ml": bool(config.allow_protected_features_in_ml),
+        "include_mf_gain_in_graphsage_label": bool(config.include_mf_gain_in_graphsage_label),
+        "mf_gain_label_weight": float(config.mf_gain_label_weight),
         "random_seed": int(config.random_seed),
     }
     hasher = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8"))
@@ -1033,6 +1083,9 @@ def train_graphsage_fair_candidate_scorer(
             "graphsage_train_ratio": float(config.train_ratio),
             "graphsage_val_ratio": float(config.val_ratio),
             "allow_protected_features_in_ml": bool(config.allow_protected_features_in_ml),
+            "include_mf_gain_in_graphsage_label": bool(config.include_mf_gain_in_graphsage_label),
+            "mf_gain_label_weight": float(config.mf_gain_label_weight),
+            "mf_gain_weakest_group": str(label_stats.get("mf_gain_weakest_group", "")),
             "protected_feature_columns": protected_feature_columns,
             "feature_columns": feature_columns,
             "metrics": metrics,
@@ -1105,6 +1158,10 @@ def train_graphsage_fair_candidate_scorer(
         "shortfall_gain": {
             row.node_id: float(row.shortfall_gain)
             for row in label_frame[["node_id", "shortfall_gain"]].itertuples(index=False)
+        },
+        "mf_gain_score": {
+            row.node_id: float(row.mf_gain_score)
+            for row in label_frame[["node_id", "mf_gain_score"]].itertuples(index=False)
         },
         "community_diversity_score": {
             row.node_id: float(row.community_diversity_score)

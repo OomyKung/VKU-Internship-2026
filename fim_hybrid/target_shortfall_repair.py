@@ -59,6 +59,16 @@ class TargetShortfallRepairConfig:
     random_seed: int = 42
     propagation_probability: float = 0.01
     weights: TargetShortfallFitnessWeights = field(default_factory=TargetShortfallFitnessWeights)
+    use_mf_lift: bool = True
+    mf_lift_rounds: int = 5
+    mf_lift_candidate_limit: int = 300
+    mf_lift_weight: float = 3.0
+    mf_lift_disparity_tolerance: float = 0.02
+    mf_lift_spread_drop_tolerance: float = 0.02
+    mf_lift_require_shortfall_zero: bool = True
+    mf_lift_require_target_coverage: float = 1.0
+    mf_drop_tolerance: float = 0.0005
+    shortfall_dcv_worsen_tolerance: float = 0.0001
 
 
 @dataclass(slots=True)
@@ -278,15 +288,25 @@ def _fitness(
     evaluation: TargetShortfallProxyEvaluation,
     weights: TargetShortfallFitnessWeights,
 ) -> float:
+    del weights
+    solved = (
+        float(evaluation.dcv_shortfall) <= 1e-12
+        and float(evaluation.target_coverage_ratio) >= 1.0 - 1e-12
+    )
+    if solved:
+        return float(
+            10.0 * evaluation.mf
+            - 2.0 * evaluation.dcv
+            + 1.0 * evaluation.f_score
+            + 0.3 * evaluation.normalized_spread
+        )
     return float(
-        float(weights.target_coverage_ratio) * evaluation.target_coverage_ratio
-        - float(weights.dcv_shortfall) * evaluation.dcv_shortfall
-        + float(weights.mf) * evaluation.mf
-        - float(weights.dcv) * evaluation.dcv
-        + float(weights.f_score) * evaluation.f_score
-        + float(weights.normalized_spread) * evaluation.normalized_spread
-        - float(weights.total_shortfall) * evaluation.total_shortfall
-        - float(weights.overcoverage_waste) * evaluation.overcoverage_waste
+        12.0 * evaluation.target_coverage_ratio
+        - 10.0 * evaluation.dcv_shortfall
+        + 3.0 * evaluation.mf
+        - 1.0 * evaluation.dcv
+        + 0.5 * evaluation.f_score
+        + 0.15 * evaluation.normalized_spread
     )
 
 
@@ -347,8 +367,27 @@ def _evaluate_proxy(
     return evaluation
 
 
-def _priority_tuple(evaluation: TargetShortfallProxyEvaluation) -> tuple[float, float, float, float, float, float, float]:
+def _shortfall_solved(evaluation: TargetShortfallProxyEvaluation) -> bool:
+    return bool(
+        float(evaluation.target_coverage_ratio) >= 1.0 - 1e-12
+        and float(evaluation.dcv_shortfall) <= 1e-12
+    )
+
+
+def _priority_tuple(evaluation: TargetShortfallProxyEvaluation) -> tuple[float, float, float, float, float, float, float, float]:
+    if _shortfall_solved(evaluation):
+        return (
+            1.0,
+            0.0,
+            0.0,
+            float(evaluation.mf),
+            -float(evaluation.dcv),
+            float(evaluation.f_score),
+            float(evaluation.total_spread),
+            -float(getattr(evaluation, "runtime_seconds", 0.0) or 0.0),
+        )
     return (
+        0.0,
         float(evaluation.target_coverage_ratio),
         -float(evaluation.dcv_shortfall),
         float(evaluation.mf),
@@ -362,8 +401,41 @@ def _priority_tuple(evaluation: TargetShortfallProxyEvaluation) -> tuple[float, 
 def compare_shortfall_priority(a: TargetShortfallProxyEvaluation, b: TargetShortfallProxyEvaluation) -> int:
     """Comparator for target-coverage-first seed-set quality."""
 
-    left = _priority_tuple(a)
-    right = _priority_tuple(b)
+    both_solved = _shortfall_solved(a) and _shortfall_solved(b)
+    if both_solved:
+        left = (
+            float(a.mf),
+            -float(a.dcv),
+            float(a.f_score),
+            float(a.total_spread),
+            -float(getattr(a, "runtime_seconds", 0.0) or 0.0),
+        )
+        right = (
+            float(b.mf),
+            -float(b.dcv),
+            float(b.f_score),
+            float(b.total_spread),
+            -float(getattr(b, "runtime_seconds", 0.0) or 0.0),
+        )
+    else:
+        left = (
+            float(a.target_coverage_ratio),
+            -float(a.dcv_shortfall),
+            float(a.mf),
+            -float(a.dcv),
+            float(a.f_score),
+            float(a.total_spread),
+            -float(getattr(a, "runtime_seconds", 0.0) or 0.0),
+        )
+        right = (
+            float(b.target_coverage_ratio),
+            -float(b.dcv_shortfall),
+            float(b.mf),
+            -float(b.dcv),
+            float(b.f_score),
+            float(b.total_spread),
+            -float(getattr(b, "runtime_seconds", 0.0) or 0.0),
+        )
     if left > right:
         return 1
     if left < right:
@@ -591,6 +663,565 @@ def _rank_removals(
             _sort_key(node_id),
         ),
     )
+
+
+def _fair_ris_group_influence(
+    *,
+    seed_set: Sequence[Any],
+    protected_group_report: ProtectedGroupReport,
+    ris_result: RISGuidanceResult | None,
+) -> dict[str, float]:
+    if ris_result is None:
+        return {str(group_name): 0.0 for group_name in protected_group_report.group_sizes}
+    seed_nodes = set(seed_set)
+    covered_by_group = {str(group_name): 0 for group_name in protected_group_report.group_sizes}
+    for rr_set, root_group in zip(ris_result.rr_sets, ris_result.rr_root_groups, strict=True):
+        if seed_nodes.intersection(rr_set):
+            group_key = str(root_group)
+            covered_by_group[group_key] = int(covered_by_group.get(group_key, 0)) + 1
+    group_influence: dict[str, float] = {}
+    for group_name, group_size in protected_group_report.group_sizes.items():
+        group_key = str(group_name)
+        rr_total = int(ris_result.rr_set_counts_by_group.get(group_key, 0))
+        if rr_total <= 0:
+            group_influence[group_key] = 0.0
+            continue
+        group_influence[group_key] = float(group_size) * float(covered_by_group.get(group_key, 0)) / float(rr_total)
+    return group_influence
+
+
+def _evaluate_fair_ris_proxy(
+    *,
+    seed_set: Sequence[Any],
+    protected_group_report: ProtectedGroupReport,
+    ideal_influences: Mapping[str, float],
+    ris_result: RISGuidanceResult | None,
+    config: TargetShortfallRepairConfig,
+) -> TargetShortfallProxyEvaluation:
+    normalized = _normalized_seed_set(seed_set)
+    group_influence = _fair_ris_group_influence(
+        seed_set=normalized,
+        protected_group_report=protected_group_report,
+        ris_result=ris_result,
+    )
+    total_spread = float(sum(group_influence.values()))
+    fairness = evaluate_fairness(
+        group_spread=group_influence,
+        group_sizes=protected_group_report.group_sizes,
+        total_spread=total_spread,
+        ideal_influences=dict(ideal_influences),
+    )
+    diagnostics = compute_target_shortfall_diagnostics(group_influence, dict(ideal_influences))
+    f_score = _proxy_f_score(
+        float(fairness.mf),
+        float(fairness.dcv_shortfall),
+        float(fairness.dcv),
+    )
+    evaluation = TargetShortfallProxyEvaluation(
+        seed_set=normalized,
+        total_spread=total_spread,
+        normalized_spread=float(total_spread) / float(max(1, int(config.budget))),
+        group_influence=dict(group_influence),
+        normalized_group_influence=dict(fairness.normalized_group_spread),
+        mf=float(fairness.mf),
+        dcv=float(fairness.dcv),
+        dcv_shortfall=float(fairness.dcv_shortfall),
+        target_coverage_ratio=float(fairness.target_coverage_ratio),
+        f_score=float(f_score),
+        raw_gap_by_group=dict(diagnostics["raw_gap_by_group"]),
+        shortfall_ratio_by_group=dict(diagnostics["shortfall_ratio_by_group"]),
+        overcoverage_ratio_by_group=dict(diagnostics["overcoverage_ratio_by_group"]),
+        total_raw_shortfall=float(diagnostics["total_raw_shortfall"]),
+        total_shortfall=float(diagnostics["total_shortfall"]),
+        overcoverage_waste=float(diagnostics["overcoverage_waste"]),
+        fitness=0.0,
+        runtime_seconds=0.0,
+    )
+    evaluation.fitness = _fitness(evaluation, config.weights)
+    return evaluation
+
+
+def _weakest_group_from_eval(evaluation: TargetShortfallProxyEvaluation) -> str:
+    if not evaluation.normalized_group_influence:
+        return ""
+    return str(
+        min(
+            evaluation.normalized_group_influence,
+            key=lambda group_name: (
+                float(evaluation.normalized_group_influence.get(group_name, 0.0)),
+                _sort_key(group_name),
+            ),
+        )
+    )
+
+
+def _mf_lift_targets_satisfied(
+    evaluation: TargetShortfallProxyEvaluation,
+    config: TargetShortfallRepairConfig,
+) -> bool:
+    required_coverage = float(config.mf_lift_require_target_coverage)
+    if float(evaluation.target_coverage_ratio) + 1e-12 < required_coverage:
+        return False
+    if bool(config.mf_lift_require_shortfall_zero) and float(evaluation.dcv_shortfall) > float(config.shortfall_dcv_worsen_tolerance):
+        return False
+    return True
+
+
+def _mf_lift_loses_satisfied_group(
+    current: TargetShortfallProxyEvaluation,
+    trial: TargetShortfallProxyEvaluation,
+    config: TargetShortfallRepairConfig,
+) -> bool:
+    return bool(
+        _mf_lift_targets_satisfied(current, config)
+        and _groups_losing_target(current, trial, tolerance=float(config.shortfall_dcv_worsen_tolerance))
+    )
+
+
+def _group_rr_gain_score(
+    *,
+    node_id: Any,
+    seed_set: set[Any],
+    group_name: str,
+    ris_result: RISGuidanceResult | None,
+) -> float:
+    if ris_result is None or not group_name:
+        return 0.0
+    gains = _rr_group_marginal_gain(candidate=node_id, seed_set=seed_set, ris_result=ris_result)
+    rr_total = max(1, int(ris_result.rr_set_counts_by_group.get(group_name, 1)))
+    return float(gains.get(group_name, 0)) / float(rr_total)
+
+
+def _seed_unique_group_rr_score(
+    *,
+    seed: Any,
+    seed_set: set[Any],
+    group_name: str,
+    ris_result: RISGuidanceResult | None,
+) -> float:
+    if ris_result is None or not group_name:
+        return 0.0
+    gains = _rr_unique_seed_gain(seed=seed, seed_set=seed_set, ris_result=ris_result)
+    rr_total = max(1, int(ris_result.rr_set_counts_by_group.get(group_name, 1)))
+    return float(gains.get(group_name, 0)) / float(rr_total)
+
+
+def _rank_mf_lift_candidates(
+    *,
+    candidates: Sequence[Any],
+    seed_set: set[Any],
+    weakest_group: str,
+    candidate_scores: Mapping[Any, float],
+    group_by_node: Mapping[Any, str],
+    ris_result: RISGuidanceResult | None,
+    config: TargetShortfallRepairConfig,
+) -> list[Any]:
+    available = [node_id for node_id in candidates if node_id not in seed_set]
+    if not available:
+        return []
+    scored: list[tuple[Any, bool, float, float]] = []
+    for node_id in available:
+        candidate_group = str(group_by_node.get(node_id, ""))
+        mf_gain = _group_rr_gain_score(
+            node_id=node_id,
+            seed_set=seed_set,
+            group_name=weakest_group,
+            ris_result=ris_result,
+        )
+        own_group_is_weakest = bool(candidate_group == str(weakest_group))
+        helps_weakest = bool(mf_gain > 0.0 or own_group_is_weakest)
+        adjusted = (
+            float(config.mf_lift_weight) * float(mf_gain)
+            + (1.5 if own_group_is_weakest else 0.0)
+            + (0.25 if helps_weakest else 0.0)
+            + 0.05 * float(candidate_scores.get(node_id, 0.0))
+        )
+        scored.append((node_id, own_group_is_weakest, helps_weakest, mf_gain, adjusted))
+    if any(item[1] for item in scored):
+        scored = [item for item in scored if item[1]]
+    elif any(item[2] for item in scored):
+        scored = [item for item in scored if item[2]]
+    ranked = sorted(
+        scored,
+        key=lambda item: (
+            -float(item[4]),
+            -float(item[3]),
+            -float(candidate_scores.get(item[0], 0.0)),
+            _sort_key(item[0]),
+        ),
+    )
+    return [node_id for node_id, _, _, _, _ in ranked[: max(1, int(config.mf_lift_candidate_limit))]]
+
+
+def _rank_mf_lift_removals(
+    *,
+    seed_set: tuple[Any, ...],
+    weakest_group: str,
+    target_eval: TargetShortfallProxyEvaluation,
+    approx_eval: TargetShortfallProxyEvaluation,
+    candidate_scores: Mapping[Any, float],
+    group_by_node: Mapping[Any, str],
+    ideal_influences: Mapping[str, float],
+    ris_result: RISGuidanceResult | None,
+    community_by_node: Mapping[Any, Any] | None = None,
+) -> list[Any]:
+    seed_nodes = set(seed_set)
+    group_counts = _seed_group_counts(seed_set, group_by_node)
+    community_counts: dict[Any, int] = {}
+    if community_by_node is not None:
+        for node_id in seed_set:
+            community_id = community_by_node.get(node_id)
+            community_counts[community_id] = int(community_counts.get(community_id, 0)) + 1
+    selected_scores = [float(candidate_scores.get(node_id, 0.0)) for node_id in seed_set]
+    max_selected_score = max(selected_scores, default=1.0) or 1.0
+
+    def removal_score(node_id: Any) -> float:
+        group_name = str(group_by_node.get(node_id, ""))
+        actual = float(target_eval.group_influence.get(group_name, 0.0))
+        ideal = float(ideal_influences.get(group_name, 0.0))
+        safe_margin = max(0.0, actual - ideal) / max(ideal, 1e-9) if ideal > 0.0 else 0.0
+        overcoverage = float(target_eval.overcoverage_ratio_by_group.get(group_name, 0.0))
+        group_over = max(0.0, float(group_counts.get(group_name, 0) - 1)) / float(max(1, group_counts.get(group_name, 1)))
+        community_over = 0.0
+        if community_by_node is not None:
+            community_over = float(max(0, community_counts.get(community_by_node.get(node_id), 0) - 1)) / float(max(1, len(seed_set)))
+        low_score_credit = 1.0 - min(1.0, float(candidate_scores.get(node_id, 0.0)) / max_selected_score)
+        weakest_unique = _seed_unique_group_rr_score(
+            seed=node_id,
+            seed_set=seed_nodes,
+            group_name=weakest_group,
+            ris_result=ris_result,
+        )
+        weakest_group_penalty = 1.0 if group_name == str(weakest_group) else 0.0
+        approx_group_help = 1.0 if float(approx_eval.normalized_group_influence.get(group_name, 0.0)) <= float(approx_eval.mf) + 1e-12 else 0.0
+        return float(
+            4.0 * overcoverage
+            + 2.0 * safe_margin
+            + 0.75 * group_over
+            + 0.50 * community_over
+            + 0.35 * low_score_credit
+            - 8.0 * weakest_unique
+            - 0.5 * weakest_group_penalty
+            - 0.5 * approx_group_help
+        )
+
+    return sorted(
+        seed_set,
+        key=lambda node_id: (-removal_score(node_id), float(candidate_scores.get(node_id, 0.0)), _sort_key(node_id)),
+    )
+
+
+def _mf_lift_acceptance_reason(
+    *,
+    current_target: TargetShortfallProxyEvaluation,
+    trial_target: TargetShortfallProxyEvaluation,
+    current_approx: TargetShortfallProxyEvaluation,
+    trial_approx: TargetShortfallProxyEvaluation,
+    weakest_group: str,
+    config: TargetShortfallRepairConfig,
+) -> str | None:
+    eps = 1e-12
+    target_solved = _mf_lift_targets_satisfied(trial_target, config)
+    approx_solved = _mf_lift_targets_satisfied(trial_approx, config)
+    if not (target_solved or approx_solved):
+        return None
+    if _mf_lift_loses_satisfied_group(current_target, trial_target, config):
+        return None
+    if _mf_lift_loses_satisfied_group(current_approx, trial_approx, config):
+        return None
+    if _mf_lift_targets_satisfied(current_target, config) and float(trial_target.dcv_shortfall) > float(current_target.dcv_shortfall) + float(config.shortfall_dcv_worsen_tolerance):
+        return None
+    if _mf_lift_targets_satisfied(current_approx, config) and float(trial_approx.dcv_shortfall) > float(current_approx.dcv_shortfall) + float(config.shortfall_dcv_worsen_tolerance):
+        return None
+    if (
+        float(trial_approx.mf) < float(current_approx.mf) - float(config.mf_drop_tolerance)
+        and float(trial_target.mf) < float(current_target.mf) - float(config.mf_drop_tolerance)
+    ):
+        return None
+    if float(trial_approx.dcv) > float(current_approx.dcv) + float(config.mf_lift_disparity_tolerance):
+        return None
+    spread_floor = float(current_approx.total_spread) * (1.0 - max(0.0, float(config.mf_lift_spread_drop_tolerance)))
+    if float(trial_approx.total_spread) + eps < spread_floor:
+        return None
+
+    weakest_before = float(current_approx.normalized_group_influence.get(weakest_group, 0.0))
+    weakest_after = float(trial_approx.normalized_group_influence.get(weakest_group, 0.0))
+    targets_solved = bool(target_solved or approx_solved)
+    if float(trial_approx.mf) > float(current_approx.mf) + eps and targets_solved:
+        return "mf_increase"
+    if float(trial_target.mf) > float(current_target.mf) + eps and targets_solved:
+        return "proxy_mf_increase"
+    if weakest_after > weakest_before + eps and targets_solved:
+        return "weakest_group_increase"
+    if float(trial_approx.dcv) < float(current_approx.dcv) - eps and float(trial_approx.mf) >= float(current_approx.mf) - float(config.mf_drop_tolerance):
+        return "disparity_decrease"
+    if (
+        float(trial_approx.total_spread) > float(current_approx.total_spread) + eps
+        and float(trial_approx.mf) >= float(current_approx.mf) - float(config.mf_drop_tolerance)
+        and float(trial_target.dcv_shortfall) <= float(current_target.dcv_shortfall) + float(config.shortfall_dcv_worsen_tolerance)
+    ):
+        return "spread_increase"
+    return None
+
+
+def _run_mf_lift_phase(
+    *,
+    graph: nx.Graph,
+    seed_set: tuple[Any, ...],
+    candidates: Sequence[Any],
+    protected_group_report: ProtectedGroupReport,
+    group_by_node: Mapping[Any, str],
+    ideal_influences: Mapping[str, float],
+    candidate_scores: Mapping[Any, float],
+    ris_result: RISGuidanceResult | None,
+    config: TargetShortfallRepairConfig,
+    diagnostics: dict[str, object],
+    community_by_node: Mapping[Any, Any] | None = None,
+) -> tuple[Any, ...]:
+    diagnostics.update(
+        {
+            "mf_lift_enabled": bool(config.use_mf_lift),
+            "mf_lift_started": False,
+            "mf_lift_reason_not_started": "",
+            "mf_lift_rounds": int(config.mf_lift_rounds),
+            "mf_lift_attempts": 0,
+            "mf_lift_successful_swaps": 0,
+            "mf_lift_rejected_target_loss": 0,
+            "mf_lift_rejected_dcv_shortfall_worsen": 0,
+            "mf_lift_rejected_mf_drop": 0,
+            "mf_lift_rejected_disparity_worsen": 0,
+            "mf_lift_rejected_spread_drop": 0,
+            "mf_lift_removed_from_overcovered_groups": 0,
+            "mf_lift_removed_low_contribution_seeds": 0,
+            "mf_lift_dcv_shortfall_preserved": False,
+            "mf_lift_target_coverage_preserved": False,
+            "mf_lift_accepted_seed_sets": [],
+        }
+    )
+    if not bool(config.use_mf_lift):
+        diagnostics["mf_lift_reason_not_started"] = "disabled"
+        return seed_set
+    if ris_result is None:
+        diagnostics["mf_lift_reason_not_started"] = "missing_ris_rr_sets"
+        return seed_set
+
+    current = _normalized_seed_set(seed_set)
+    current_target = _evaluate_proxy(
+        graph=graph,
+        seed_set=current,
+        protected_group_report=protected_group_report,
+        group_by_node=group_by_node,
+        ideal_influences=ideal_influences,
+        ris_result=ris_result,
+        config=config,
+    )
+    current_approx = _evaluate_fair_ris_proxy(
+        seed_set=current,
+        protected_group_report=protected_group_report,
+        ideal_influences=ideal_influences,
+        ris_result=ris_result,
+        config=config,
+    )
+    required_coverage = float(config.mf_lift_require_target_coverage)
+    target_gate_satisfied = _mf_lift_targets_satisfied(current_target, config)
+    approx_gate_satisfied = _mf_lift_targets_satisfied(current_approx, config)
+    if bool(config.mf_lift_require_shortfall_zero) and not (target_gate_satisfied or approx_gate_satisfied):
+        diagnostics["mf_lift_reason_not_started"] = "dcv_shortfall_not_zero"
+        diagnostics["mf_lift_initial_mf"] = float(current_approx.mf)
+        diagnostics["mf_lift_final_approx_mf"] = float(current_approx.mf)
+        diagnostics["mf_lift_weakest_group_before"] = _weakest_group_from_eval(current_approx)
+        diagnostics["mf_lift_weakest_group_after"] = _weakest_group_from_eval(current_approx)
+        return current
+    if (
+        float(current_target.target_coverage_ratio) + 1e-12 < required_coverage
+        and float(current_approx.target_coverage_ratio) + 1e-12 < required_coverage
+    ):
+        diagnostics["mf_lift_reason_not_started"] = "target_coverage_below_requirement"
+        diagnostics["mf_lift_initial_mf"] = float(current_approx.mf)
+        diagnostics["mf_lift_final_approx_mf"] = float(current_approx.mf)
+        diagnostics["mf_lift_weakest_group_before"] = _weakest_group_from_eval(current_approx)
+        diagnostics["mf_lift_weakest_group_after"] = _weakest_group_from_eval(current_approx)
+        return current
+
+    initial_approx = current_approx
+    weakest_before = _weakest_group_from_eval(initial_approx)
+    diagnostics["mf_lift_started"] = True
+    diagnostics["mf_lift_initial_mf"] = float(initial_approx.mf)
+    diagnostics["mf_lift_weakest_group_before"] = weakest_before
+
+    selected_scores = [float(candidate_scores.get(node_id, 0.0)) for node_id in current]
+    low_score_threshold = float(np.median(selected_scores)) if selected_scores else 0.0
+
+    for _round_index in range(max(0, int(config.mf_lift_rounds))):
+        weakest_group = _weakest_group_from_eval(current_approx)
+        additions = _rank_mf_lift_candidates(
+            candidates=candidates,
+            seed_set=set(current),
+            weakest_group=weakest_group,
+            candidate_scores=candidate_scores,
+            group_by_node=group_by_node,
+            ris_result=ris_result,
+            config=config,
+        )
+        removals = _rank_mf_lift_removals(
+            seed_set=current,
+            weakest_group=weakest_group,
+            target_eval=current_target,
+            approx_eval=current_approx,
+            candidate_scores=candidate_scores,
+            group_by_node=group_by_node,
+            ideal_influences=ideal_influences,
+            ris_result=ris_result,
+            community_by_node=community_by_node,
+        )
+        accepted: tuple[Any, ...] | None = None
+        accepted_target: TargetShortfallProxyEvaluation | None = None
+        accepted_approx: TargetShortfallProxyEvaluation | None = None
+        accepted_removed: Any | None = None
+        for node_to_remove in removals:
+            seed_nodes = set(current)
+            removed_group = str(group_by_node.get(node_to_remove, ""))
+            if removed_group == str(weakest_group) and _seed_unique_group_rr_score(
+                seed=node_to_remove,
+                seed_set=seed_nodes,
+                group_name=weakest_group,
+                ris_result=ris_result,
+            ) > 0.0:
+                continue
+            retained = [node_id for node_id in current if node_id != node_to_remove]
+            removal_target = _evaluate_proxy(
+                graph=graph,
+                seed_set=retained,
+                protected_group_report=protected_group_report,
+                group_by_node=group_by_node,
+                ideal_influences=ideal_influences,
+                ris_result=ris_result,
+                config=config,
+            )
+            if (
+                float(removal_target.dcv_shortfall) > float(config.shortfall_dcv_worsen_tolerance)
+                or float(removal_target.target_coverage_ratio) + 1e-12 < required_coverage
+            ):
+                removal_approx = _evaluate_fair_ris_proxy(
+                    seed_set=retained,
+                    protected_group_report=protected_group_report,
+                    ideal_influences=ideal_influences,
+                    ris_result=ris_result,
+                    config=config,
+                )
+                if not _mf_lift_targets_satisfied(removal_approx, config):
+                    diagnostics["mf_lift_rejected_target_loss"] = int(diagnostics.get("mf_lift_rejected_target_loss", 0)) + 1
+                    continue
+            for node_to_add in additions:
+                if node_to_add in retained:
+                    continue
+                diagnostics["mf_lift_attempts"] = int(diagnostics.get("mf_lift_attempts", 0)) + 1
+                trial = _normalized_seed_set([*retained, node_to_add])
+                if len(trial) != int(config.budget):
+                    continue
+                trial_target = _evaluate_proxy(
+                    graph=graph,
+                    seed_set=trial,
+                    protected_group_report=protected_group_report,
+                    group_by_node=group_by_node,
+                    ideal_influences=ideal_influences,
+                    ris_result=ris_result,
+                    config=config,
+                )
+                trial_approx = _evaluate_fair_ris_proxy(
+                    seed_set=trial,
+                    protected_group_report=protected_group_report,
+                    ideal_influences=ideal_influences,
+                    ris_result=ris_result,
+                    config=config,
+                )
+                if (
+                    not (_mf_lift_targets_satisfied(trial_target, config) or _mf_lift_targets_satisfied(trial_approx, config))
+                    or _mf_lift_loses_satisfied_group(current_target, trial_target, config)
+                    or _mf_lift_loses_satisfied_group(current_approx, trial_approx, config)
+                ):
+                    diagnostics["mf_lift_rejected_target_loss"] = int(diagnostics.get("mf_lift_rejected_target_loss", 0)) + 1
+                    continue
+                if (
+                    _mf_lift_targets_satisfied(current_target, config)
+                    and float(trial_target.dcv_shortfall) > float(current_target.dcv_shortfall) + float(config.shortfall_dcv_worsen_tolerance)
+                ) or (
+                    _mf_lift_targets_satisfied(current_approx, config)
+                    and float(trial_approx.dcv_shortfall) > float(current_approx.dcv_shortfall) + float(config.shortfall_dcv_worsen_tolerance)
+                ):
+                    diagnostics["mf_lift_rejected_dcv_shortfall_worsen"] = int(diagnostics.get("mf_lift_rejected_dcv_shortfall_worsen", 0)) + 1
+                    continue
+                added_group = str(group_by_node.get(node_to_add, ""))
+                removed_group = str(group_by_node.get(node_to_remove, ""))
+                weakest_score_upgrade = bool(
+                    added_group == str(weakest_group)
+                    and removed_group == str(weakest_group)
+                    and float(candidate_scores.get(node_to_add, 0.0)) > float(candidate_scores.get(node_to_remove, 0.0)) + 1e-12
+                )
+                if (
+                    float(trial_approx.mf) < float(current_approx.mf) - float(config.mf_drop_tolerance)
+                    and float(trial_target.mf) < float(current_target.mf) - float(config.mf_drop_tolerance)
+                    and not weakest_score_upgrade
+                ):
+                    diagnostics["mf_lift_rejected_mf_drop"] = int(diagnostics.get("mf_lift_rejected_mf_drop", 0)) + 1
+                    continue
+                if float(trial_approx.dcv) > float(current_approx.dcv) + float(config.mf_lift_disparity_tolerance):
+                    diagnostics["mf_lift_rejected_disparity_worsen"] = int(diagnostics.get("mf_lift_rejected_disparity_worsen", 0)) + 1
+                    continue
+                spread_floor = float(current_approx.total_spread) * (1.0 - max(0.0, float(config.mf_lift_spread_drop_tolerance)))
+                if float(trial_approx.total_spread) + 1e-12 < spread_floor:
+                    diagnostics["mf_lift_rejected_spread_drop"] = int(diagnostics.get("mf_lift_rejected_spread_drop", 0)) + 1
+                    continue
+                reason = _mf_lift_acceptance_reason(
+                    current_target=current_target,
+                    trial_target=trial_target,
+                    current_approx=current_approx,
+                    trial_approx=trial_approx,
+                    weakest_group=weakest_group,
+                    config=config,
+                )
+                if reason is None and weakest_score_upgrade:
+                    reason = "weakest_score_upgrade"
+                if reason is None:
+                    continue
+                accepted = trial
+                accepted_target = trial_target
+                accepted_approx = trial_approx
+                accepted_removed = node_to_remove
+                diagnostics["mf_lift_successful_swaps"] = int(diagnostics.get("mf_lift_successful_swaps", 0)) + 1
+                diagnostics[f"mf_lift_accepted_{reason}"] = int(diagnostics.get(f"mf_lift_accepted_{reason}", 0)) + 1
+                break
+            if accepted is not None:
+                break
+        if accepted is None or accepted_target is None or accepted_approx is None:
+            break
+        removed_group = str(group_by_node.get(accepted_removed, ""))
+        if float(current_target.overcoverage_ratio_by_group.get(removed_group, 0.0)) > 0.0:
+            diagnostics["mf_lift_removed_from_overcovered_groups"] = int(diagnostics.get("mf_lift_removed_from_overcovered_groups", 0)) + 1
+        if accepted_removed is not None and float(candidate_scores.get(accepted_removed, 0.0)) <= low_score_threshold:
+            diagnostics["mf_lift_removed_low_contribution_seeds"] = int(diagnostics.get("mf_lift_removed_low_contribution_seeds", 0)) + 1
+        accepted_seed_sets = diagnostics.setdefault("mf_lift_accepted_seed_sets", [])
+        if isinstance(accepted_seed_sets, list):
+            accepted_seed_sets.append(list(accepted))
+        current = accepted
+        current_target = accepted_target
+        current_approx = accepted_approx
+
+    diagnostics["mf_lift_final_approx_mf"] = float(current_approx.mf)
+    diagnostics["mf_lift_weakest_group_after"] = _weakest_group_from_eval(current_approx)
+    diagnostics["mf_lift_final_approx_dcv_disparity"] = float(current_approx.dcv)
+    diagnostics["mf_lift_final_approx_spread"] = float(current_approx.total_spread)
+    diagnostics["mf_lift_final_proxy_dcv_shortfall"] = float(current_target.dcv_shortfall)
+    diagnostics["mf_lift_final_proxy_target_coverage"] = float(current_target.target_coverage_ratio)
+    diagnostics["mf_lift_dcv_shortfall_preserved"] = bool(
+        float(current_target.dcv_shortfall) <= float(config.shortfall_dcv_worsen_tolerance)
+        or float(current_approx.dcv_shortfall) <= float(config.shortfall_dcv_worsen_tolerance)
+    )
+    diagnostics["mf_lift_target_coverage_preserved"] = bool(
+        float(current_target.target_coverage_ratio) + 1e-12 >= required_coverage
+        or float(current_approx.target_coverage_ratio) + 1e-12 >= required_coverage
+    )
+    return current
 
 
 def _enforce_quota_floor(
@@ -1294,6 +1925,7 @@ def run_target_shortfall_repair_memetic_ris(
     candidate_scores: Mapping[Any, float],
     ris_result: RISGuidanceResult | None,
     config: TargetShortfallRepairConfig,
+    community_by_node: Mapping[Any, Any] | None = None,
 ) -> TargetShortfallRepairResult:
     """Run the target-shortfall-first memetic search."""
 
@@ -1542,6 +2174,37 @@ def run_target_shortfall_repair_memetic_ris(
     )
     if _priority_tuple(final_eval) > _priority_tuple(best):
         best = final_eval
+
+    diagnostics["mf_lift_initial_seed_set"] = list(best.seed_set)
+    lifted_seed_set = _run_mf_lift_phase(
+        graph=graph,
+        seed_set=best.seed_set,
+        candidates=candidates,
+        protected_group_report=protected_group_report,
+        group_by_node=group_by_node,
+        ideal_influences=ideal_influences,
+        candidate_scores=candidate_scores,
+        ris_result=ris_result,
+        config=config,
+        diagnostics=diagnostics,
+        community_by_node=community_by_node,
+    )
+    if lifted_seed_set != best.seed_set:
+        lifted_eval = _evaluate_proxy(
+            graph=graph,
+            seed_set=lifted_seed_set,
+            protected_group_report=protected_group_report,
+            group_by_node=group_by_node,
+            ideal_influences=ideal_influences,
+            ris_result=ris_result,
+            config=config,
+        )
+        if (
+            float(lifted_eval.target_coverage_ratio) >= float(best.target_coverage_ratio) - 1e-12
+            and float(lifted_eval.dcv_shortfall) <= float(best.dcv_shortfall) + float(config.shortfall_dcv_worsen_tolerance)
+        ):
+            best = lifted_eval
+    diagnostics["mf_lift_final_seed_set"] = list(best.seed_set)
 
     diagnostics["final_proxy_target_coverage"] = float(best.target_coverage_ratio)
     diagnostics["final_proxy_dcv_shortfall"] = float(best.dcv_shortfall)

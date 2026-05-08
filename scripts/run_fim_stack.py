@@ -117,6 +117,8 @@ def _format_requested_sections(frame, config: FIMPermutationRunConfig) -> str:
         f"{'Precision@Budget':<30}: {_fmt(row.get('graphsage_precision_at_budget'))}",
         f"{'Prediction Std':<30}: {_fmt(row.get('graphsage_prediction_std'))}",
         f"{'GraphSAGE Effective Weight':<30}: {_fmt(row.get('graphsage_effective_weight'))}",
+        f"{'MF Gain In Label':<30}: {_fmt(row.get('include_mf_gain_in_graphsage_label'))}",
+        f"{'MF Gain Label Weight':<30}: {_fmt(row.get('mf_gain_label_weight'))}",
     ]
     warning = str(row.get("graphsage_warning", "") or "").strip()
     if warning and warning.lower() != "nan":
@@ -148,6 +150,45 @@ def _format_requested_sections(frame, config: FIMPermutationRunConfig) -> str:
             f"{'Target Alpha':<30}: {_fmt(row.get('target_alpha'))}",
             f"{'Spread':<30}: {_fmt(row.get('total_spread'))}",
             f"{'Runtime':<30}: {_fmt(row.get('runtime_seconds'))}",
+        ]
+    )
+    try:
+        solved_shortfall = (
+            float(row.get("dcv_shortfall", 1.0) or 0.0) <= 1e-9
+            and float(row.get("target_coverage_ratio", 0.0) or 0.0) >= 1.0 - 1e-9
+        )
+    except (TypeError, ValueError):
+        solved_shortfall = False
+    if solved_shortfall:
+        lines.append("Shortfall fairness target satisfied. Optimizing MF is now the next objective.")
+        try:
+            if float(row.get("MF", row.get("mf", 1.0)) or 0.0) < 0.10:
+                lines.append("MF remains low because the weakest group has low normalized influence even though its shortfall target is met.")
+        except (TypeError, ValueError):
+            pass
+    lines.extend(
+        [
+            "",
+            "MF-Lift Diagnostics",
+            "-" * 60,
+            f"{'Enabled':<30}: {_fmt(row.get('mf_lift_enabled', row.get('use_mf_lift')))}",
+            f"{'Started':<30}: {_fmt(row.get('mf_lift_started'))}",
+            f"{'Reason Not Started':<30}: {_fmt(row.get('mf_lift_reason_not_started'))}",
+            f"{'Initial MF':<30}: {_fmt(row.get('mf_lift_initial_mf'))}",
+            f"{'Final Approx MF':<30}: {_fmt(row.get('mf_lift_final_approx_mf'))}",
+            f"{'Final MC MF':<30}: {_fmt(row.get('mf_lift_final_mc_mf', row.get('MF', row.get('mf'))))}",
+            f"{'MC Selection':<30}: {_fmt(row.get('mf_lift_mc_selection'))}",
+            f"{'Pre-lift MC MF':<30}: {_fmt(row.get('mf_lift_pre_mc_mf'))}",
+            f"{'Weakest Group Before':<30}: {_fmt(row.get('mf_lift_weakest_group_before'))}",
+            f"{'Weakest Group After':<30}: {_fmt(row.get('mf_lift_weakest_group_after_mc', row.get('mf_lift_weakest_group_after')))}",
+            f"{'MF-Lift Rounds':<30}: {_fmt(row.get('mf_lift_rounds'))}",
+            f"{'MF-Lift Attempts':<30}: {_fmt(row.get('mf_lift_attempts'))}",
+            f"{'MF-Lift Successful Swaps':<30}: {_fmt(row.get('mf_lift_successful_swaps'))}",
+            f"{'Rejected Target Loss':<30}: {_fmt(row.get('mf_lift_rejected_target_loss'))}",
+            f"{'Rejected DCV Shortfall Worsen':<30}: {_fmt(row.get('mf_lift_rejected_dcv_shortfall_worsen'))}",
+            f"{'Rejected MF Drop':<30}: {_fmt(row.get('mf_lift_rejected_mf_drop'))}",
+            f"{'DCV Shortfall Preserved':<30}: {_fmt(row.get('mf_lift_dcv_shortfall_preserved'))}",
+            f"{'Target Coverage Preserved':<30}: {_fmt(row.get('mf_lift_target_coverage_preserved'))}",
         ]
     )
     return "\n".join(lines)
@@ -202,6 +243,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--shortfall-repair-rounds", type=int, default=12)
     parser.add_argument("--shortfall-repair-candidate-limit", type=int, default=400)
     parser.add_argument("--shortfall-repair-aggressive", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--use-mf-lift", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--mf-lift-rounds", type=int, default=5)
+    parser.add_argument("--mf-lift-candidate-limit", type=int, default=300)
+    parser.add_argument("--mf-lift-weight", type=float, default=3.0)
+    parser.add_argument("--mf-lift-disparity-tolerance", type=float, default=0.02)
+    parser.add_argument("--mf-lift-spread-drop-tolerance", type=float, default=0.02)
+    parser.add_argument("--mf-lift-require-shortfall-zero", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--mf-lift-require-target-coverage", type=float, default=1.0)
+    parser.add_argument("--mf-drop-tolerance", type=float, default=0.0005)
+    parser.add_argument("--shortfall-dcv-worsen-tolerance", type=float, default=0.0001)
+    parser.add_argument("--include-mf-gain-in-graphsage-label", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--mf-gain-label-weight", type=float, default=1.5)
     parser.add_argument("--target-alpha", type=float, default=1.0)
     parser.add_argument("--random-seed", type=int, default=42)
     parser.add_argument("--propagation-prob", type=float, default=0.01)
@@ -256,6 +309,18 @@ def main() -> int:
         shortfall_repair_rounds=int(args.shortfall_repair_rounds),
         shortfall_repair_candidate_limit=int(args.shortfall_repair_candidate_limit),
         shortfall_repair_aggressive=bool(args.shortfall_repair_aggressive),
+        use_mf_lift=bool(args.use_mf_lift),
+        mf_lift_rounds=int(args.mf_lift_rounds),
+        mf_lift_candidate_limit=int(args.mf_lift_candidate_limit),
+        mf_lift_weight=float(args.mf_lift_weight),
+        mf_lift_disparity_tolerance=float(args.mf_lift_disparity_tolerance),
+        mf_lift_spread_drop_tolerance=float(args.mf_lift_spread_drop_tolerance),
+        mf_lift_require_shortfall_zero=bool(args.mf_lift_require_shortfall_zero),
+        mf_lift_require_target_coverage=float(args.mf_lift_require_target_coverage),
+        mf_drop_tolerance=float(args.mf_drop_tolerance),
+        shortfall_dcv_worsen_tolerance=float(args.shortfall_dcv_worsen_tolerance),
+        include_mf_gain_in_graphsage_label=bool(args.include_mf_gain_in_graphsage_label),
+        mf_gain_label_weight=float(args.mf_gain_label_weight),
         target_alpha=float(args.target_alpha),
         random_seed=int(args.random_seed),
         output_dir=output_dir,
