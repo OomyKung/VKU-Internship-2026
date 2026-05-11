@@ -1,0 +1,136 @@
+GraphSAGE Training
+------------------------------------------------------------
+Training Target               : combined_fairness_gain
+Hidden Dim                    : 16
+Embedding Dim                 : 32
+Epochs Run                    : 30
+Best Epoch                    : 30
+Train Loss                    : 0.004930
+Validation Loss               : 0.002986
+Spearman                      : 0.874491
+Precision@Budget              : 0.700000
+Prediction Std                : 0.184609
+GraphSAGE Effective Weight    : 0.800000
+MF Gain In Label              : True
+MF Gain Label Weight          : 1.500000
+
+Candidate Scoring
+------------------------------------------------------------
+GraphSAGE Score Weight        : 0.800000
+RIS Score Weight              : 1.000000
+Fair RIS Score Weight         : 2.000000
+Shortfall Gain Weight         : 3.000000
+Inactive Components           : None
+
+EA+Memetic Guidance
+------------------------------------------------------------
+GraphSAGE Used For            : candidate ranking / mutation / initialization
+Fair RIS Used For             : fitness / repair / local search
+Monte Carlo Used For          : final evaluation
+
+Final Result
+------------------------------------------------------------
+F-score                       : 0.083288
+MF                            : 0.088670
+DCV_shortfall                 : 0.000000
+DCV_disparity                 : 0.021528
+Target Coverage Ratio         : 1.000000
+Target Alpha                  : 0.800000
+Spread                        : 51.650000
+Runtime                       : 47.177783
+Shortfall fairness target satisfied. Optimizing MF is now the next objective.
+MF remains low because the weakest group has low normalized influence even though its shortfall target is met.
+
+MF-Lift Diagnostics
+------------------------------------------------------------
+Enabled                       : True
+Started                       : True
+Reason Not Started            : 
+Initial MF                    : 0.125000
+Final Approx MF               : 0.142857
+Final MC MF                   : 0.088670
+MC Selection                  : post_lift
+Pre-lift MC MF                : n/a
+Weakest Group Before          : lake_los_angeles
+Weakest Group After           : palmdale
+MF-Lift Rounds                : 5
+MF-Lift Attempts              : 5
+MF-Lift Successful Swaps      : 5
+Rejected Target Loss          : 1
+Rejected DCV Shortfall Worsen : 0
+Rejected MF Drop              : 0
+DCV Shortfall Preserved       : True
+Target Coverage Preserved     : True
+
+FIM Algorithm-Stack Permutation Comparison
+------------------------------------------------------------------------
+Protected attribute: region
+Budget: 50
+Ranking policy: professor_priority
+Fairness gates: min_f_score=0.0, min_mf=0.0001, max_dcv=0.25, min_fraction_groups_covered=0.8, scalability_required=True, warn_only=False
+Final estimator: monte_carlo | mc_runs_eval=300
+
+No method met all group shortfall targets; showing the least-bad method by DCV_shortfall, target_coverage_ratio, MF, DCV_disparity, spread, then runtime.
+
+Fairness failure diagnostics
+------------------------------------------------------------------------
+No method passed the professor-priority fairness gates.
+protected_group_counts={"acton": 11, "desert_view_highlands": 3, "lake_los_angeles": 18, "lancaster": 211, "leona_valley": 2, "littlerock": 2, "northeast_antelope_valley": 7, "northwest_antelope_valley": 5, "northwest_palmdale": 5, "palmdale": 198, "quartz_hill": 15, "southeast_antelope_valley": 8, "sun_village": 15}
+group_imbalance_ratio=105.5000
+budget_per_group_estimate={"acton": 1.1, "desert_view_highlands": 0.3, "lake_los_angeles": 1.8, "lancaster": 21.1, "leona_valley": 0.2, "littlerock": 0.2, "northeast_antelope_valley": 0.7, "northwest_antelope_valley": 0.5, "northwest_palmdale": 0.5, "palmdale": 19.8, "quartz_hill": 1.5, "southeast_antelope_valley": 0.8, "sun_village": 1.5}
+method_failure=graphsage_leiden_ris_ic_ea_memetic: reasons=scalability_required; F-score=0.0833; MF=0.0887; DCV=0.0000; scalability_pass=False; zero_covered_groups=0
+group_influence_distribution[graphsage_leiden_ris_ic_ea_memetic]={"acton": 2.026666666666667, "desert_view_highlands": 1.0266666666666666, "lake_los_angeles": 2.0733333333333333, "lancaster": 18.783333333333335, "leona_valley": 1.0, "littlerock": 1.0033333333333334, "northeast_antelope_valley": 1.0233333333333334, "northwest_antelope_valley": 1.0166666666666666, "northwest_palmdale": 1.0266666666666666, "palmdale": 17.55666666666667, "quartz_hill": 2.07, "southeast_antelope_valley": 1.0166666666666666, "sun_village": 2.026666666666667}
+normalized_group_influence_distribution[graphsage_leiden_ris_ic_ea_memetic]={"acton": 0.18424242424242426, "desert_view_highlands": 0.3422222222222222, "lake_los_angeles": 0.11518518518518518, "lancaster": 0.08902053712480254, "leona_valley": 0.5, "littlerock": 0.5016666666666667, "northeast_antelope_valley": 0.1461904761904762, "northwest_antelope_valley": 0.2033333333333333, "northwest_palmdale": 0.2053333333333333, "palmdale": 0.08867003367003368, "quartz_hill": 0.13799999999999998, "southeast_antelope_valley": 0.12708333333333333, "sun_village": 0.13511111111111113}
+Recommended actions:
+- increase budget
+- increase weak_group_bonus_weight
+- increase fair_ris_score_weight
+- enable group quota repair
+- use support-aware fairness metrics
+- run budget sweep
+
+Budget may be too small for stable fairness on this graph. Reasons: budget below protected-group seed warning threshold; smallest protected group is very small; protected-group imbalance ratio above warning threshold
+
+1. graphsage_leiden_ris_ic_ea_memetic [ok]
+   spread=51.6500 | extra=1.6500 | MF=0.0887 | DCV=0.0000 | F-score=0.0833 | runtime=47.178s
+   zero_covered_groups=0 | fraction_groups_covered=1.0 | scalability_pass=False | candidate_pool=300 | ris_rr_sets=512
+   fairness_diagnostics: seed_group_counts={"acton": 2, "desert_view_highlands": 1, "lake_los_angeles": 2, "lancaster": 18, "leona_valley": 1, "littlerock": 1, "northeast_antelope_valley": 1, "northwest_antelope_valley": 1, "northwest_palmdale": 1, "palmdale": 17, "quartz_hill": 2, "southeast_antelope_valley": 1, "sun_village": 2} | influence={'acton': 2.026666666666667, 'desert_view_highlands': 1.0266666666666666, 'lake_los_angeles': 2.0733333333333333, 'lancaster': 18.783333333333335, 'leona_valley': 1.0, 'littlerock': 1.0033333333333334, 'northeast_antelope_valley': 1.0233333333333334, 'northwest_antelope_valley': 1.0166666666666666, 'northwest_palmdale': 1.0266666666666666, 'palmdale': 17.55666666666667, 'quartz_hill': 2.07, 'southeast_antelope_valley': 1.0166666666666666, 'sun_village': 2.026666666666667} | normalized_influence={'acton': 0.18424242424242426, 'desert_view_highlands': 0.3422222222222222, 'lake_los_angeles': 0.11518518518518518, 'lancaster': 0.08902053712480254, 'leona_valley': 0.5, 'littlerock': 0.5016666666666667, 'northeast_antelope_valley': 0.1461904761904762, 'northwest_antelope_valley': 0.2033333333333333, 'northwest_palmdale': 0.2053333333333333, 'palmdale': 0.08867003367003368, 'quartz_hill': 0.13799999999999998, 'southeast_antelope_valley': 0.12708333333333333, 'sun_village': 0.13511111111111113} | weakest=palmdale | strongest=littlerock
+   DCV Parity Diagnostics
+   ------------------------------------------------------------
+   Parity Target               : 0.21354297357022475
+   Normalized Influence        : {'acton': 0.18424242424242426, 'desert_view_highlands': 0.3422222222222222, 'lake_los_angeles': 0.11518518518518518, 'lancaster': 0.08902053712480254, 'leona_valley': 0.5, 'littlerock': 0.5016666666666667, 'northeast_antelope_valley': 0.1461904761904762, 'northwest_antelope_valley': 0.2033333333333333, 'northwest_palmdale': 0.2053333333333333, 'palmdale': 0.08867003367003368, 'quartz_hill': 0.13799999999999998, 'southeast_antelope_valley': 0.12708333333333333, 'sun_village': 0.13511111111111113}
+   Over-served Groups          : ['desert_view_highlands', 'leona_valley', 'littlerock']
+   Under-served Groups         : ['acton', 'lake_los_angeles', 'lancaster', 'northeast_antelope_valley', 'northwest_antelope_valley', 'northwest_palmdale', 'palmdale', 'quartz_hill', 'southeast_antelope_valley', 'sun_village']
+   Parity Abs Error            : 1.4065199363564291
+   DCV                         : 0.0
+   Repair Successes            : None
+   runtime_breakdown: dataset=0.003613700000641984 | community=0.027476900000692694 | embedding=4.399108899999192 | ris=0.02173629999924742 | candidate_scoring=0.640343799999755 | optimizer=41.86883839999973 | local_search=None | final_mc=0.06035589999919466
+   seed_diagnostics: seed_count=50/50 | duplicates=0 | seed_groups={"acton": 2, "desert_view_highlands": 1, "lake_los_angeles": 2, "lancaster": 18, "leona_valley": 1, "littlerock": 1, "northeast_antelope_valley": 1, "northwest_antelope_valley": 1, "northwest_palmdale": 1, "palmdale": 17, "quartz_hill": 2, "southeast_antelope_valley": 1, "sun_village": 2} | seed_communities={"0": 5, "1": 5, "10": 2, "11": 1, "12": 5, "13": 4, "14": 5, "16": 2, "18": 2, "2": 1, "3": 1, "4": 1, "5": 4, "6": 1, "7": 3, "8": 3, "9": 5} | communities_covered=17
+   score_diagnostics: component_stats={"cluster_coverage_bonus": {"constant": true, "count": 500, "max": 0.0, "mean": 0.0, "min": 0.0, "std": 0.0}, "cluster_diversity_bonus": {"constant": true, "count": 500, "max": 0.0, "mean": 0.0, "min": 0.0, "std": 0.0}, "combined_score": {"constant": false, "count": 500, "max": 13.642726987084702, "mean": 3.104906445214984, "min": 0.537255716799263, "std": 1.7968384994462931}, "community_diversity_bonus": {"constant": false, "count": 500, "max": 1.0, "mean": 0.4492874867068415, "min": 0.0, "std": 0.4074690216783967}, "community_diversity_score": {"constant": false, "count": 500, "max": 1.0, "mean": 0.4492874867068415, "min": 0.0, "std": 0.4074690216783967}, "dynamic_shortfall_gain": {"constant": false, "count": 500, "max": 0.7858034970857619, "mean": 0.6255354098857013, "min": 0.035373930815229736, "std": 0.26944589874037594}, "fair_ris_score": {"constant": false, "count": 500, "max": 1.0, "mean": 0.25539069930921987, "min": 0.0, "std": 0.27173337102490946}, "fairness_bonus": {"constant": false, "count": 500, "max": 1.0, "mean": 0.041640971773324716, "min": 0.0, "std": 0.16690134843215051}, "graphsage_embedding_norm": {"constant": false, "count": 500, "max": 1.0, "mean": 0.42195731181058377, "min": 0.0, "std": 0.22874552929293804}, "graphsage_pred_score": {"constant": false, "count": 500, "max": 1.0, "mean": 0.44236544205731954, "min": 0.0, "std": 0.2346296732496785}, "group_shortfall_ratio": {"constant": true, "count": 500, "max": 1.0, "mean": 1.0, "min": 1.0, "std": 0.0}, "mf_gain_score": {"constant": false, "count": 500, "max": 1.0, "mean": 0.002, "min": 0.0, "std": 0.044676615807377355}, "mf_lift_adjusted_score": {"constant": false, "count": 500, "max": 13.642726987084702, "mean": 3.110906445214984, "min": 0.537255716799263, "std": 1.8234504007200103}, "ml_score": {"constant": false, "count": 500, "max": 1.0, "mean": 0.44236544205731954, "min": 0.0, "std": 0.2346296732496785}, "over_served_group_penalty": {"constant": true, "count": 500, "max": 0.0, "mean": 0.0, "min": 0.0, "std": 0.0}, "parity_adjusted_score": {"constant": false, "count": 500, "max": 13.642726987084702, "mean": 3.104906445214984, "min": 0.537255716799263, "std": 1.7968384994462931}, "protected_group_coverage_bonus": {"constant": false, "count": 500, "max": 1.0, "mean": 0.04292822966507177, "min": 0.0, "std": 0.12618497110545465}, "ris_score": {"constant": false, "count": 500, "max": 1.0, "mean": 0.25486666666666663, "min": 0.0, "std": 0.2713273627516727}, "shortfall_gain": {"constant": false, "count": 500, "max": 1.0, "mean": 0.1373333333333333, "min": 0.0, "std": 0.2490551032290735}, "spread_proxy_score": {"constant": false, "count": 500, "max": 1.0, "mean": 0.24047454116154382, "min": 0.0, "std": 0.21307680399048806}, "under_served_group_bonus": {"constant": true, "count": 500, "max": 0.0, "mean": 0.0, "min": 0.0, "std": 0.0}, "weak_group_bonus": {"constant": false, "count": 500, "max": 1.0, "mean": 0.041640971773324716, "min": 0.0, "std": 0.16690134843215051}, "weakest_group_gain": {"constant": false, "count": 500, "max": 1.0, "mean": 0.002, "min": 0.0, "std": 0.044676615807377355}} | constant_components=["group_shortfall_ratio", "cluster_coverage_bonus", "cluster_diversity_bonus", "under_served_group_bonus", "over_served_group_penalty"]
+   Shortfall fairness target satisfied. Optimizing MF is now the next objective.
+   MF remains low because the weakest group has low normalized influence even though its shortfall target is met.
+   modules: diffusion=ic | search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=512 | community=leiden | embedding=graphsage | clustering=none | ranking=graphsage_plus_fair_ris | optimizer=ea_memetic | debias=worst_group_boost
+   algorithms: embedding=GraphSAGE | ml_ranking=GraphSAGE + Fair RIS scoring | community=Leiden | clustering=None | diffusion=Independent Cascade | search=RIS / Fair RIS | optimizer=Evolutionary Algorithm + Memetic Algorithm | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo | ranking_policy=Professor-priority ranking
+   pipeline: fim_stack=graphsage_leiden_ris_ic_ea_memetic | ranking_policy=professor_priority | mode=graphsage_leiden_ris_ic_ea_memetic | method_type=graphsage_leiden_ris_ic_ea_memetic | repair=True | swap_local_search=True
+   features: use_community_features=True | community_feature_mode=basic | allow_protected_features_in_ml=False
+   guidance: ml=0.8 | ris=1.0 | fair_ris=2.0 | ris_verified=True | fair_ris_verified=True | ris_score_nonzero=308 | fair_ris_score_nonzero=308 | weak_group=4.0 | community_diversity=0.5 | protected_group_coverage=4.0 | spread_proxy=0.3 | large_imbalance_active=True | score_normalization=per_group
+   dcv_targeting: enabled=<NA> | over_served_penalty=<NA> | dcv_first_swap=<NA> | parity_repair=<NA> | repair_successes=None | dcv_before_repair=None | dcv_after_repair_est=None
+   RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=512 | ris_verified=True | fair_ris_verified=True | ris_cache_hit=False | force_ris_for_all_stacks=True | require_ris=True
+   search_objective_calls: fair_ris=2 | ris=0 | search_mc=0 | final_mc=1 | rr_sets_used=512 | approx_final_fscore=0.010824144387889659 | final_mc_fscore=0.033571211188593506
+   candidate_pool_diagnostics: stratified=True | group_counts={'acton': 11, 'desert_view_highlands': 3, 'lake_los_angeles': 18, 'lancaster': 83, 'leona_valley': 2, 'littlerock': 2, 'northeast_antelope_valley': 7, 'northwest_antelope_valley': 5, 'northwest_palmdale': 5, 'palmdale': 126, 'quartz_hill': 15, 'southeast_antelope_valley': 8, 'sun_village': 15} | group_quota=30 | quota_shortfall={'acton': 19, 'desert_view_highlands': 27, 'lake_los_angeles': 12, 'lancaster': 0, 'leona_valley': 28, 'littlerock': 28, 'northeast_antelope_valley': 23, 'northwest_antelope_valley': 25, 'northwest_palmdale': 25, 'palmdale': 0, 'quartz_hill': 15, 'southeast_antelope_valley': 22, 'sun_village': 15}
+   optimizer_diagnostics: initial_seed_source=target_shortfall_group_quota | repaired_seed_sets=9 | repair_attempts=126252 | weak_group_repairs=9 | successful_swaps=9 | swap_attempts=126252 | swap_accepted=9 | swap_rejected_fairness=0 | swap_accepted_dcv=9 | swap_rejected_dcv=None | community_coverage={"0": 5, "1": 5, "10": 2, "11": 1, "12": 5, "13": 4, "14": 5, "16": 2, "18": 2, "2": 1, "3": 1, "4": 1, "5": 4, "6": 1, "7": 3, "8": 3, "9": 5} | community_coverage_ratio=0.8947368421052632 | protected_group_coverage={"acton": 2, "desert_view_highlands": 1, "lake_los_angeles": 2, "lancaster": 18, "leona_valley": 1, "littlerock": 1, "northeast_antelope_valley": 1, "northwest_antelope_valley": 1, "northwest_palmdale": 1, "palmdale": 17, "quartz_hill": 2, "southeast_antelope_valley": 1, "sun_village": 2}
+   mf_lift: enabled=True | started=True | reason_not_started= | initial_mf=0.125 | final_approx_mf=0.14285714285714285 | final_mc_mf=0.08867003367003368 | mc_selection=post_lift | weakest_before=lake_los_angeles | weakest_after=palmdale | attempts=5 | successful_swaps=5 | rejected_target_loss=1 | rejected_dcv_shortfall=0 | rejected_mf_drop=0 | dcv_shortfall_preserved=True | target_coverage_preserved=True
+   caches: embedding=miss | community=miss | ris=miss | score=miss | fitness_hits=None | swap_hits=None
+   artifacts: score_table=saved | embeddings=saved | community_assignments=saved
+   notes=target_shortfall_repair=true; target_coverage_first=true; overcoverage_control=true; communities=19; modularity=0.802180; embedding_cache=miss; target=combined_fairness_gain; backend=gnn; candidate_pool=300; validation_spearman=0.8745; validation_precision_at_budget=0.7000; Search objective used Fair RIS; final metrics reported by Monte Carlo.; target-shortfall repair used capped target utility and overcoverage waste penalty
+
+Recommendations
+------------------------------------------------------------------------
+best_interpretable_baseline=n/a
+best_ea_memetic_stack=n/a
+best_fairness_focused_ea_memetic_stack=n/a
+best_fairness_quality_method=graphsage_leiden_ris_ic_ea_memetic
+best_scalable_method=n/a
+best_spread_method=n/a
+best_runtime_method=n/a
+final_professor_priority_recommendation=graphsage_leiden_ris_ic_ea_memetic

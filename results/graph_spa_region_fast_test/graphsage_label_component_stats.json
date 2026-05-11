@@ -1,0 +1,132 @@
+{
+  "baseline_group_influence": {
+    "acton": 3.6666666666666665,
+    "desert_view_highlands": 0.0,
+    "lake_los_angeles": 4.5,
+    "lancaster": 22.210526315789473,
+    "leona_valley": 0.0,
+    "littlerock": 0.0,
+    "northeast_antelope_valley": 1.4000000000000001,
+    "northwest_antelope_valley": 0.0,
+    "northwest_palmdale": 0.0,
+    "palmdale": 13.45631067961165,
+    "quartz_hill": 1.7647058823529411,
+    "southeast_antelope_valley": 0.0,
+    "sun_village": 0.8823529411764706
+  },
+  "baseline_normalized_group_influence": {
+    "acton": 0.3333333333333333,
+    "desert_view_highlands": 0.0,
+    "lake_los_angeles": 0.25,
+    "lancaster": 0.10526315789473684,
+    "leona_valley": 0.0,
+    "littlerock": 0.0,
+    "northeast_antelope_valley": 0.2,
+    "northwest_antelope_valley": 0.0,
+    "northwest_palmdale": 0.0,
+    "palmdale": 0.06796116504854369,
+    "quartz_hill": 0.11764705882352941,
+    "southeast_antelope_valley": 0.0,
+    "sun_village": 0.058823529411764705
+  },
+  "baseline_seed_count": 50,
+  "ideal_influences": {
+    "acton": 1.64,
+    "desert_view_highlands": 0.8,
+    "lake_los_angeles": 1.6,
+    "lancaster": 18.64,
+    "leona_valley": 0.8,
+    "littlerock": 0.8,
+    "northeast_antelope_valley": 0.8800000000000001,
+    "northwest_antelope_valley": 0.8800000000000001,
+    "northwest_palmdale": 0.8400000000000001,
+    "palmdale": 17.080000000000002,
+    "quartz_hill": 1.6,
+    "southeast_antelope_valley": 0.8400000000000001,
+    "sun_village": 1.64
+  },
+  "include_mf_gain_in_graphsage_label": true,
+  "label_component_stats": {
+    "combined_fairness_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.16075369715690613,
+      "min": 0.0,
+      "std": 0.15298254787921906
+    },
+    "community_diversity_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.34971428571428564,
+      "min": 0.0,
+      "std": 0.35365634598216183
+    },
+    "fair_ris_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.15398297781441328,
+      "min": 0.0,
+      "std": 0.16685316355717322
+    },
+    "label_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.1607537039723975,
+      "min": 0.0,
+      "std": 0.15298254909205333
+    },
+    "mf_gain_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.002,
+      "min": 0.0,
+      "std": 0.044676615807377355
+    },
+    "ris_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.2104,
+      "min": 0.0,
+      "std": 0.2199359906882
+    },
+    "shortfall_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.07025585493957757,
+      "min": 0.0,
+      "std": 0.15180537299211133
+    },
+    "spread_proxy_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.18254354943976733,
+      "min": 0.0,
+      "std": 0.13602467597806756
+    },
+    "weakest_group_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.002,
+      "min": 0.0,
+      "std": 0.044676615807377355
+    }
+  },
+  "mf_gain_label_weight": 1.5,
+  "mf_gain_weakest_group": "desert_view_highlands",
+  "shortfall_ratio": {
+    "acton": 0.0,
+    "desert_view_highlands": 1.0,
+    "lake_los_angeles": 0.0,
+    "lancaster": 0.0,
+    "leona_valley": 1.0,
+    "littlerock": 1.0,
+    "northeast_antelope_valley": 0.0,
+    "northwest_antelope_valley": 1.0,
+    "northwest_palmdale": 1.0,
+    "palmdale": 0.21215979627566456,
+    "quartz_hill": 0.0,
+    "southeast_antelope_valley": 1.0,
+    "sun_village": 0.4619799139167862
+  },
+  "training_target": "combined_fairness_gain"
+}

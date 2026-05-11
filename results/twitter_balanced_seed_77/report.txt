@@ -1,0 +1,136 @@
+GraphSAGE Training
+------------------------------------------------------------
+Training Target               : combined_fairness_gain
+Hidden Dim                    : 16
+Embedding Dim                 : 32
+Epochs Run                    : 50
+Best Epoch                    : 49
+Train Loss                    : 0.000961
+Validation Loss               : 0.000886
+Spearman                      : 0.933311
+Precision@Budget              : 0.650000
+Prediction Std                : 0.146513
+GraphSAGE Effective Weight    : 0.800000
+MF Gain In Label              : True
+MF Gain Label Weight          : 1.500000
+
+Candidate Scoring
+------------------------------------------------------------
+GraphSAGE Score Weight        : 0.800000
+RIS Score Weight              : 1.000000
+Fair RIS Score Weight         : 2.000000
+Shortfall Gain Weight         : 3.000000
+Inactive Components           : None
+
+EA+Memetic Guidance
+------------------------------------------------------------
+GraphSAGE Used For            : candidate ranking / mutation / initialization
+Fair RIS Used For             : fitness / repair / local search
+Monte Carlo Used For          : final evaluation
+
+Final Result
+------------------------------------------------------------
+F-score                       : 0.029871
+MF                            : 0.032010
+DCV_shortfall                 : 0.000000
+DCV_disparity                 : 0.008554
+Target Coverage Ratio         : 1.000000
+Target Alpha                  : 0.800000
+Spread                        : 123.297000
+Runtime                       : 161.880235
+Shortfall fairness target satisfied. Optimizing MF is now the next objective.
+MF remains low because the weakest group has low normalized influence even though its shortfall target is met.
+
+MF-Lift Diagnostics
+------------------------------------------------------------
+Enabled                       : True
+Started                       : True
+Reason Not Started            : 
+Initial MF                    : 0.098214
+Final Approx MF               : 0.102679
+Final MC MF                   : 0.032010
+MC Selection                  : lift_swap_2
+Pre-lift MC MF                : 0.031678
+Weakest Group Before          : 0
+Weakest Group After           : 1
+MF-Lift Rounds                : 3
+MF-Lift Attempts              : 3
+MF-Lift Successful Swaps      : 3
+Rejected Target Loss          : 0
+Rejected DCV Shortfall Worsen : 0
+Rejected MF Drop              : 0
+DCV Shortfall Preserved       : True
+Target Coverage Preserved     : True
+
+FIM Algorithm-Stack Permutation Comparison
+------------------------------------------------------------------------
+Protected attribute: color
+Budget: 120
+Ranking policy: professor_priority
+Fairness gates: min_f_score=0.0, min_mf=0.0001, max_dcv=0.25, min_fraction_groups_covered=0.8, scalability_required=True, warn_only=False
+Final estimator: monte_carlo | mc_runs_eval=1000
+
+No method met all group shortfall targets; showing the least-bad method by DCV_shortfall, target_coverage_ratio, MF, DCV_disparity, spread, then runtime.
+
+Fairness failure diagnostics
+------------------------------------------------------------------------
+No method passed the professor-priority fairness gates.
+protected_group_counts={"0": 812, "1": 2755, "2": 186}
+group_imbalance_ratio=14.8118
+budget_per_group_estimate={"0": 25.963229416466827, "1": 88.08952837729817, "2": 5.947242206235012}
+method_failure=graphsage_leiden_ris_ic_ea_memetic: reasons=scalability_required; F-score=0.0299; MF=0.0320; DCV=0.0000; scalability_pass=False; zero_covered_groups=0
+group_influence_distribution[graphsage_leiden_ris_ic_ea_memetic]={"0": 28.899, "1": 88.187, "2": 6.211}
+normalized_group_influence_distribution[graphsage_leiden_ris_ic_ea_memetic]={"0": 0.03558990147783252, "1": 0.032009800362976404, "2": 0.03339247311827957}
+Recommended actions:
+- increase budget
+- increase weak_group_bonus_weight
+- increase fair_ris_score_weight
+- enable group quota repair
+- use support-aware fairness metrics
+- run budget sweep
+
+Budget may be too small for stable fairness on this graph. Reasons: protected-group imbalance ratio above warning threshold
+
+1. graphsage_leiden_ris_ic_ea_memetic [ok]
+   spread=123.2970 | extra=3.2970 | MF=0.0320 | DCV=0.0000 | F-score=0.0299 | runtime=161.880s
+   zero_covered_groups=0 | fraction_groups_covered=1.0 | scalability_pass=False | candidate_pool=2252 | ris_rr_sets=1024
+   fairness_diagnostics: seed_group_counts={"0": 28, "1": 86, "2": 6} | influence={'0': 28.899, '1': 88.187, '2': 6.211} | normalized_influence={'0': 0.03558990147783252, '1': 0.032009800362976404, '2': 0.03339247311827957} | weakest=1 | strongest=0
+   DCV Parity Diagnostics
+   ------------------------------------------------------------
+   Parity Target               : 0.03366405831969616
+   Normalized Influence        : {'0': 0.03558990147783252, '1': 0.032009800362976404, '2': 0.03339247311827957}
+   Over-served Groups          : []
+   Under-served Groups         : []
+   Parity Abs Error            : 0.0038516863162727025
+   DCV                         : 0.0
+   Repair Successes            : None
+   runtime_breakdown: dataset=0.011194299999942814 | community=0.31880900000010115 | embedding=9.599328600000035 | ris=0.04689180000013948 | candidate_scoring=2.9274985000001834 | optimizer=147.65211929999987 | local_search=None | final_mc=0.35275430000001506
+   seed_diagnostics: seed_count=120/120 | duplicates=0 | seed_groups={"0": 28, "1": 86, "2": 6} | seed_communities={"0": 5, "1": 5, "10": 1, "100": 1, "101": 1, "106": 1, "107": 1, "11": 1, "111": 1, "113": 1, "115": 1, "12": 1, "13": 3, "14": 3, "15": 8, "16": 7, "17": 2, "18": 1, "19": 3, "2": 12, "20": 3, "21": 1, "22": 3, "23": 1, "25": 2, "26": 3, "27": 1, "28": 2, "3": 2, "30": 1, "32": 1, "35": 1, "38": 1, "39": 1, "40": 1, "48": 1, "5": 3, "50": 1, "51": 1, "53": 2, "57": 1, "6": 1, "62": 1, "63": 1, "64": 1, "66": 1, "68": 1, "7": 2, "71": 1, "72": 1, "75": 1, "77": 1, "79": 2, "8": 2, "82": 1, "83": 1, "86": 1, "88": 1, "9": 3, "91": 1, "94": 1, "95": 1, "96": 1, "97": 1} | communities_covered=64
+   score_diagnostics: component_stats={"cluster_coverage_bonus": {"constant": true, "count": 3753, "max": 0.0, "mean": 0.0, "min": 0.0, "std": 0.0}, "cluster_diversity_bonus": {"constant": true, "count": 3753, "max": 0.0, "mean": 0.0, "min": 0.0, "std": 0.0}, "combined_score": {"constant": false, "count": 3753, "max": 11.459267648012498, "mean": 3.224919254677423, "min": 1.0911379772161278, "std": 1.7047579114867226}, "community_diversity_bonus": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.7733664919915919, "min": 0.0, "std": 0.2871427357706088}, "community_diversity_score": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.7733664919915919, "min": 0.0, "std": 0.2871427357706088}, "dynamic_shortfall_gain": {"constant": false, "count": 3753, "max": 0.9069449316029463, "mean": 0.7262102038680084, "min": 0.06149823243569179, "std": 0.3030623772838313}, "fair_ris_score": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.09678860834356383, "min": 0.0, "std": 0.1821389397266677}, "fairness_bonus": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.22577939772971506, "min": 0.0, "std": 0.3422135298743202}, "graphsage_embedding_norm": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.09610612925552497, "min": 0.0, "std": 0.09349971556336346}, "graphsage_pred_score": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.21437261488235915, "min": 0.0, "std": 0.15011327118297543}, "group_shortfall_ratio": {"constant": true, "count": 3753, "max": 1.0, "mean": 1.0, "min": 1.0, "std": 0.0}, "mf_gain_score": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.007993605115907274, "min": 0.0, "std": 0.0678162118881873}, "mf_lift_adjusted_score": {"constant": false, "count": 3753, "max": 14.459267648012498, "mean": 3.248900070025145, "min": 1.0911379772161278, "std": 1.792178516158865}, "ml_score": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.21437261488235915, "min": 0.0, "std": 0.15011327118297543}, "over_served_group_penalty": {"constant": true, "count": 3753, "max": 0.0, "mean": 0.0, "min": 0.0, "std": 0.0}, "parity_adjusted_score": {"constant": false, "count": 3753, "max": 11.459267648012498, "mean": 3.224919254677423, "min": 1.0911379772161278, "std": 1.7047579114867226}, "protected_group_coverage_bonus": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.08704410547078102, "min": 0.0, "std": 0.22017634213991413}, "ris_score": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.09658939515054622, "min": 0.0, "std": 0.18137245551794784}, "shortfall_gain": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.007993605115907274, "min": 0.0, "std": 0.0678162118881873}, "spread_proxy_score": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.03993723662115761, "min": 0.0, "std": 0.06263265756582127}, "under_served_group_bonus": {"constant": true, "count": 3753, "max": 0.0, "mean": 0.0, "min": 0.0, "std": 0.0}, "weak_group_bonus": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.22577939772971506, "min": 0.0, "std": 0.3422135298743202}, "weakest_group_gain": {"constant": false, "count": 3753, "max": 1.0, "mean": 0.007993605115907274, "min": 0.0, "std": 0.0678162118881873}} | constant_components=["group_shortfall_ratio", "cluster_coverage_bonus", "cluster_diversity_bonus", "under_served_group_bonus", "over_served_group_penalty"]
+   Shortfall fairness target satisfied. Optimizing MF is now the next objective.
+   MF remains low because the weakest group has low normalized influence even though its shortfall target is met.
+   modules: diffusion=ic | search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=1024 | community=leiden | embedding=graphsage | clustering=none | ranking=graphsage_plus_fair_ris | optimizer=ea_memetic | debias=worst_group_boost
+   algorithms: embedding=GraphSAGE | ml_ranking=GraphSAGE + Fair RIS scoring | community=Leiden | clustering=None | diffusion=Independent Cascade | search=RIS / Fair RIS | optimizer=Evolutionary Algorithm + Memetic Algorithm | repair=Fairness-first repair | local_refinement=Swap Local Search | final=Monte Carlo | ranking_policy=Professor-priority ranking
+   pipeline: fim_stack=graphsage_leiden_ris_ic_ea_memetic | ranking_policy=professor_priority | mode=graphsage_leiden_ris_ic_ea_memetic | method_type=graphsage_leiden_ris_ic_ea_memetic | repair=True | swap_local_search=True
+   features: use_community_features=True | community_feature_mode=basic | allow_protected_features_in_ml=False
+   guidance: ml=0.8 | ris=1.0 | fair_ris=2.0 | ris_verified=True | fair_ris_verified=True | ris_score_nonzero=922 | fair_ris_score_nonzero=922 | weak_group=4.0 | community_diversity=0.5 | protected_group_coverage=4.0 | spread_proxy=0.3 | large_imbalance_active=True | score_normalization=per_group
+   dcv_targeting: enabled=<NA> | over_served_penalty=<NA> | dcv_first_swap=<NA> | parity_repair=<NA> | repair_successes=None | dcv_before_repair=None | dcv_after_repair_est=None
+   RIS config: search_estimator=fairness_aware_ris | final_estimator=monte_carlo | fair_ris=True | ris_rr_sets=1024 | ris_verified=True | fair_ris_verified=True | ris_cache_hit=False | force_ris_for_all_stacks=True | require_ris=True
+   search_objective_calls: fair_ris=2 | ris=0 | search_mc=0 | final_mc=1 | rr_sets_used=1024 | approx_final_fscore=0.039117132418539355 | final_mc_fscore=0.011727668189158637
+   candidate_pool_diagnostics: stratified=True | group_counts={'0': 495, '1': 1571, '2': 186} | group_quota=120 | quota_shortfall={'0': 0, '1': 0, '2': 0}
+   optimizer_diagnostics: initial_seed_source=target_shortfall_group_quota | repaired_seed_sets=0 | repair_attempts=0 | weak_group_repairs=0 | successful_swaps=160 | swap_attempts=0 | swap_accepted=160 | swap_rejected_fairness=0 | swap_accepted_dcv=0 | swap_rejected_dcv=None | community_coverage={"0": 5, "1": 5, "10": 1, "100": 1, "101": 1, "106": 1, "107": 1, "11": 1, "111": 1, "113": 1, "115": 1, "12": 1, "13": 3, "14": 3, "15": 8, "16": 7, "17": 2, "18": 1, "19": 3, "2": 12, "20": 3, "21": 1, "22": 3, "23": 1, "25": 2, "26": 3, "27": 1, "28": 2, "3": 2, "30": 1, "32": 1, "35": 1, "38": 1, "39": 1, "40": 1, "48": 1, "5": 3, "50": 1, "51": 1, "53": 2, "57": 1, "6": 1, "62": 1, "63": 1, "64": 1, "66": 1, "68": 1, "7": 2, "71": 1, "72": 1, "75": 1, "77": 1, "79": 2, "8": 2, "82": 1, "83": 1, "86": 1, "88": 1, "9": 3, "91": 1, "94": 1, "95": 1, "96": 1, "97": 1} | community_coverage_ratio=0.5470085470085471 | protected_group_coverage={"0": 28, "1": 86, "2": 6}
+   mf_lift: enabled=True | started=True | reason_not_started= | initial_mf=0.09821428571428571 | final_approx_mf=0.10267857142857142 | final_mc_mf=0.032009800362976404 | mc_selection=lift_swap_2 | weakest_before=0 | weakest_after=1 | attempts=3 | successful_swaps=3 | rejected_target_loss=0 | rejected_dcv_shortfall=0 | rejected_mf_drop=0 | dcv_shortfall_preserved=True | target_coverage_preserved=True
+   caches: embedding=miss | community=miss | ris=miss | score=miss | fitness_hits=None | swap_hits=None
+   artifacts: score_table=saved | embeddings=saved | community_assignments=saved
+   notes=target_shortfall_repair=true; target_coverage_first=true; overcoverage_control=true; communities=117; modularity=0.656402; embedding_cache=miss; target=combined_fairness_gain; backend=gnn; candidate_pool=2252; validation_spearman=0.9333; validation_precision_at_budget=0.6500; Search objective used Fair RIS; final metrics reported by Monte Carlo.; target-shortfall repair used capped target utility and overcoverage waste penalty
+
+Recommendations
+------------------------------------------------------------------------
+best_interpretable_baseline=n/a
+best_ea_memetic_stack=n/a
+best_fairness_focused_ea_memetic_stack=n/a
+best_fairness_quality_method=graphsage_leiden_ris_ic_ea_memetic
+best_scalable_method=n/a
+best_spread_method=n/a
+best_runtime_method=n/a
+final_professor_priority_recommendation=graphsage_leiden_ris_ic_ea_memetic

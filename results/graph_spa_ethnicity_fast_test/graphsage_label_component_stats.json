@@ -1,0 +1,100 @@
+{
+  "baseline_group_influence": {
+    "asian": 0.0,
+    "black": 7.4375,
+    "latino": 12.170454545454545,
+    "other": 0.0,
+    "white": 30.502092050209203
+  },
+  "baseline_normalized_group_influence": {
+    "asian": 0.0,
+    "black": 0.109375,
+    "latino": 0.07954545454545454,
+    "other": 0.0,
+    "white": 0.12552301255230125
+  },
+  "baseline_seed_count": 50,
+  "ideal_influences": {
+    "asian": 1.64,
+    "black": 5.68,
+    "latino": 13.440000000000001,
+    "other": 1.6,
+    "white": 21.040000000000003
+  },
+  "include_mf_gain_in_graphsage_label": true,
+  "label_component_stats": {
+    "combined_fairness_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.13727502524852753,
+      "min": 0.0,
+      "std": 0.13057269155979156
+    },
+    "community_diversity_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.34971428571428564,
+      "min": 0.0,
+      "std": 0.35365634598216183
+    },
+    "fair_ris_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.15780271760323725,
+      "min": 0.0,
+      "std": 0.17297896407193572
+    },
+    "label_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.13727502057389937,
+      "min": 0.0,
+      "std": 0.13057268912392803
+    },
+    "mf_gain_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.006,
+      "min": 0.0,
+      "std": 0.06117007256639293
+    },
+    "ris_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.2104,
+      "min": 0.0,
+      "std": 0.2199359906882
+    },
+    "shortfall_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.025143110795454553,
+      "min": 0.0,
+      "std": 0.10094590654486844
+    },
+    "spread_proxy_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.18254354943976733,
+      "min": 0.0,
+      "std": 0.13602467597806756
+    },
+    "weakest_group_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.006,
+      "min": 0.0,
+      "std": 0.06117007256639293
+    }
+  },
+  "mf_gain_label_weight": 1.5,
+  "mf_gain_weakest_group": "asian",
+  "shortfall_ratio": {
+    "asian": 1.0,
+    "black": 0.0,
+    "latino": 0.09446022727272739,
+    "other": 1.0,
+    "white": 0.0
+  },
+  "training_target": "combined_fairness_gain"
+}

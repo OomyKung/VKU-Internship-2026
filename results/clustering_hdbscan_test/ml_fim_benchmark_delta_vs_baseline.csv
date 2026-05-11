@@ -1,2 +1,0 @@
-reference_stack_name,reference_kind,stack_name,delta_f_score,delta_mf,delta_dcv,delta_spread,delta_extra_spread,runtime_speedup_vs_baseline,dataset,protected_attribute,budget
-community_aware_fair_greedy,baseline,graphsage_community_siea,0.2019360209830232,0.04811447811447812,-0.3557575638515683,0.980000000000004,0.980000000000004,0.09023885527115763,graph_spa_500_0,region,40

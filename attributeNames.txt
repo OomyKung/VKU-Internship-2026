@@ -1,2 +1,2 @@
 color: synth3, synth2, rice_subset, twitter
-region, ethnicity, gender, age: graph_spa_500_0
+region, ethnicity, gender, age: graph_spa_500_0  # This dataset doesn't need Heavy EA search.
