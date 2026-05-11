@@ -1,3 +1,0 @@
-generation,best_score,best_f_score,best_spread,best_mf,best_dcv,average_population_score,population_diversity,best_seed_set,local_search_applied_count,local_search_swap_evaluations,screening_evaluation_calls,full_evaluation_calls,zero_covered_groups_count,bottom_3_avg_group_spread,fraction_groups_covered,weakest_groups_note
-0,-0.02388888888888889,-0.02388888888888889,4.666666666666667,0.007777777777777778,0.05555555555555556,-0.02678174603174606,0.7857142857142857,"[292, 405, 456, 9]",4,56,0,63,0,1.5555555555555554,1.0,"1,0,2"
-1,-0.014074074074074083,-0.014074074074074083,5.0,0.008888888888888889,0.037037037037037056,-0.023363756613756635,0.8253968253968255,"[207, 346, 494, 9]",4,64,0,69,0,1.6666666666666667,1.0,"1,0,2"

@@ -1,8 +1,0 @@
-{
-  "accepted": null,
-  "final_selected_stack": "graphsage_fair_ris_hybrid",
-  "final_reason": "selected_from_benchmark_not_validated",
-  "candidate_stack": "graphsage_fair_ris_hybrid",
-  "fallback_stack": null,
-  "validation_seeds": []
-}

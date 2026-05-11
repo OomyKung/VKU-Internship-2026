@@ -1,2 +1,0 @@
-generation,best_score,best_f_score,best_spread,best_mf,best_dcv,average_population_score,population_diversity,best_seed_set,local_search_applied_count,local_search_swap_evaluations,screening_evaluation_calls,full_evaluation_calls,zero_covered_groups_count,bottom_3_avg_group_spread,fraction_groups_covered,weakest_groups_note
-0,-0.4230769230769231,-0.4230769230769231,3.0,0.0,0.8461538461538461,-0.4230769230769231,0.7777777777777778,"[17, 238]",4,32,0,35,11,0.0,0.15384615384615385,"acton,desert_view_highlands,leona_valley"

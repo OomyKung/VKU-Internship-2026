@@ -1,2 +1,0 @@
-generation,best_score,best_f_score,best_spread,best_mf,best_dcv,average_population_score,population_diversity,best_seed_set,local_search_applied_count,local_search_swap_evaluations,screening_evaluation_calls,full_evaluation_calls,zero_covered_groups_count,bottom_3_avg_group_spread,fraction_groups_covered,weakest_groups_note
-0,-0.3279256288734962,-0.3279256288734962,5.0,0.0,0.6558512577469924,-0.352370356517276,0.8915343915343916,"[226, 34, 461, 468, 481]",4,4,0,15,8,0.0,0.38461538461538464,"lake_los_angeles,leona_valley,littlerock"

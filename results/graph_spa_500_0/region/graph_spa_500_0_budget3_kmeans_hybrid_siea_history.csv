@@ -1,3 +1,0 @@
-generation,best_score,best_f_score,best_spread,best_mf,best_dcv,average_population_score,population_diversity,best_seed_set,local_search_applied_count,local_search_swap_evaluations,screening_evaluation_calls,full_evaluation_calls,zero_covered_groups_count,bottom_3_avg_group_spread,fraction_groups_covered,weakest_groups_note
-0,-0.35686535686535686,-0.35686535686535686,3.5,0.0,0.7137307137307137,-0.3854193024809139,0.85,"[271, 492, 9]",4,36,0,25,9,0.0,0.3076923076923077,"desert_view_highlands,lake_los_angeles,lancaster"
-1,-0.35686535686535686,-0.35686535686535686,3.5,0.0,0.7137307137307137,-0.3833990083990085,0.7333333333333333,"[271, 492, 9]",4,30,0,2,9,0.0,0.3076923076923077,"desert_view_highlands,lake_los_angeles,lancaster"

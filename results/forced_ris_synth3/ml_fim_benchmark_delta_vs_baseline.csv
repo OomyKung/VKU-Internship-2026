@@ -1,2 +1,0 @@
-reference_stack_name,reference_kind,stack_name,delta_f_score,delta_mf,delta_dcv,delta_spread,delta_extra_spread,runtime_speedup_vs_baseline,dataset,protected_attribute,budget
-community_aware_fair_greedy,baseline,node2vec_xgboost_community_siea,-0.05087787228971415,-0.0045662431941923785,0.09718950138523592,19.353333333333325,19.353333333333325,1.9473102854489421,twitter,color,100

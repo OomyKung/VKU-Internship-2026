@@ -1,3 +1,0 @@
-validation_role,dataset,protected_attribute,budget,random_seed,stack_name,status,skip_reason,total_spread,extra_spread,mf,dcv,f_score,runtime_seconds,final_spread_estimator,mc_runs_search,mc_runs_eval
-candidate,graph_spa_500_0,region,40,7,graphsage_fair_ris_hybrid,ok,,42.0,2.0,0.06734006734006734,0.028525333422647806,0.019407366958709767,5.131699700003082,monte_carlo,2,3
-fallback,graph_spa_500_0,region,40,7,community_aware_fair_greedy,ok,,41.0,1.0,0.06635071090047394,0.05246283618726111,0.006943937356606415,17.355707700000494,monte_carlo,2,3

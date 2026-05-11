@@ -1,2 +1,0 @@
-dataset,method,task,status,runtime_seconds,embedding_runtime_seconds,embedding_dim,node_count,evaluated_count,train_count,test_count,label_column,classifier,edge_feature,accuracy,macro_f1,micro_f1,roc_auc,average_precision,nmi,ari,notes,skipped_reason
-twitter,line,node_classification,ok,0.0901518999999098,0.23022500000024593,64,3753,938,2815,938,color,logistic_regression,,0.7910447761194029,0.5902932213162013,0.7910447761194029,,,,,classes=3; stratified=True,
