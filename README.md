@@ -449,6 +449,237 @@ For a faster smoke run, lower `--ris-num-rr-sets`, `--mc-runs-eval`, `--populati
 python scripts\run_ml_fim_benchmark.py --dataset graph_spa_500_0 --protected-attribute region --budget 50 --ml-stacks graphsage_leiden_ris_ic_ea_memetic graphsage_community_ea_memetic node2vec_xgboost_community_ea_memetic --include-baseline --optimizer ea_memetic --ranking-policy professor_priority --spread-estimator-search fairness_aware_ris --spread-estimator-final monte_carlo --use-fair-ris --force-ris-for-all-stacks --require-ris --ris-num-rr-sets 512 --mc-runs-search 20 --mc-runs-eval 1000 --population-size 20 --generations 12 --random-seed 42 --output-dir results\shortfall_dcv_strong_confirm --save-json
 ```
 
+# Evaluation Command Summary
+
+This section summarizes the most useful commands for debugging, balanced evaluation, scalability testing, multi-seed stability, ablation studies, result summarization, and result cleanup.
+
+---
+
+## 1. Quick Single-Dataset Debug Runs
+
+### Fast synth2 test
+
+```bash
+python scripts/run_fim_stack.py --dataset synth2 --protected-attribute color --budget 40 --embedding-method graphsage --graphsage-training-target combined_fairness_gain --community-method leiden --optimizer ea_memetic --ris-num-rr-sets 1024 --mc-runs-eval 500 --population-size 40 --generations 30 --graphsage-hidden-dim 16 --graphsage-embedding-dim 32 --graphsage-epochs 50 --target-alpha 0.8 --candidate-pool-size 250 --shortfall-repair-rounds 8 --shortfall-repair-candidate-limit 300 --use-mf-lift --mf-lift-rounds 4 --mf-lift-candidate-limit 200 --include-mf-gain-in-graphsage-label --random-seed 42 --output-dir results/synth2_mf_lift_fast --save-json --output-mode compact
+```
+
+### Fast graph_spa_500_0 region test
+
+```bash
+python scripts/run_fim_stack.py --dataset graph_spa_500_0 --protected-attribute region --budget 50 --embedding-method graphsage --graphsage-training-target combined_fairness_gain --community-method leiden --optimizer ea_memetic --ris-num-rr-sets 512 --mc-runs-eval 300 --population-size 12 --generations 8 --graphsage-hidden-dim 16 --graphsage-embedding-dim 32 --graphsage-epochs 30 --target-alpha 0.8 --candidate-pool-size 120 --shortfall-repair-rounds 2 --shortfall-repair-candidate-limit 60 --include-mf-gain-in-graphsage-label --random-seed 42 --output-dir results/graph_spa_region_fast_test --save-json --output-mode compact
+```
+
+### Fast Twitter scalability test
+
+```bash
+python scripts/run_fim_stack.py --dataset twitter --protected-attribute color --budget 120 --embedding-method graphsage --graphsage-training-target combined_fairness_gain --community-method leiden --optimizer ea_memetic --ris-num-rr-sets 512 --mc-runs-eval 300 --population-size 30 --generations 20 --graphsage-hidden-dim 16 --graphsage-embedding-dim 32 --graphsage-epochs 50 --target-alpha 0.8 --candidate-pool-size 500 --shortfall-repair-rounds 6 --shortfall-repair-candidate-limit 250 --use-mf-lift --mf-lift-rounds 3 --mf-lift-candidate-limit 150 --include-mf-gain-in-graphsage-label --random-seed 42 --output-dir results/twitter_scalability_smoke --save-json --output-mode compact
+```
+
+---
+
+## 2. Balanced Report-Quality Runs
+
+### Balanced synth2
+
+```bash
+python scripts/run_fim_stack.py --dataset synth2 --protected-attribute color --budget 40 --embedding-method graphsage --graphsage-training-target combined_fairness_gain --community-method leiden --optimizer ea_memetic --ris-num-rr-sets 1024 --mc-runs-eval 1000 --population-size 30 --generations 20 --graphsage-hidden-dim 16 --graphsage-embedding-dim 32 --graphsage-epochs 50 --target-alpha 0.8 --candidate-pool-size 250 --shortfall-repair-rounds 8 --shortfall-repair-candidate-limit 300 --use-mf-lift --mf-lift-rounds 4 --mf-lift-candidate-limit 200 --include-mf-gain-in-graphsage-label --random-seed 42 --output-dir results/scalability_synth2_balanced --save-json --output-mode compact
+```
+
+### Balanced synth3
+
+```bash
+python scripts/run_fim_stack.py --dataset synth3 --protected-attribute color --budget 40 --embedding-method graphsage --graphsage-training-target combined_fairness_gain --community-method leiden --optimizer ea_memetic --ris-num-rr-sets 1024 --mc-runs-eval 1000 --population-size 30 --generations 20 --graphsage-hidden-dim 16 --graphsage-embedding-dim 32 --graphsage-epochs 50 --target-alpha 0.8 --candidate-pool-size 300 --shortfall-repair-rounds 8 --shortfall-repair-candidate-limit 300 --use-mf-lift --mf-lift-rounds 4 --mf-lift-candidate-limit 200 --include-mf-gain-in-graphsage-label --random-seed 42 --output-dir results/scalability_synth3_balanced --save-json --output-mode compact
+```
+
+### Balanced rice_subset
+
+```bash
+python scripts/run_fim_stack.py --dataset rice_subset --protected-attribute color --budget 70 --embedding-method graphsage --graphsage-training-target combined_fairness_gain --community-method leiden --optimizer ea_memetic --ris-num-rr-sets 1024 --mc-runs-eval 1000 --population-size 30 --generations 20 --graphsage-hidden-dim 16 --graphsage-embedding-dim 32 --graphsage-epochs 50 --target-alpha 0.8 --candidate-pool-size 400 --shortfall-repair-rounds 8 --shortfall-repair-candidate-limit 350 --use-mf-lift --mf-lift-rounds 4 --mf-lift-candidate-limit 250 --include-mf-gain-in-graphsage-label --random-seed 42 --output-dir results/scalability_rice_balanced --save-json --output-mode compact
+```
+
+### Balanced Twitter
+
+```bash
+python scripts/run_fim_stack.py --dataset twitter --protected-attribute color --budget 120 --embedding-method graphsage --graphsage-training-target combined_fairness_gain --community-method leiden --optimizer ea_memetic --ris-num-rr-sets 1024 --mc-runs-eval 1000 --population-size 30 --generations 20 --graphsage-hidden-dim 16 --graphsage-embedding-dim 32 --graphsage-epochs 50 --target-alpha 0.8 --candidate-pool-size 500 --shortfall-repair-rounds 6 --shortfall-repair-candidate-limit 250 --use-mf-lift --mf-lift-rounds 3 --mf-lift-candidate-limit 150 --include-mf-gain-in-graphsage-label --random-seed 42 --output-dir results/twitter_scalability_balanced_confirm --save-json --output-mode compact
+```
+
+### Balanced graph_spa_500_0 region confirmation
+
+```bash
+python scripts/run_fim_stack.py --dataset graph_spa_500_0 --protected-attribute region --budget 50 --embedding-method graphsage --graphsage-training-target combined_fairness_gain --community-method leiden --optimizer ea_memetic --ris-num-rr-sets 768 --mc-runs-eval 1000 --population-size 12 --generations 8 --graphsage-hidden-dim 16 --graphsage-embedding-dim 32 --graphsage-epochs 30 --target-alpha 0.8 --candidate-pool-size 120 --shortfall-repair-rounds 2 --shortfall-repair-candidate-limit 60 --include-mf-gain-in-graphsage-label --random-seed 42 --output-dir results/graph_spa_region_fast_confirm --save-json --output-mode compact
+```
+
+---
+
+## 3. All-Dataset Evaluation Runner
+
+### Run all supported dataset/protected-attribute pairs
+
+```bash
+python scripts/run_all_fim_evaluations.py
+```
+
+### Fast mode
+
+```bash
+python scripts/run_all_fim_evaluations.py --mode fast
+```
+
+### Balanced mode
+
+```bash
+python scripts/run_all_fim_evaluations.py --mode balanced
+```
+
+### Quality mode
+
+```bash
+python scripts/run_all_fim_evaluations.py --mode quality
+```
+
+### Preview commands without executing
+
+```bash
+python scripts/run_all_fim_evaluations.py --dry-run
+```
+
+### Skip completed outputs
+
+```bash
+python scripts/run_all_fim_evaluations.py --skip-existing
+```
+
+### Run selected datasets only
+
+```bash
+python scripts/run_all_fim_evaluations.py --datasets synth2,twitter,graph_spa_500_0
+```
+
+### Run selected protected attributes only
+
+```bash
+python scripts/run_all_fim_evaluations.py --protected-attributes color,region,ethnicity
+```
+
+### Run all datasets with multiple seeds
+
+```bash
+python scripts/run_all_fim_evaluations.py --seeds 7,21,42
+```
+
+### Run all datasets once, but Twitter with multiple seeds
+
+```bash
+python scripts/run_all_fim_evaluations.py --multi-seed-twitter
+```
+
+---
+
+## 4. Multi-Seed Stability Runs
+
+### Twitter multi-seed stability
+
+```bash
+python scripts/run_all_fim_evaluations.py --datasets twitter --multi-seed-twitter
+```
+
+### All datasets with three seeds
+
+```bash
+python scripts/run_all_fim_evaluations.py --seeds 7,21,42
+```
+
+---
+
+## 5. Ablation Tests
+
+### Full stack baseline
+
+```bash
+python scripts/run_fim_stack.py --dataset twitter --protected-attribute color --budget 120 --embedding-method graphsage --graphsage-training-target combined_fairness_gain --community-method leiden --optimizer ea_memetic --ris-num-rr-sets 1024 --mc-runs-eval 1000 --population-size 30 --generations 20 --graphsage-hidden-dim 16 --graphsage-embedding-dim 32 --graphsage-epochs 50 --target-alpha 0.8 --candidate-pool-size 500 --shortfall-repair-rounds 6 --shortfall-repair-candidate-limit 250 --use-mf-lift --mf-lift-rounds 3 --mf-lift-candidate-limit 150 --include-mf-gain-in-graphsage-label --random-seed 42 --output-dir results/ablation_full_stack --save-json --output-mode compact
+```
+
+### No GraphSAGE guidance
+
+```bash
+python scripts/run_fim_stack.py --dataset twitter --protected-attribute color --budget 120 --embedding-method graphsage --graphsage-training-target combined_fairness_gain --community-method leiden --optimizer ea_memetic --ris-num-rr-sets 1024 --mc-runs-eval 1000 --population-size 30 --generations 20 --graphsage-hidden-dim 16 --graphsage-embedding-dim 32 --graphsage-epochs 50 --target-alpha 0.8 --candidate-pool-size 500 --shortfall-repair-rounds 6 --shortfall-repair-candidate-limit 250 --use-mf-lift --mf-lift-rounds 3 --mf-lift-candidate-limit 150 --include-mf-gain-in-graphsage-label --disable-graphsage-guidance --random-seed 42 --output-dir results/ablation_no_graphsage --save-json --output-mode compact
+```
+
+### No MF-Lift
+
+```bash
+python scripts/run_fim_stack.py --dataset twitter --protected-attribute color --budget 120 --embedding-method graphsage --graphsage-training-target combined_fairness_gain --community-method leiden --optimizer ea_memetic --ris-num-rr-sets 1024 --mc-runs-eval 1000 --population-size 30 --generations 20 --graphsage-hidden-dim 16 --graphsage-embedding-dim 32 --graphsage-epochs 50 --target-alpha 0.8 --candidate-pool-size 500 --shortfall-repair-rounds 6 --shortfall-repair-candidate-limit 250 --random-seed 42 --output-dir results/ablation_no_mf_lift --save-json --output-mode compact
+```
+
+### No Fair RIS guidance
+
+```bash
+python scripts/run_fim_stack.py --dataset twitter --protected-attribute color --budget 120 --embedding-method graphsage --graphsage-training-target combined_fairness_gain --community-method leiden --optimizer ea_memetic --ris-num-rr-sets 1024 --mc-runs-eval 1000 --population-size 30 --generations 20 --graphsage-hidden-dim 16 --graphsage-embedding-dim 32 --graphsage-epochs 50 --target-alpha 0.8 --candidate-pool-size 500 --shortfall-repair-rounds 6 --shortfall-repair-candidate-limit 250 --use-mf-lift --mf-lift-rounds 3 --mf-lift-candidate-limit 150 --include-mf-gain-in-graphsage-label --disable-fair-ris-guidance --random-seed 42 --output-dir results/ablation_no_fair_ris --save-json --output-mode compact
+```
+
+---
+
+## 6. Result Summary Tables
+
+### All-dataset evaluation summary
+
+```bash
+python scripts/summarize_scalability_results.py --results-root results --include-pattern all_eval_ --output-dir results/all_dataset_eval_summary --print-table --save-csv --save-json --save-markdown --table-mode compact
+```
+
+### Scalability-only summary
+
+```bash
+python scripts/summarize_scalability_results.py --results-root results --include-pattern scalability_ --output-dir results/scalability_summary --print-table --save-csv --save-json --save-markdown --table-mode compact
+```
+
+### All-results summary
+
+```bash
+python scripts/summarize_scalability_results.py --results-root results --output-dir results/all_results_summary --print-table --save-csv --save-json --save-markdown --table-mode compact
+```
+
+### Vertical readable summary
+
+```bash
+python scripts/summarize_scalability_results.py --results-root results --output-dir results/all_results_summary --print-table --save-csv --save-json --save-markdown --table-mode vertical
+```
+
+---
+
+## 7. Cleanup Commands
+
+### Preview cleanup that keeps only today's runs
+
+```bash
+python scripts/cleanup_results.py --results-root results --keep-only-today
+```
+
+### Delete older-than-today runs
+
+```bash
+python scripts/cleanup_results.py --results-root results --keep-only-today --apply --delete --confirm-delete
+```
+
+### Regenerate summary after cleanup
+
+```bash
+python scripts/summarize_scalability_results.py --results-root results --output-dir results/all_results_summary --print-table --save-csv --save-json --save-markdown --table-mode compact
+```
+
+---
+
+## 8. Evaluation Checklist
+
+- Fast runs: use while debugging.
+- Balanced runs: use for report tables.
+- Quality runs: use only for final confirmation.
+- Multi-seed runs: use to prove stability.
+- Ablation runs: use to prove each component matters.
+- Summary commands: use to generate final CSV/Markdown tables.
+- Cleanup commands: use after important outputs are saved.
+- Always check: F-score, MF, DCV_shortfall, DCV_disparity, Target Coverage, Spread, Runtime.
+
 ## Built-In Protected Attributes
 
 - `twitter`, `synth2`, `synth3`, `rice_subset`: `color`

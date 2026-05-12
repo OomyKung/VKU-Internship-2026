@@ -3,25 +3,20 @@
 ## Individual Runs
 | Dataset | Attr | Nodes | Edges | Budget | Seed | RR | MC | F-score | MF | DCV_short | DCV_disp | Coverage | Spread | Runtime(s) | Quality |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| rice_subset | color | 445 | 19320 | 70 |  | 1024 | 1000 | 0.2145 | 0.2304 | 0.0000 | 0.0634 | 1.0000 | 117.408 | 50.32 | PASS |
+| graph_spa_500_0 | region | 500 | 1689 | 50 |  | 1024 | 1000 | 0.0831 | 0.0885 | 0.0000 | 0.0216 | 1.0000 | 51.895 | 1335.94 | PASS |
 | synth2 | color | 500 | 3668 | 40 |  | 1024 | 1000 | 0.0802 | 0.0830 | 0.0000 | 0.0112 | 1.0000 | 42.439 | 15.78 | PASS |
-| twitter | color | 3753 | 13986 | 120 |  | 1024 | 1000 | 0.0287 | 0.0316 | 0.0000 | 0.0118 | 1.0000 | 122.973 | 149.52 | PASS |
-| twitter | color | 3753 | 13986 | 120 |  | 512 | 300 | 0.0311 | 0.0324 | 0.0000 | 0.0054 | 1.0000 | 123.603 | 130.80 | PASS |
 
 ## Aggregated Results
 | Dataset | Attr | Nodes | Edges | Budget | Runs | F-score mean±std | MF mean±std | DCV_short mean±std | DCV_disp mean±std | Coverage Pass | DCV=0 Pass | Spread mean±std | Runtime mean±std | Quality Pass Rate | Verdict |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| rice_subset | color | 445 | 19320 | 70 | 1 | 0.2145±0.0000 | 0.2304±0.0000 | 0.0000±0.0000 | 0.0634±0.0000 | 100.0% | 100.0% | 117.408±0.000 | 50.32±0.00 | 100.0% | EXCELLENT |
+| graph_spa_500_0 | region | 500 | 1689 | 50 | 1 | 0.0831±0.0000 | 0.0885±0.0000 | 0.0000±0.0000 | 0.0216±0.0000 | 100.0% | 100.0% | 51.895±0.000 | 1335.94±0.00 | 100.0% | GOOD |
 | synth2 | color | 500 | 3668 | 40 | 1 | 0.0802±0.0000 | 0.0830±0.0000 | 0.0000±0.0000 | 0.0112±0.0000 | 100.0% | 100.0% | 42.439±0.000 | 15.78±0.00 | 100.0% | EXCELLENT |
-| twitter | color | 3753 | 13986 | 120 | 1 | 0.0287±0.0000 | 0.0316±0.0000 | 0.0000±0.0000 | 0.0118±0.0000 | 100.0% | 100.0% | 122.973±0.000 | 149.52±0.00 | 100.0% | EXCELLENT |
-| twitter | color | 3753 | 13986 | 120 | 1 | 0.0311±0.0000 | 0.0324±0.0000 | 0.0000±0.0000 | 0.0054±0.0000 | 100.0% | 100.0% | 123.603±0.000 | 130.80±0.00 | 100.0% | EXCELLENT |
 
 ## Key Findings
 - Fastest run: synth2 seed n/a at 15.78 seconds.
-- Slowest run: twitter seed n/a at 149.52 seconds.
-- Highest average F-score: rice_subset (0.2145).
-- Lowest average MF: twitter (0.0316).
+- Slowest run: graph_spa_500_0 seed n/a at 1335.94 seconds.
+- Highest average F-score: graph_spa_500_0 (0.0831).
+- Lowest average MF: synth2 (0.0830).
 - All evaluated runs satisfied DCV_shortfall = 0 and Target Coverage Ratio = 1.0.
-- Twitter aggregated 1 run(s) with average runtime around 149.52 seconds.
-- Runtime generally increases with graph size in the selected result set.
+- Runtime scaling trend needs at least two datasets with node counts and runtimes.
 - Runtime also depends on candidate pool size, RR sets, optimizer settings, and final Monte Carlo runs.
