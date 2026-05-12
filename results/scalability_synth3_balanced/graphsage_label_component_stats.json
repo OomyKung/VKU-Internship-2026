@@ -1,0 +1,92 @@
+{
+  "baseline_group_influence": {
+    "0": 11.015325670498084,
+    "1": 19.967532467532465,
+    "2": 12.755102040816325
+  },
+  "baseline_normalized_group_influence": {
+    "0": 0.08812260536398467,
+    "1": 0.06655844155844155,
+    "2": 0.17006802721088435
+  },
+  "baseline_seed_count": 40,
+  "ideal_influences": {
+    "0": 8.440000000000001,
+    "1": 21.240000000000002,
+    "2": 5.08
+  },
+  "include_mf_gain_in_graphsage_label": true,
+  "label_component_stats": {
+    "combined_fairness_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.26652032136917114,
+      "min": 0.0,
+      "std": 0.161865696310997
+    },
+    "community_diversity_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.6433048780487804,
+      "min": 0.0,
+      "std": 0.3218213483865599
+    },
+    "fair_ris_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.2160894425390031,
+      "min": 0.0,
+      "std": 0.16691736006365576
+    },
+    "label_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.2665203167553991,
+      "min": 0.0,
+      "std": 0.16186569562300301
+    },
+    "mf_gain_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.16625,
+      "min": 0.0,
+      "std": 0.19941711937544376
+    },
+    "ris_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.271,
+      "min": 0.0,
+      "std": 0.18336166447761104
+    },
+    "shortfall_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.16625,
+      "min": 0.0,
+      "std": 0.1994171193754438
+    },
+    "spread_proxy_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.40577697804349167,
+      "min": 0.0,
+      "std": 0.18216572993741625
+    },
+    "weakest_group_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.16625,
+      "min": 0.0,
+      "std": 0.19941711937544376
+    }
+  },
+  "mf_gain_label_weight": 1.5,
+  "mf_gain_weakest_group": "1",
+  "shortfall_ratio": {
+    "0": 0.0,
+    "1": 0.05990901753613641,
+    "2": 0.0
+  },
+  "training_target": "combined_fairness_gain"
+}

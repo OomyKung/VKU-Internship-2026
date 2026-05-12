@@ -83,6 +83,30 @@ GraphSAGE quality in this run:
 
 The high validation correlation means GraphSAGE learned the fairness-guided node ranking signal well for this saved run. The optimizer still uses Fair RIS and repair rules because GraphSAGE is guidance, not final truth.
 
+## Saved Dataset Results
+
+The table below summarizes the current top-level saved dataset runs under `results/*/summary.json`.
+
+| Run | Dataset | Attr | Budget | RR | MC | F-score | MF | DCV_short | DCV_disp | Coverage | Spread | Runtime(s) | Gate |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| graph_spa_age_fast_test | graph_spa_500_0 | age | 50 | 512 | 300 | 0.0886 | 0.0952 | 0.0000 | 0.0266 | 1.0000 | 51.513 | 1.96 | fail: scalability_required |
+| graph_spa_ethnicity_fast_test | graph_spa_500_0 | ethnicity | 50 | 512 | 300 | 0.0946 | 0.0978 | 0.0000 | 0.0128 | 1.0000 | 51.683 | 1.70 | fail: scalability_required |
+| graph_spa_gender_fast_test | graph_spa_500_0 | gender | 50 | 512 | 300 | 0.0999 | 0.1018 | 0.0000 | 0.0076 | 1.0000 | 51.703 | 1.68 | fail: scalability_required |
+| graph_spa_region_fast_confirm | graph_spa_500_0 | region | 50 | 768 | 1000 | 0.0835 | 0.0890 | 0.0000 | 0.0216 | 1.0000 | 51.936 | 52.14 | fail: scalability_required |
+| graph_spa_region_fast_test | graph_spa_500_0 | region | 50 | 512 | 300 | 0.0833 | 0.0887 | 0.0000 | 0.0215 | 1.0000 | 51.650 | 40.51 | fail: scalability_required |
+| scalability_rice_balanced | rice_subset | color | 70 | 1024 | 1000 | 0.2145 | 0.2304 | 0.0000 | 0.0634 | 1.0000 | 117.408 | 44.46 | pass |
+| scalability_synth2_balanced | synth2 | color | 40 | 1024 | 1000 | 0.0802 | 0.0830 | 0.0000 | 0.0112 | 1.0000 | 42.439 | 8.77 | pass |
+| scalability_synth3_balanced | synth3 | color | 40 | 1024 | 1000 | 0.0762 | 0.0815 | 0.0000 | 0.0212 | 1.0000 | 42.378 | 90.42 | pass |
+| target_alpha_08_full | twitter | color | 120 | 2048 | 1000 | 0.0286 | 0.0316 | 0.0000 | 0.0121 | 1.0000 | 123.125 | 1117.05 | fail: scalability_required |
+| twitter_balanced_seed_21 | twitter | color | 120 | 1024 | 1000 | 0.0331 | 0.0334 | 0.0000 | 0.0012 | 1.0000 | 125.783 | 144.75 | fail: scalability_required |
+| twitter_balanced_seed_42 | twitter | color | 120 | 1024 | 1000 | 0.0287 | 0.0316 | 0.0000 | 0.0118 | 1.0000 | 122.973 | 148.26 | fail: scalability_required |
+| twitter_balanced_seed_7 | twitter | color | 120 | 1024 | 1000 | 0.0264 | 0.0313 | 0.0000 | 0.0195 | 1.0000 | 124.703 | 180.78 | fail: scalability_required |
+| twitter_balanced_seed_77 | twitter | color | 120 | 1024 | 1000 | 0.0299 | 0.0320 | 0.0000 | 0.0086 | 1.0000 | 123.297 | 161.88 | fail: scalability_required |
+| twitter_balanced_seed_99 | twitter | color | 120 | 1024 | 1000 | 0.0286 | 0.0316 | 0.0000 | 0.0119 | 1.0000 | 122.798 | 162.39 | fail: scalability_required |
+| twitter_scalability_balanced_confirm | twitter | color | 120 | 1024 | 1000 | 0.0287 | 0.0316 | 0.0000 | 0.0118 | 1.0000 | 122.973 | 157.24 | fail: scalability_required |
+
+Runs with `DCV_short = 0.0000` and `Coverage = 1.0000` met the target-shortfall fairness objective. A `scalability_required` gate failure means the stricter professor-priority scalability check still rejected the run.
+
 ## Detailed Algorithm Explanation
 
 ### Problem Being Solved

@@ -1,132 +1,88 @@
 {
   "baseline_group_influence": {
-    "acton": 3.347826086956522,
-    "desert_view_highlands": 0.0,
-    "lake_los_angeles": 4.040816326530612,
-    "lancaster": 23.60178970917226,
-    "leona_valley": 0.0,
-    "littlerock": 0.0,
-    "northeast_antelope_valley": 0.8235294117647058,
-    "northwest_antelope_valley": 0.0,
-    "northwest_palmdale": 0.0,
-    "palmdale": 15.86046511627907,
-    "quartz_hill": 3.0,
-    "southeast_antelope_valley": 0.0,
-    "sun_village": 1.935483870967742
+    "0": 21.21212121212121,
+    "1": 99.19293820933166
   },
   "baseline_normalized_group_influence": {
-    "acton": 0.30434782608695654,
-    "desert_view_highlands": 0.0,
-    "lake_los_angeles": 0.22448979591836732,
-    "lancaster": 0.11185682326621924,
-    "leona_valley": 0.0,
-    "littlerock": 0.0,
-    "northeast_antelope_valley": 0.11764705882352941,
-    "northwest_antelope_valley": 0.0,
-    "northwest_palmdale": 0.0,
-    "palmdale": 0.08010335917312661,
-    "quartz_hill": 0.2,
-    "southeast_antelope_valley": 0.0,
-    "sun_village": 0.12903225806451613
+    "0": 0.2121212121212121,
+    "1": 0.287515762925599
   },
-  "baseline_seed_count": 50,
+  "baseline_seed_count": 70,
   "ideal_influences": {
-    "acton": 1.64,
-    "desert_view_highlands": 0.8,
-    "lake_los_angeles": 1.6,
-    "lancaster": 18.64,
-    "leona_valley": 0.8,
-    "littlerock": 0.8,
-    "northeast_antelope_valley": 0.8800000000000001,
-    "northwest_antelope_valley": 0.8800000000000001,
-    "northwest_palmdale": 0.8400000000000001,
-    "palmdale": 17.080000000000002,
-    "quartz_hill": 1.6,
-    "southeast_antelope_valley": 0.8400000000000001,
-    "sun_village": 1.64
+    "0": 14.4,
+    "1": 76.88
   },
   "include_mf_gain_in_graphsage_label": true,
   "label_component_stats": {
     "combined_fairness_gain": {
-      "count": 500,
+      "count": 445,
       "max": 1.0,
-      "mean": 0.15140394866466522,
+      "mean": 0.3362164795398712,
       "min": 0.0,
-      "std": 0.1056380569934845
+      "std": 0.16508357226848602
     },
     "community_diversity_score": {
-      "count": 500,
+      "count": 445,
       "max": 1.0,
-      "mean": 0.34971428571428564,
+      "mean": 0.5520106445890006,
       "min": 0.0,
-      "std": 0.35365634598216183
+      "std": 0.36867720019099154
     },
     "fair_ris_score": {
-      "count": 500,
+      "count": 445,
       "max": 1.0,
-      "mean": 0.19057344647155464,
+      "mean": 0.34408460013218767,
       "min": 0.0,
-      "std": 0.14290093081533603
+      "std": 0.18017509291670408
     },
     "label_score": {
-      "count": 500,
+      "count": 445,
       "max": 1.0,
-      "mean": 0.15140394335870225,
+      "mean": 0.33621649137290005,
       "min": 0.0,
-      "std": 0.10563805546468186
+      "std": 0.16508357145294072
     },
     "mf_gain_score": {
-      "count": 500,
+      "count": 445,
       "max": 1.0,
-      "mean": 0.002,
+      "mean": 0.16666666666666666,
       "min": 0.0,
-      "std": 0.044676615807377355
+      "std": 0.22734421756100806
     },
     "ris_score": {
-      "count": 500,
+      "count": 445,
       "max": 1.0,
-      "mean": 0.23422222222222222,
+      "mean": 0.3463884430176565,
       "min": 0.0,
-      "std": 0.16526581656064507
+      "std": 0.1824353192731742
     },
     "shortfall_gain": {
-      "count": 500,
-      "max": 1.0,
-      "mean": 0.03482572250471604,
+      "count": 445,
+      "max": 0.0,
+      "mean": 0.0,
       "min": 0.0,
-      "std": 0.10869843697459841
+      "std": 0.0
     },
     "spread_proxy_score": {
-      "count": 500,
+      "count": 445,
       "max": 1.0,
-      "mean": 0.17790018687450215,
+      "mean": 0.3135004680149266,
       "min": 0.0,
-      "std": 0.12637456678958378
+      "std": 0.16880759194099487
     },
     "weakest_group_gain": {
-      "count": 500,
+      "count": 445,
       "max": 1.0,
-      "mean": 0.002,
+      "mean": 0.16666666666666666,
       "min": 0.0,
-      "std": 0.044676615807377355
+      "std": 0.22734421756100806
     }
   },
   "mf_gain_label_weight": 1.5,
-  "mf_gain_weakest_group": "desert_view_highlands",
+  "mf_gain_weakest_group": "0",
   "shortfall_ratio": {
-    "acton": 0.0,
-    "desert_view_highlands": 1.0,
-    "lake_los_angeles": 0.0,
-    "lancaster": 0.0,
-    "leona_valley": 1.0,
-    "littlerock": 1.0,
-    "northeast_antelope_valley": 0.06417112299465258,
-    "northwest_antelope_valley": 1.0,
-    "northwest_palmdale": 1.0,
-    "palmdale": 0.0714013397963075,
-    "quartz_hill": 0.0,
-    "southeast_antelope_valley": 1.0,
-    "sun_village": 0.0
+    "0": 0.0,
+    "1": 0.0
   },
   "training_target": "combined_fairness_gain"
 }
