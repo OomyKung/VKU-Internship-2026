@@ -1,0 +1,100 @@
+{
+  "baseline_group_influence": {
+    "asian": 1.7777777777777777,
+    "black": 7.418181818181818,
+    "latino": 13.614406779661017,
+    "other": 0.0,
+    "white": 21.672972972972975
+  },
+  "baseline_normalized_group_influence": {
+    "asian": 0.1111111111111111,
+    "black": 0.10909090909090909,
+    "latino": 0.08898305084745763,
+    "other": 0.0,
+    "white": 0.0891891891891892
+  },
+  "baseline_seed_count": 40,
+  "ideal_influences": {
+    "asian": 1.025,
+    "black": 3.025,
+    "latino": 6.925,
+    "other": 1.0,
+    "white": 10.525
+  },
+  "include_mf_gain_in_graphsage_label": true,
+  "label_component_stats": {
+    "combined_fairness_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.13010767102241516,
+      "min": 0.0,
+      "std": 0.11490628868341446
+    },
+    "community_diversity_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.415304347826087,
+      "min": 0.0,
+      "std": 0.37450058497615346
+    },
+    "fair_ris_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.17617969788220528,
+      "min": 0.0,
+      "std": 0.156540011083752
+    },
+    "label_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.13010767371722615,
+      "min": 0.0,
+      "std": 0.11490628805712612
+    },
+    "mf_gain_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.017,
+      "min": 0.0,
+      "std": 0.1093663568013491
+    },
+    "ris_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.22514285714285712,
+      "min": 0.0,
+      "std": 0.18451392293022778
+    },
+    "shortfall_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.017,
+      "min": 0.0,
+      "std": 0.10936635680134908
+    },
+    "spread_proxy_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.17314224470541273,
+      "min": 0.0,
+      "std": 0.1275417619938161
+    },
+    "weakest_group_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.017,
+      "min": 0.0,
+      "std": 0.1093663568013491
+    }
+  },
+  "mf_gain_label_weight": 1.5,
+  "mf_gain_weakest_group": "other",
+  "shortfall_ratio": {
+    "asian": 0.0,
+    "black": 0.0,
+    "latino": 0.0,
+    "other": 1.0,
+    "white": 0.0
+  },
+  "training_target": "combined_fairness_gain"
+}

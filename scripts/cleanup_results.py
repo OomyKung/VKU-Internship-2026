@@ -102,8 +102,7 @@ FIELD_ALIASES = {
     "random_seed": ("random_seed", "seed", "Random Seed"),
     "f_score": ("f_score", "F-score", "fscore", "F score"),
     "mf": ("mf", "MF"),
-    "dcv_shortfall": ("dcv_shortfall", "DCV_shortfall", "DCV Shortfall"),
-    "dcv_disparity": ("dcv_disparity", "DCV_disparity", "DCV Disparity"),
+    "dcv_shortfall": ("dcv_shortfall", "dcv", "DCV", "DCV_shortfall", "DCV Shortfall"),
     "target_coverage_ratio": ("target_coverage_ratio", "Target Coverage Ratio", "target_coverage", "coverage"),
     "runtime_seconds": ("runtime_seconds", "runtime", "Runtime", "Runtime(s)"),
     "spread": ("total_spread", "spread", "Spread"),
@@ -117,7 +116,6 @@ NUMERIC_FIELDS = {
     "f_score",
     "mf",
     "dcv_shortfall",
-    "dcv_disparity",
     "target_coverage_ratio",
     "runtime_seconds",
     "spread",
@@ -139,7 +137,6 @@ class CleanupRecord:
     f_score: object = None
     mf: object = None
     dcv_shortfall: object = None
-    dcv_disparity: object = None
     target_coverage_ratio: object = None
     runtime_seconds: object = None
     spread: object = None
@@ -727,7 +724,6 @@ def record_to_dict(record: CleanupRecord) -> dict[str, object]:
         "f_score": _jsonable(record.f_score),
         "mf": _jsonable(record.mf),
         "dcv_shortfall": _jsonable(record.dcv_shortfall),
-        "dcv_disparity": _jsonable(record.dcv_disparity),
         "target_coverage_ratio": _jsonable(record.target_coverage_ratio),
         "runtime_seconds": _jsonable(record.runtime_seconds),
         "spread": _jsonable(record.spread),

@@ -63,7 +63,6 @@ class TargetShortfallRepairConfig:
     mf_lift_rounds: int = 5
     mf_lift_candidate_limit: int = 300
     mf_lift_weight: float = 3.0
-    mf_lift_disparity_tolerance: float = 0.02
     mf_lift_spread_drop_tolerance: float = 0.02
     mf_lift_require_shortfall_zero: bool = True
     mf_lift_require_target_coverage: float = 1.0
@@ -280,8 +279,8 @@ def _proxy_group_influence(
     return seed_proxy
 
 
-def _proxy_f_score(mf: float, dcv_shortfall: float, dcv_disparity: float) -> float:
-    return float(float(mf) - float(dcv_shortfall) - 0.25 * float(dcv_disparity))
+def _proxy_f_score(mf: float, dcv_shortfall: float) -> float:
+    return float(float(mf) - float(dcv_shortfall))
 
 
 def _fitness(
@@ -296,7 +295,6 @@ def _fitness(
     if solved:
         return float(
             10.0 * evaluation.mf
-            - 2.0 * evaluation.dcv
             + 1.0 * evaluation.f_score
             + 0.3 * evaluation.normalized_spread
         )
@@ -304,7 +302,6 @@ def _fitness(
         12.0 * evaluation.target_coverage_ratio
         - 10.0 * evaluation.dcv_shortfall
         + 3.0 * evaluation.mf
-        - 1.0 * evaluation.dcv
         + 0.5 * evaluation.f_score
         + 0.15 * evaluation.normalized_spread
     )
@@ -341,7 +338,6 @@ def _evaluate_proxy(
     f_score = _proxy_f_score(
         float(fairness.mf),
         float(fairness.dcv_shortfall),
-        float(fairness.dcv),
     )
     evaluation = TargetShortfallProxyEvaluation(
         seed_set=normalized,
@@ -381,7 +377,6 @@ def _priority_tuple(evaluation: TargetShortfallProxyEvaluation) -> tuple[float, 
             0.0,
             0.0,
             float(evaluation.mf),
-            -float(evaluation.dcv),
             float(evaluation.f_score),
             float(evaluation.total_spread),
             -float(getattr(evaluation, "runtime_seconds", 0.0) or 0.0),
@@ -391,7 +386,6 @@ def _priority_tuple(evaluation: TargetShortfallProxyEvaluation) -> tuple[float, 
         float(evaluation.target_coverage_ratio),
         -float(evaluation.dcv_shortfall),
         float(evaluation.mf),
-        -float(evaluation.dcv),
         float(evaluation.f_score),
         float(evaluation.total_spread),
         -float(getattr(evaluation, "runtime_seconds", 0.0) or 0.0),
@@ -405,14 +399,12 @@ def compare_shortfall_priority(a: TargetShortfallProxyEvaluation, b: TargetShort
     if both_solved:
         left = (
             float(a.mf),
-            -float(a.dcv),
             float(a.f_score),
             float(a.total_spread),
             -float(getattr(a, "runtime_seconds", 0.0) or 0.0),
         )
         right = (
             float(b.mf),
-            -float(b.dcv),
             float(b.f_score),
             float(b.total_spread),
             -float(getattr(b, "runtime_seconds", 0.0) or 0.0),
@@ -422,7 +414,6 @@ def compare_shortfall_priority(a: TargetShortfallProxyEvaluation, b: TargetShort
             float(a.target_coverage_ratio),
             -float(a.dcv_shortfall),
             float(a.mf),
-            -float(a.dcv),
             float(a.f_score),
             float(a.total_spread),
             -float(getattr(a, "runtime_seconds", 0.0) or 0.0),
@@ -431,7 +422,6 @@ def compare_shortfall_priority(a: TargetShortfallProxyEvaluation, b: TargetShort
             float(b.target_coverage_ratio),
             -float(b.dcv_shortfall),
             float(b.mf),
-            -float(b.dcv),
             float(b.f_score),
             float(b.total_spread),
             -float(getattr(b, "runtime_seconds", 0.0) or 0.0),
@@ -715,7 +705,6 @@ def _evaluate_fair_ris_proxy(
     f_score = _proxy_f_score(
         float(fairness.mf),
         float(fairness.dcv_shortfall),
-        float(fairness.dcv),
     )
     evaluation = TargetShortfallProxyEvaluation(
         seed_set=normalized,
@@ -938,8 +927,6 @@ def _mf_lift_acceptance_reason(
         and float(trial_target.mf) < float(current_target.mf) - float(config.mf_drop_tolerance)
     ):
         return None
-    if float(trial_approx.dcv) > float(current_approx.dcv) + float(config.mf_lift_disparity_tolerance):
-        return None
     spread_floor = float(current_approx.total_spread) * (1.0 - max(0.0, float(config.mf_lift_spread_drop_tolerance)))
     if float(trial_approx.total_spread) + eps < spread_floor:
         return None
@@ -953,8 +940,6 @@ def _mf_lift_acceptance_reason(
         return "proxy_mf_increase"
     if weakest_after > weakest_before + eps and targets_solved:
         return "weakest_group_increase"
-    if float(trial_approx.dcv) < float(current_approx.dcv) - eps and float(trial_approx.mf) >= float(current_approx.mf) - float(config.mf_drop_tolerance):
-        return "disparity_decrease"
     if (
         float(trial_approx.total_spread) > float(current_approx.total_spread) + eps
         and float(trial_approx.mf) >= float(current_approx.mf) - float(config.mf_drop_tolerance)
@@ -989,7 +974,6 @@ def _run_mf_lift_phase(
             "mf_lift_rejected_target_loss": 0,
             "mf_lift_rejected_dcv_shortfall_worsen": 0,
             "mf_lift_rejected_mf_drop": 0,
-            "mf_lift_rejected_disparity_worsen": 0,
             "mf_lift_rejected_spread_drop": 0,
             "mf_lift_removed_from_overcovered_groups": 0,
             "mf_lift_removed_low_contribution_seeds": 0,
@@ -1165,9 +1149,6 @@ def _run_mf_lift_phase(
                 ):
                     diagnostics["mf_lift_rejected_mf_drop"] = int(diagnostics.get("mf_lift_rejected_mf_drop", 0)) + 1
                     continue
-                if float(trial_approx.dcv) > float(current_approx.dcv) + float(config.mf_lift_disparity_tolerance):
-                    diagnostics["mf_lift_rejected_disparity_worsen"] = int(diagnostics.get("mf_lift_rejected_disparity_worsen", 0)) + 1
-                    continue
                 spread_floor = float(current_approx.total_spread) * (1.0 - max(0.0, float(config.mf_lift_spread_drop_tolerance)))
                 if float(trial_approx.total_spread) + 1e-12 < spread_floor:
                     diagnostics["mf_lift_rejected_spread_drop"] = int(diagnostics.get("mf_lift_rejected_spread_drop", 0)) + 1
@@ -1209,7 +1190,6 @@ def _run_mf_lift_phase(
 
     diagnostics["mf_lift_final_approx_mf"] = float(current_approx.mf)
     diagnostics["mf_lift_weakest_group_after"] = _weakest_group_from_eval(current_approx)
-    diagnostics["mf_lift_final_approx_dcv_disparity"] = float(current_approx.dcv)
     diagnostics["mf_lift_final_approx_spread"] = float(current_approx.total_spread)
     diagnostics["mf_lift_final_proxy_dcv_shortfall"] = float(current_target.dcv_shortfall)
     diagnostics["mf_lift_final_proxy_target_coverage"] = float(current_target.target_coverage_ratio)

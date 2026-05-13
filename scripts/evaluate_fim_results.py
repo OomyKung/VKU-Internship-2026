@@ -183,7 +183,6 @@ class InsightThresholds:
     scalability_required: bool = True
     runtime_tiebreak_only: bool = True
     warn_only_fairness_gates: bool = False
-    primary_dcv_mode: str = "disparity"
     max_shortfall_dcv: float = 0.01
     min_target_coverage_ratio: float = 1.0
 
@@ -198,7 +197,6 @@ def _professor_config_from_thresholds(thresholds: InsightThresholds) -> Professo
         max_dcv=float(thresholds.dcv_collapse_threshold),
         min_fraction_groups_covered=float(thresholds.min_fraction_groups_covered),
         warn_only_fairness_gates=bool(thresholds.warn_only_fairness_gates),
-        primary_dcv_mode=str(thresholds.primary_dcv_mode),
         max_shortfall_dcv=float(thresholds.max_shortfall_dcv),
         min_target_coverage_ratio=float(thresholds.min_target_coverage_ratio),
     )

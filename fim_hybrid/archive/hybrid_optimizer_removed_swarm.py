@@ -157,10 +157,8 @@ class HybridSIEAConfig:
     use_dcv_minimization: bool = False
     dcv_target_mode: str = "mean"
     parity_error_improvement_epsilon: float = 0.0005
-    # Shortfall DCV fields — active only when primary_dcv_mode="shortfall".
-    primary_dcv_mode: str = "disparity"
+    # Shortfall DCV fields.
     shortfall_dcv_weight: float = 1.0
-    disparity_dcv_weight: float = 0.25
     ideal_influences: dict[str, float] | None = None
     # Overshoot cap — stop weak-group repair for a group once its seed count
     # reaches cap × proportional_seed_target.  0.0 = disabled (default).
@@ -967,34 +965,19 @@ class HybridSIEAOptimizer:
         group_coverage_weight = self.config.group_coverage_weight if self.config.fitness_policy == "professor_priority" else 0.0
         scalability_weight = self.config.scalability_weight if self.config.fitness_policy == "professor_priority" else 0.0
         runtime_weight = self.config.runtime_weight if self.config.fitness_policy == "professor_priority" else self.config.runtime_penalty_weight
-        # When primary_dcv_mode=shortfall, weight DCV_shortfall as the primary penalty.
-        _primary_dcv_mode = str(getattr(self.config, "primary_dcv_mode", "disparity")).strip().lower()
-        if _primary_dcv_mode == "shortfall":
-            _dcv_sf = float(getattr(evaluation_result.fairness, "dcv_shortfall", evaluation_result.fairness.dcv))
-            _dcv_disp = float(evaluation_result.fairness.dcv)
-            _sf_w = float(getattr(self.config, "shortfall_dcv_weight", 1.0))
-            _disp_w = float(getattr(self.config, "disparity_dcv_weight", 0.25))
-            _tcr = float(getattr(evaluation_result.fairness, "target_coverage_ratio", 1.0))
-            score = float(
-                self.config.mf_weight * float(evaluation_result.fairness.mf)
-                - self.config.dcv_weight * _sf_w * _dcv_sf
-                - self.config.dcv_weight * _disp_w * _dcv_disp
-                + group_coverage_weight * fraction_groups_covered
-                + group_coverage_weight * _tcr
-                + scalability_weight * scalability_score
-                + self.config.spread_weight * normalized_spread
-                - runtime_weight * normalized_runtime
-            )
-        else:
-            score = float(
-                self.config.fscore_weight * float(evaluation_result.f_score)
-                + self.config.mf_weight * float(evaluation_result.fairness.mf)
-                - self.config.dcv_weight * float(evaluation_result.fairness.dcv)
-                + group_coverage_weight * fraction_groups_covered
-                + scalability_weight * scalability_score
-                + self.config.spread_weight * normalized_spread
-                - runtime_weight * normalized_runtime
-            )
+        _dcv_sf = float(getattr(evaluation_result.fairness, "dcv_shortfall", evaluation_result.fairness.dcv))
+        _sf_w = float(getattr(self.config, "shortfall_dcv_weight", 1.0))
+        _tcr = float(getattr(evaluation_result.fairness, "target_coverage_ratio", 1.0))
+        score = float(
+            self.config.fscore_weight * float(evaluation_result.f_score)
+            + self.config.mf_weight * float(evaluation_result.fairness.mf)
+            - self.config.dcv_weight * _sf_w * _dcv_sf
+            + group_coverage_weight * fraction_groups_covered
+            + group_coverage_weight * _tcr
+            + scalability_weight * scalability_score
+            + self.config.spread_weight * normalized_spread
+            - runtime_weight * normalized_runtime
+        )
         if self.config.use_dcv_targeting:
             score += self._dcv_targeting_objective_adjustment(evaluation_result)
         return score
@@ -2135,11 +2118,9 @@ class HybridSIEAOptimizer:
         candidate: CandidateEvaluation,
         incumbent: CandidateEvaluation,
     ) -> bool:
-        # Shortfall-first mode takes priority over all existing acceptance strategies.
-        if str(getattr(self.config, "primary_dcv_mode", "disparity")).strip().lower() == "shortfall":
-            reason = self._shortfall_first_swap_acceptance_reason(incumbent, candidate)
-            self.last_swap_acceptance_reason = "" if reason is None else reason
-            return reason is not None
+        reason = self._shortfall_first_swap_acceptance_reason(incumbent, candidate)
+        self.last_swap_acceptance_reason = "" if reason is None else reason
+        return reason is not None
         if self.config.use_dcv_first_swap_acceptance:
             reason = self._dcv_first_swap_acceptance_reason(incumbent, candidate)
             self.last_swap_acceptance_reason = "" if reason is None else reason

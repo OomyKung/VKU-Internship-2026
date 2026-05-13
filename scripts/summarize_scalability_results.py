@@ -50,8 +50,7 @@ SCHEMA_FIELDS = [
     "spread",
     "mf",
     "dcv_shortfall",
-    "dcv_disparity",
-    "primary_dcv",
+    "dcv",
     "target_coverage_ratio",
     "f_score",
     "runtime_seconds",
@@ -83,8 +82,6 @@ SETTING_FIELDS = [
     "mf_lift_candidate_limit",
     "shortfall_repair_rounds",
     "shortfall_repair_candidate_limit",
-    "primary_dcv_mode",
-    "fscore_mode",
 ]
 
 GROUP_SETTING_FIELDS = [
@@ -108,8 +105,6 @@ GROUP_SETTING_FIELDS = [
     "mf_lift_candidate_limit",
     "shortfall_repair_rounds",
     "shortfall_repair_candidate_limit",
-    "primary_dcv_mode",
-    "fscore_mode",
 ]
 
 FIELD_ALIASES = {
@@ -143,8 +138,7 @@ FIELD_ALIASES = {
     "spread": ("total_spread", "spread", "Spread"),
     "mf": ("mf", "MF"),
     "dcv_shortfall": ("dcv_shortfall", "DCV_shortfall", "DCV Shortfall"),
-    "dcv_disparity": ("dcv_disparity", "DCV_disparity", "DCV Disparity"),
-    "primary_dcv": ("primary_dcv", "dcv", "DCV"),
+    "dcv": ("dcv", "DCV", "dcv_shortfall", "DCV_shortfall", "DCV Shortfall"),
     "target_coverage_ratio": (
         "target_coverage_ratio",
         "Target Coverage Ratio",
@@ -184,8 +178,6 @@ SETTING_ALIASES = {
     "mf_lift_candidate_limit": ("mf_lift_candidate_limit",),
     "shortfall_repair_rounds": ("shortfall_repair_rounds",),
     "shortfall_repair_candidate_limit": ("shortfall_repair_candidate_limit",),
-    "primary_dcv_mode": ("primary_dcv_mode",),
-    "fscore_mode": ("fscore_mode",),
 }
 
 NUMERIC_FIELDS = {
@@ -202,8 +194,7 @@ NUMERIC_FIELDS = {
     "spread",
     "mf",
     "dcv_shortfall",
-    "dcv_disparity",
-    "primary_dcv",
+    "dcv",
     "target_coverage_ratio",
     "f_score",
     "runtime_seconds",
@@ -540,6 +531,10 @@ def normalize_record(
 
     if row.get("budget_ratio") is None and row.get("budget") is not None and row.get("nodes"):
         row["budget_ratio"] = float(row["budget"]) / float(row["nodes"])
+    if row.get("dcv") is None and row.get("dcv_shortfall") is not None:
+        row["dcv"] = row.get("dcv_shortfall")
+    if row.get("dcv_shortfall") is None and row.get("dcv") is not None:
+        row["dcv_shortfall"] = row.get("dcv")
 
     for field in SCHEMA_FIELDS:
         if field != "output_dir" and row.get(field) is None:
@@ -693,8 +688,7 @@ def aggregate_runs(individual: pd.DataFrame, group_by: list[str]) -> pd.DataFram
         metric_pairs = {
             "f_score": ("mean_f_score", "std_f_score"),
             "mf": ("mean_mf", "std_mf"),
-            "dcv_shortfall": ("mean_dcv_shortfall", "std_dcv_shortfall"),
-            "dcv_disparity": ("mean_dcv_disparity", "std_dcv_disparity"),
+            "dcv": ("mean_dcv", "std_dcv"),
             "spread": ("mean_spread", "std_spread"),
             "runtime_seconds": ("mean_runtime_seconds", "std_runtime_seconds"),
         }
@@ -734,10 +728,8 @@ def aggregate_runs(individual: pd.DataFrame, group_by: list[str]) -> pd.DataFram
         "std_f_score",
         "mean_mf",
         "std_mf",
-        "mean_dcv_shortfall",
-        "std_dcv_shortfall",
-        "mean_dcv_disparity",
-        "std_dcv_disparity",
+        "mean_dcv",
+        "std_dcv",
         "mean_spread",
         "std_spread",
         "mean_runtime_seconds",
@@ -852,8 +844,7 @@ def individual_table_rows(individual: pd.DataFrame) -> tuple[list[str], list[lis
         "MC",
         "F-score",
         "MF",
-        "DCV_short",
-        "DCV_disp",
+        "DCV",
         "Coverage",
         "Spread",
         "Runtime(s)",
@@ -873,8 +864,7 @@ def individual_table_rows(individual: pd.DataFrame) -> tuple[list[str], list[lis
                 _fmt_int(row.get("mc_runs_eval")),
                 _fmt_float(row.get("f_score"), 4),
                 _fmt_float(row.get("mf"), 4),
-                _fmt_float(row.get("dcv_shortfall"), 4),
-                _fmt_float(row.get("dcv_disparity"), 4),
+                _fmt_float(row.get("dcv"), 4),
                 _fmt_float(row.get("target_coverage_ratio"), 4),
                 _fmt_float(row.get("spread"), 3),
                 _fmt_float(row.get("runtime_seconds"), 2),
@@ -894,8 +884,7 @@ def aggregate_table_rows(aggregate: pd.DataFrame) -> tuple[list[str], list[list[
         "Runs",
         f"F-score mean{PM}std",
         f"MF mean{PM}std",
-        f"DCV_short mean{PM}std",
-        f"DCV_disp mean{PM}std",
+        f"DCV mean{PM}std",
         "Coverage Pass",
         "DCV=0 Pass",
         f"Spread mean{PM}std",
@@ -915,8 +904,7 @@ def aggregate_table_rows(aggregate: pd.DataFrame) -> tuple[list[str], list[list[
                 _fmt_int(row.get("run_count")),
                 _fmt_mean_std(row.get("mean_f_score"), row.get("std_f_score"), 4),
                 _fmt_mean_std(row.get("mean_mf"), row.get("std_mf"), 4),
-                _fmt_mean_std(row.get("mean_dcv_shortfall"), row.get("std_dcv_shortfall"), 4),
-                _fmt_mean_std(row.get("mean_dcv_disparity"), row.get("std_dcv_disparity"), 4),
+                _fmt_mean_std(row.get("mean_dcv"), row.get("std_dcv"), 4),
                 _fmt_rate(row.get("target_coverage_pass_rate")),
                 _fmt_rate(row.get("dcv_shortfall_zero_rate")),
                 _fmt_mean_std(row.get("mean_spread"), row.get("std_spread"), 3),
@@ -937,7 +925,7 @@ def compact_aggregate_table_rows(aggregate: pd.DataFrame) -> tuple[list[str], li
         "Runs",
         "F-score",
         "MF",
-        "DCV_s",
+        "DCV",
         "Coverage",
         "Runtime",
         "Verdict",
@@ -954,7 +942,7 @@ def compact_aggregate_table_rows(aggregate: pd.DataFrame) -> tuple[list[str], li
                 _fmt_int(row.get("run_count")),
                 _fmt_float(row.get("mean_f_score"), 4),
                 _fmt_float(row.get("mean_mf"), 4),
-                _fmt_float(row.get("mean_dcv_shortfall"), 4),
+                _fmt_float(row.get("mean_dcv"), 4),
                 _fmt_rate(row.get("target_coverage_pass_rate")),
                 _fmt_runtime(row.get("mean_runtime_seconds"), 1),
                 str(row.get("verdict") or ""),
@@ -997,7 +985,7 @@ def _print_vertical_aggregate_table(aggregate: pd.DataFrame) -> None:
         print(f"  {'Runs':<20}: {_fmt_int(row.get('run_count'))}")
         print(f"  {'F-score':<20}: {_fmt_vertical_mean_std(row, 'mean_f_score', 'std_f_score', 4)}")
         print(f"  {'MF':<20}: {_fmt_vertical_mean_std(row, 'mean_mf', 'std_mf', 4)}")
-        print(f"  {'DCV_shortfall':<20}: {_fmt_vertical_mean_std(row, 'mean_dcv_shortfall', 'std_dcv_shortfall', 4)}")
+        print(f"  {'DCV':<20}: {_fmt_vertical_mean_std(row, 'mean_dcv', 'std_dcv', 4)}")
         print(f"  {'Coverage Pass':<20}: {_fmt_rate(row.get('target_coverage_pass_rate'))}")
         print(f"  {'Runtime':<20}: {_fmt_vertical_mean_std(row, 'mean_runtime_seconds', 'std_runtime_seconds', 1, 's')}")
         print(f"  {'Verdict':<20}: {row.get('verdict') or ''}")

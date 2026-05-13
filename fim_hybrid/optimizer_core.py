@@ -155,10 +155,7 @@ class EAOptimizerConfig:
     use_dcv_minimization: bool = False
     dcv_target_mode: str = "mean"
     parity_error_improvement_epsilon: float = 0.0005
-    # Shortfall DCV fields โ€” active only when primary_dcv_mode="shortfall".
-    primary_dcv_mode: str = "disparity"
     shortfall_dcv_weight: float = 1.0
-    disparity_dcv_weight: float = 0.25
     ideal_influences: dict[str, float] | None = None
     # Overshoot cap โ€” stop weak-group repair for a group once its seed count
     # reaches cap ร— proportional_seed_target.  0.0 = disabled (default).
@@ -907,33 +904,14 @@ class EAOptimizerBase:
         while len(cache) > cache_limit:
             cache.popitem(last=False)
 
-    def _candidate_rank_key(self, evaluation: CandidateEvaluation) -> tuple[float, float, float, float, float, tuple[tuple[str, str], ...]]:
-        if str(getattr(self.config, "primary_dcv_mode", "disparity")).strip().lower() == "shortfall":
-            return (
-                float(getattr(evaluation.fairness, "target_coverage_ratio", 1.0)),
-                -float(getattr(evaluation.fairness, "dcv_shortfall", evaluation.fairness.dcv)),
-                float(evaluation.fairness.mf),
-                -float(getattr(evaluation.fairness, "dcv_disparity", evaluation.fairness.dcv)),
-                float(evaluation.f_score),
-                float(evaluation.total_spread_mean),
-                float(evaluation.score),
-                self._seed_sort_key(evaluation.seed_set),
-            )
-        if self.config.fitness_policy in {"fairness_first", "professor_priority"}:
-            return (
-                evaluation.score,
-                evaluation.f_score,
-                evaluation.fairness.mf,
-                -evaluation.fairness.dcv,
-                evaluation.total_spread_mean,
-                self._seed_sort_key(evaluation.seed_set),
-            )
+    def _candidate_rank_key(self, evaluation: CandidateEvaluation) -> tuple[Any, ...]:
         return (
-            evaluation.score,
-            evaluation.total_spread_mean,
-            evaluation.f_score,
-            evaluation.fairness.mf,
-            -evaluation.fairness.dcv,
+            float(getattr(evaluation.fairness, "target_coverage_ratio", 1.0)),
+            -float(getattr(evaluation.fairness, "dcv_shortfall", evaluation.fairness.dcv)),
+            float(evaluation.fairness.mf),
+            float(evaluation.f_score),
+            float(evaluation.total_spread_mean),
+            -float(evaluation.runtime_seconds),
             self._seed_sort_key(evaluation.seed_set),
         )
 
@@ -974,70 +952,26 @@ class EAOptimizerBase:
         group_coverage_weight = self.config.group_coverage_weight if self.config.fitness_policy == "professor_priority" else 0.0
         scalability_weight = self.config.scalability_weight if self.config.fitness_policy == "professor_priority" else 0.0
         runtime_weight = self.config.runtime_weight if self.config.fitness_policy == "professor_priority" else self.config.runtime_penalty_weight
-        # When primary_dcv_mode=shortfall, weight DCV_shortfall as the primary penalty.
-        _primary_dcv_mode = str(getattr(self.config, "primary_dcv_mode", "disparity")).strip().lower()
-        if _primary_dcv_mode == "shortfall":
-            _dcv_sf = float(getattr(evaluation_result.fairness, "dcv_shortfall", evaluation_result.fairness.dcv))
-            _dcv_disp = float(evaluation_result.fairness.dcv)
-            _sf_w = float(getattr(self.config, "shortfall_dcv_weight", 1.0))
-            _disp_w = float(getattr(self.config, "disparity_dcv_weight", 0.25))
-            _tcr = float(getattr(evaluation_result.fairness, "target_coverage_ratio", 1.0))
-            score = float(
-                self.config.mf_weight * float(evaluation_result.fairness.mf)
-                - self.config.dcv_weight * _sf_w * _dcv_sf
-                - self.config.dcv_weight * _disp_w * _dcv_disp
-                + group_coverage_weight * fraction_groups_covered
-                + group_coverage_weight * _tcr
-                + scalability_weight * scalability_score
-                + self.config.spread_weight * normalized_spread
-                - runtime_weight * normalized_runtime
-            )
-        else:
-            score = float(
-                self.config.fscore_weight * float(evaluation_result.f_score)
-                + self.config.mf_weight * float(evaluation_result.fairness.mf)
-                - self.config.dcv_weight * float(evaluation_result.fairness.dcv)
-                + group_coverage_weight * fraction_groups_covered
-                + scalability_weight * scalability_score
-                + self.config.spread_weight * normalized_spread
-                - runtime_weight * normalized_runtime
-            )
+        _dcv_sf = float(getattr(evaluation_result.fairness, "dcv_shortfall", evaluation_result.fairness.dcv))
+        _sf_w = float(getattr(self.config, "shortfall_dcv_weight", 1.0))
+        _tcr = float(getattr(evaluation_result.fairness, "target_coverage_ratio", 1.0))
+        score = float(
+            self.config.fscore_weight * float(evaluation_result.f_score)
+            + self.config.mf_weight * float(evaluation_result.fairness.mf)
+            - self.config.dcv_weight * _sf_w * _dcv_sf
+            + group_coverage_weight * fraction_groups_covered
+            + group_coverage_weight * _tcr
+            + scalability_weight * scalability_score
+            + self.config.spread_weight * normalized_spread
+            - runtime_weight * normalized_runtime
+        )
         if self.config.use_dcv_targeting:
             score += self._dcv_targeting_objective_adjustment(evaluation_result)
         return score
 
     def _dcv_targeting_objective_adjustment(self, evaluation_result: Any) -> float:
         fairness = evaluation_result.fairness
-        normalized = {
-            group_name: float(value)
-            for group_name, value in dict(getattr(fairness, "normalized_group_spread", {}) or {}).items()
-        }
-        if self.config.dcv_target_mode == "median" and normalized:
-            sorted_vals = sorted(normalized.values())
-            n = len(sorted_vals)
-            parity_target = (
-                (sorted_vals[n // 2 - 1] + sorted_vals[n // 2]) / 2.0
-                if n % 2 == 0
-                else float(sorted_vals[n // 2])
-            )
-        else:
-            parity_target = float(getattr(fairness, "parity_target", 0.0))
-        tolerance = float(self.config.parity_tolerance)
-        over_error = float(
-            sum(max(0.0, value - parity_target - tolerance) for value in normalized.values())
-        )
-        under_error = float(
-            sum(max(0.0, parity_target - tolerance - value) for value in normalized.values())
-        )
-        parity_error = float(getattr(fairness, "parity_abs_error", 0.0)) + float(
-            getattr(fairness, "parity_squared_error", 0.0)
-        )
-        return float(
-            -self.config.dcv_target_weight * float(fairness.dcv)
-            - self.config.parity_error_weight * parity_error
-            - self.config.over_served_penalty_weight * over_error
-            - self.config.under_served_bonus_weight * under_error
-        )
+        return float(-self.config.dcv_target_weight * float(getattr(fairness, "dcv_shortfall", fairness.dcv)))
 
     def _mode_scale(self) -> float:
         mode_scale = {
@@ -1984,37 +1918,14 @@ class EAOptimizerBase:
     def _local_search_rank_key(
         self,
         evaluation: CandidateEvaluation,
-    ) -> tuple[float, ...] | tuple[float, float, tuple[tuple[str, str], ...]]:
-        if str(getattr(self.config, "primary_dcv_mode", "disparity")).strip().lower() == "shortfall":
-            return (
-                float(getattr(evaluation.fairness, "target_coverage_ratio", 1.0)),
-                -float(getattr(evaluation.fairness, "dcv_shortfall", evaluation.fairness.dcv)),
-                float(evaluation.fairness.mf),
-                -float(getattr(evaluation.fairness, "dcv_disparity", evaluation.fairness.dcv)),
-                float(evaluation.f_score),
-                float(evaluation.total_spread_mean),
-                float(evaluation.score),
-            )
-        if self.config.fitness_policy in {"fairness_first", "professor_priority"}:
-            return (
-                evaluation.f_score,
-                evaluation.fairness.mf,
-                -evaluation.fairness.dcv,
-                evaluation.total_spread_mean,
-                evaluation.score,
-            )
-        if not self._worst_group_local_search_active():
-            return self._candidate_rank_key(evaluation)
+    ) -> tuple[float, ...]:
         return (
-            evaluation.fairness.mf,
-            -evaluation.fairness.dcv,
-            evaluation.score,
-            evaluation.total_spread_mean,
-            self._bottom_k_average_group_spread(
-                evaluation.fairness,
-                k=self.config.local_search_bottom_k_groups,
-                normalized=True,
-            ),
+            float(getattr(evaluation.fairness, "target_coverage_ratio", 1.0)),
+            -float(getattr(evaluation.fairness, "dcv_shortfall", evaluation.fairness.dcv)),
+            float(evaluation.fairness.mf),
+            float(evaluation.f_score),
+            float(evaluation.total_spread_mean),
+            -float(evaluation.runtime_seconds),
         )
 
     def _fairness_first_swap_acceptance_reason(
@@ -2152,25 +2063,9 @@ class EAOptimizerBase:
         candidate: CandidateEvaluation,
         incumbent: CandidateEvaluation,
     ) -> bool:
-        # Shortfall-first mode takes priority over all existing acceptance strategies.
-        if str(getattr(self.config, "primary_dcv_mode", "disparity")).strip().lower() == "shortfall":
-            reason = self._shortfall_first_swap_acceptance_reason(incumbent, candidate)
-            self.last_swap_acceptance_reason = "" if reason is None else reason
-            return reason is not None
-        if self.config.use_dcv_first_swap_acceptance:
-            reason = self._dcv_first_swap_acceptance_reason(incumbent, candidate)
-            self.last_swap_acceptance_reason = "" if reason is None else reason
-            self.last_swap_rejection_reason = "dcv_worsening" if (
-                reason is None
-                and float(candidate.fairness.dcv)
-                > float(incumbent.fairness.dcv) + float(self.config.spread_safe_dcv_tolerance)
-            ) else ""
-            return reason is not None
-        if self.config.use_fairness_first_swap_acceptance:
-            reason = self._fairness_first_swap_acceptance_reason(incumbent, candidate)
-            self.last_swap_acceptance_reason = "" if reason is None else reason
-            return reason is not None
-        return self._local_search_rank_key(candidate) > self._local_search_rank_key(incumbent)
+        reason = self._shortfall_first_swap_acceptance_reason(incumbent, candidate)
+        self.last_swap_acceptance_reason = "" if reason is None else reason
+        return reason is not None
 
     def _confirm_local_search_improvement(
         self,

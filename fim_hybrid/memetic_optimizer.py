@@ -128,11 +128,7 @@ class MemeticOptimizer(EAOptimizerBase):
             context="memetic protected-group coverage fitness",
         )
         community_coverage = self._community_coverage_fraction(getattr(evaluation_result, "seed_set", ()))
-        dcv_value = (
-            float(evaluation_result.fairness.dcv_shortfall)
-            if str(self.config.primary_dcv_mode) == "shortfall"
-            else float(evaluation_result.fairness.dcv)
-        )
+        dcv_value = float(getattr(evaluation_result.fairness, "dcv_shortfall", evaluation_result.fairness.dcv))
         score = float(
             self.config.fscore_weight * float(evaluation_result.f_score)
             + self.config.mf_weight * float(evaluation_result.fairness.mf)

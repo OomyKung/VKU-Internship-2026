@@ -144,8 +144,8 @@ def _format_requested_sections(frame, config: FIMPermutationRunConfig) -> str:
             "-" * 60,
             f"{'F-score':<30}: {_fmt(row.get('F-score', row.get('f_score')))}",
             f"{'MF':<30}: {_fmt(row.get('MF', row.get('mf')))}",
-            f"{'DCV_shortfall':<30}: {_fmt(row.get('dcv_shortfall'))}",
-            f"{'DCV_disparity':<30}: {_fmt(row.get('dcv_disparity'))}",
+            f"{'DCV':<30}: {_fmt(row.get('DCV', row.get('dcv')))}",
+            f"{'DCV_shortfall':<30}: {_fmt(row.get('dcv_shortfall', row.get('dcv')))}",
             f"{'Target Coverage Ratio':<30}: {_fmt(row.get('target_coverage_ratio'))}",
             f"{'Target Alpha':<30}: {_fmt(row.get('target_alpha'))}",
             f"{'Spread':<30}: {_fmt(row.get('total_spread'))}",
@@ -247,7 +247,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mf-lift-rounds", type=int, default=5)
     parser.add_argument("--mf-lift-candidate-limit", type=int, default=300)
     parser.add_argument("--mf-lift-weight", type=float, default=3.0)
-    parser.add_argument("--mf-lift-disparity-tolerance", type=float, default=0.02)
     parser.add_argument("--mf-lift-spread-drop-tolerance", type=float, default=0.02)
     parser.add_argument("--mf-lift-require-shortfall-zero", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--mf-lift-require-target-coverage", type=float, default=1.0)
@@ -260,9 +259,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--propagation-prob", type=float, default=0.01)
     parser.add_argument("--output-dir", default="results/fim_stack")
     parser.add_argument("--save-json", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--primary-dcv-mode", choices=["disparity", "shortfall"], default="shortfall")
     parser.add_argument("--shortfall-dcv-weight", type=float, default=1.0)
-    parser.add_argument("--disparity-dcv-weight", type=float, default=0.25)
     parser.add_argument("--graphsage-score-weight", type=float, default=0.8)
     parser.add_argument("--ris-score-weight", type=float, default=1.0)
     parser.add_argument("--fair-ris-score-weight", type=float, default=2.0)
@@ -313,7 +310,6 @@ def main() -> int:
         mf_lift_rounds=int(args.mf_lift_rounds),
         mf_lift_candidate_limit=int(args.mf_lift_candidate_limit),
         mf_lift_weight=float(args.mf_lift_weight),
-        mf_lift_disparity_tolerance=float(args.mf_lift_disparity_tolerance),
         mf_lift_spread_drop_tolerance=float(args.mf_lift_spread_drop_tolerance),
         mf_lift_require_shortfall_zero=bool(args.mf_lift_require_shortfall_zero),
         mf_lift_require_target_coverage=float(args.mf_lift_require_target_coverage),
@@ -359,10 +355,7 @@ def main() -> int:
         force_ris_for_all_stacks=True,
         require_ris=True,
         ranking_policy="professor_priority",
-        primary_dcv_mode=str(args.primary_dcv_mode),
         shortfall_dcv_weight=float(args.shortfall_dcv_weight),
-        disparity_dcv_weight=float(args.disparity_dcv_weight),
-        fscore_mode="shortfall_primary" if str(args.primary_dcv_mode) == "shortfall" else "disparity_primary",
         output_mode=str(args.output_mode),
     )
     result = run_fim_permutation_benchmark_from_config(dataset_config, config, permutations=[spec])

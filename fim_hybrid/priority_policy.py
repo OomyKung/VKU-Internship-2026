@@ -26,8 +26,6 @@ class ProfessorPriorityConfig:
     max_dcv: float = 0.25
     min_fraction_groups_covered: float = 0.80
     warn_only_fairness_gates: bool = False
-    # Shortfall DCV extensions — active only when primary_dcv_mode="shortfall".
-    primary_dcv_mode: str = "disparity"
     max_shortfall_dcv: float = 0.01
     min_target_coverage_ratio: float = 1.0
 
@@ -66,7 +64,6 @@ def professor_priority_config_from_object(
             getattr(source, "min_fraction_groups_covered", base.min_fraction_groups_covered)
         ),
         warn_only_fairness_gates=bool(getattr(source, "warn_only_fairness_gates", base.warn_only_fairness_gates)),
-        primary_dcv_mode=str(getattr(source, "primary_dcv_mode", base.primary_dcv_mode)),
         max_shortfall_dcv=float(getattr(source, "max_shortfall_dcv", base.max_shortfall_dcv)),
         min_target_coverage_ratio=float(getattr(source, "min_target_coverage_ratio", base.min_target_coverage_ratio)),
     )
@@ -134,14 +131,12 @@ def fairness_gate_failures(
     if bool(config.scalability_required) and not _scalability_ok(row):
         failures.append("scalability_required")
 
-    # Shortfall-DCV gates — only checked when primary_dcv_mode=shortfall.
-    if str(config.primary_dcv_mode).strip().lower() == "shortfall":
-        shortfall_dcv = _number(row, ("dcv_shortfall",), float("inf"))
-        if shortfall_dcv > float(config.max_shortfall_dcv):
-            failures.append("max_shortfall_dcv")
-        tcr = _number(row, ("target_coverage_ratio",), 0.0)
-        if tcr < float(config.min_target_coverage_ratio):
-            failures.append("min_target_coverage_ratio")
+    shortfall_dcv = _number(row, ("dcv_shortfall", "dcv", "DCV"), float("inf"))
+    if shortfall_dcv > float(config.max_shortfall_dcv):
+        failures.append("max_shortfall_dcv")
+    tcr = _number(row, ("target_coverage_ratio",), 0.0)
+    if tcr < float(config.min_target_coverage_ratio):
+        failures.append("min_target_coverage_ratio")
 
     return tuple(failures)
 
@@ -227,21 +222,12 @@ def compare_professor_priority(
         if left_valid != right_valid:
             return -1 if left_valid else 1
 
-    if str(config.primary_dcv_mode).strip().lower() == "shortfall":
-        # Shortfall-first ranking: no-group-left-behind → target coverage → MF → disparity → spread.
-        comparisons = (
-            (_number(left, ("dcv_shortfall",), float("inf")), _number(right, ("dcv_shortfall",), float("inf")), False),
-            (_number(left, ("target_coverage_ratio",), 0.0), _number(right, ("target_coverage_ratio",), 0.0), True),
-            (_number(left, ("mf", "MF"), float("-inf")), _number(right, ("mf", "MF"), float("-inf")), True),
-            (_number(left, ("dcv_disparity", "dcv", "DCV"), float("inf")), _number(right, ("dcv_disparity", "dcv", "DCV"), float("inf")), False),
-            (_number(left, ("f_score", "F-score", "fscore"), float("-inf")), _number(right, ("f_score", "F-score", "fscore"), float("-inf")), True),
-        )
-    else:
-        comparisons = (
-            (_number(left, ("f_score", "F-score", "fscore"), float("-inf")), _number(right, ("f_score", "F-score", "fscore"), float("-inf")), True),
-            (_number(left, ("mf", "MF"), float("-inf")), _number(right, ("mf", "MF"), float("-inf")), True),
-            (_number(left, ("dcv", "DCV"), float("inf")), _number(right, ("dcv", "DCV"), float("inf")), False),
-        )
+    comparisons = (
+        (_number(left, ("target_coverage_ratio",), 0.0), _number(right, ("target_coverage_ratio",), 0.0), True),
+        (_number(left, ("dcv_shortfall", "dcv", "DCV"), float("inf")), _number(right, ("dcv_shortfall", "dcv", "DCV"), float("inf")), False),
+        (_number(left, ("mf", "MF"), float("-inf")), _number(right, ("mf", "MF"), float("-inf")), True),
+        (_number(left, ("f_score", "F-score", "fscore"), float("-inf")), _number(right, ("f_score", "F-score", "fscore"), float("-inf")), True),
+    )
     for left_value, right_value, higher_is_better in comparisons:
         result = _better_number(
             left_value,
@@ -328,13 +314,7 @@ def professor_priority_warning(frame: pd.DataFrame, config: ProfessorPriorityCon
     valid_mask = fairness_valid_mask(ok_rows, config)
     if bool(valid_mask.any()):
         return None
-    mode = str(config.primary_dcv_mode).strip().lower()
-    if mode == "shortfall":
-        return (
-            "No method met all group shortfall targets; "
-            "showing the least-bad method by DCV_shortfall, target_coverage_ratio, MF, DCV_disparity, spread, then runtime."
-        )
     return (
-        "No method passed professor-priority fairness gates; "
-        "showing the least-bad method by F-score, MF, DCV, scalability, spread, extra spread, then runtime."
+        "No method met all group shortfall targets; "
+        "showing the least-bad method by target_coverage_ratio, DCV, MF, F-score, spread, then runtime."
     )

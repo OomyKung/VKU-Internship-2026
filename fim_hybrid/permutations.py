@@ -400,15 +400,10 @@ class FIMPermutationRunConfig:
     ea_random_immigrant_rate: float = 0.10
     ea_diversity_preservation: bool = True
     # ── Shortfall DCV configuration (Steps 2–13 of the shortfall-DCV refactor) ──
-    primary_dcv_mode: str = "disparity"
-    report_both_dcv: bool = True
     ideal_influence_mode: str = "proportional_budget_internal"
     feasible_ceiling_factor: float = 0.95
     shortfall_dcv_weight: float = 1.0
-    disparity_dcv_weight: float = 0.25
-    fscore_mode: str = "disparity_primary"
     shortfall_dcv_worsen_tolerance: float = 0.0001
-    disparity_warning_threshold: float = 0.10
     max_shortfall_dcv: float = 0.01
     min_target_coverage_ratio: float = 1.0
     use_shortfall_repair: bool = False
@@ -429,7 +424,6 @@ class FIMPermutationRunConfig:
     mf_lift_rounds: int = 5
     mf_lift_candidate_limit: int = 300
     mf_lift_weight: float = 3.0
-    mf_lift_disparity_tolerance: float = 0.02
     mf_lift_spread_drop_tolerance: float = 0.02
     mf_lift_require_shortfall_zero: bool = True
     mf_lift_require_target_coverage: float = 1.0
@@ -975,11 +969,6 @@ def permutation_summary_columns() -> list[str]:
         "budget_per_group_estimate",
         "group_influence_distribution",
         "normalized_group_influence_distribution",
-        "parity_target",
-        "parity_abs_error",
-        "parity_squared_error",
-        "over_served_groups",
-        "under_served_groups",
         "protected_group_influence_json",
         "protected_group_normalized_influence_json",
         "weakest_protected_group",
@@ -1017,11 +1006,6 @@ def permutation_summary_columns() -> list[str]:
         "swap_accepted_spread_fairness_preserved",
         "swaps_accepted_dcv_improvement",
         "swaps_rejected_dcv_worsening",
-        "dcv_before_parity_repair",
-        "dcv_after_parity_repair_estimated",
-        "parity_repair_attempts",
-        "parity_repair_successes",
-        "groups_rebalanced",
         "memetic_crossover_rate",
         "memetic_mutation_rate",
         "memetic_local_search_enabled",
@@ -1054,7 +1038,6 @@ def permutation_summary_columns() -> list[str]:
         "mf_lift_rounds",
         "mf_lift_candidate_limit",
         "mf_lift_weight",
-        "mf_lift_disparity_tolerance",
         "mf_lift_spread_drop_tolerance",
         "mf_lift_require_shortfall_zero",
         "mf_lift_require_target_coverage",
@@ -1158,9 +1141,7 @@ def permutation_summary_columns() -> list[str]:
         "score_component_stats_json",
         "constant_score_components",
         # Shortfall DCV columns (added by shortfall-DCV refactor).
-        "primary_dcv_mode",
         "dcv_shortfall",
-        "dcv_disparity",
         "target_coverage_ratio",
         "groups_below_target",
         "groups_met_target",
@@ -1181,11 +1162,8 @@ def permutation_summary_columns() -> list[str]:
         "target_shortfall_diagnostics_json",
         "target_shortfall_seed_quotas_json",
         "target_shortfall_fitness_weights_json",
-        "fscore_mode",
         "shortfall_dcv_weight",
-        "disparity_dcv_weight",
         "f_score_shortfall",
-        "disparity_warning",
         "notes",
         "skip_reason",
         "skipped_reason",
@@ -3637,16 +3615,11 @@ def print_protected_group_influence(row: Mapping[str, object]) -> None:
     per_group_shortfall = _parse_json_mapping(row.get("per_group_shortfall_json", {}))
     raw_gap = _parse_json_mapping(row.get("raw_gap_by_group_json", {}))
     overcoverage = _parse_json_mapping(row.get("overcoverage_ratio_by_group_json", {}))
-    primary_mode = str(row.get("primary_dcv_mode", "disparity")).strip().lower()
-    show_shortfall = primary_mode == "shortfall" or bool(effective_ideal)
+    show_shortfall = bool(effective_ideal)
 
     groups = sorted(set(group_sizes) | set(seed_counts) | set(influence) | set(normalized))
     max_name_len = max((len(str(g)) for g in groups), default=5)
     name_col = max(max_name_len + 2, 20)
-    norm_vals = [float(v) for v in normalized.values() if v is not None]
-    parity_target = sum(norm_vals) / len(norm_vals) if norm_vals else 0.0
-    parity_display_tol = 0.05
-
     print("Protected Group Influence")
     print("-" * (name_col + (132 if show_shortfall else 72)))
     if show_shortfall:
@@ -3701,18 +3674,7 @@ def print_protected_group_influence(row: Mapping[str, object]) -> None:
                     )
                 except (TypeError, ValueError, ZeroDivisionError):
                     seed_ratio = "n/a"
-                try:
-                    nv = float(norm_val) if norm_val is not None else None
-                    if nv is None:
-                        status = "n/a"
-                    elif nv > parity_target + parity_display_tol:
-                        status = "OVER"
-                    elif nv < parity_target - parity_display_tol:
-                        status = "UNDER"
-                    else:
-                        status = "OK"
-                except (TypeError, ValueError):
-                    status = "n/a"
+                status = "observed" if norm_val is not None else "n/a"
                 print(
                     f"{group_name:<{name_col}}"
                     f"{_format_diagnostic_value(size_val):<10}"
@@ -3726,8 +3688,8 @@ def print_protected_group_influence(row: Mapping[str, object]) -> None:
         print("n/a")
     print("")
     if show_shortfall:
-        print(f"{'DCV Shortfall':<36}: {_format_diagnostic_value(row.get('dcv_shortfall'))}")
-        print(f"{'DCV Disparity':<36}: {_format_diagnostic_value(row.get('dcv_disparity', row.get('dcv')))}")
+        print(f"{'DCV':<36}: {_format_diagnostic_value(row.get('dcv'))}")
+        print(f"{'DCV Shortfall':<36}: {_format_diagnostic_value(row.get('dcv_shortfall', row.get('dcv')))}")
         print(f"{'Target Coverage Ratio':<36}: {_format_diagnostic_value(row.get('target_coverage_ratio'))}")
         print(f"{'Groups Below Target':<36}: {_format_diagnostic_value(row.get('groups_below_target'))}")
         print(f"{'Groups Met Target':<36}: {_format_diagnostic_value(row.get('groups_met_target'))}")
@@ -3745,8 +3707,7 @@ def print_protected_group_influence(row: Mapping[str, object]) -> None:
             key=lambda item: (-item[1], _sort_key(item[0])),
         )
         print(f"{'Groups Below by Severity':<36}: {below_sorted if below_sorted else 'None'}")
-        print(f"{'F-score (shortfall)':<36}: {_format_diagnostic_value(row.get('f_score_shortfall'))}")
-        print(f"{'Disparity Warning':<36}: {'yes' if row.get('disparity_warning') else 'no'}")
+        print(f"{'F-score':<36}: {_format_diagnostic_value(row.get('f_score'))}")
         try:
             if float(row.get("total_actual_influence", 0.0)) < float(row.get("total_ideal_influence", 0.0)):
                 print(
@@ -3754,8 +3715,6 @@ def print_protected_group_influence(row: Mapping[str, object]) -> None:
                 )
         except (TypeError, ValueError):
             pass
-    else:
-        print(f"{'Parity Target (mean norm. influence)':<36}: {parity_target:.4f}")
     print(f"{'Weakest Group':<36}: {_format_diagnostic_value(row.get('weakest_group', row.get('weakest_protected_group')))}")
     print(f"{'Strongest Group':<36}: {_format_diagnostic_value(row.get('strongest_group', row.get('strongest_protected_group')))}")
     print(f"{'MF':<36}: {_format_diagnostic_value(row.get('mf'))}")
@@ -3765,16 +3724,14 @@ def print_protected_group_influence(row: Mapping[str, object]) -> None:
 
 
 def print_shortfall_fairness_diagnostics(row: Mapping[str, object]) -> None:
-    """Print the shortfall DCV diagnostic block — shown when primary_dcv_mode=shortfall."""
-    primary_mode = str(row.get("primary_dcv_mode", "disparity")).strip().lower()
+    """Print the shortfall-based DCV diagnostic block."""
     ideal_mode = str(row.get("ideal_influence_mode", "proportional_budget_internal"))
     print("Shortfall Fairness Diagnostics")
     print("-" * 60)
-    print(f"{'Primary DCV Mode':<30}: {primary_mode}")
     print(f"{'Ideal Influence Mode':<30}: {ideal_mode}")
     print(f"{'Target Alpha':<30}: {_format_diagnostic_value(row.get('target_alpha'))}")
-    print(f"{'DCV Shortfall':<30}: {_format_diagnostic_value(row.get('dcv_shortfall'))}")
-    print(f"{'DCV Disparity':<30}: {_format_diagnostic_value(row.get('dcv_disparity', row.get('dcv')))}")
+    print(f"{'DCV':<30}: {_format_diagnostic_value(row.get('dcv', row.get('dcv_shortfall')))}")
+    print(f"{'DCV Shortfall':<30}: {_format_diagnostic_value(row.get('dcv_shortfall', row.get('dcv')))}")
     print(f"{'Target Coverage Ratio':<30}: {_format_diagnostic_value(row.get('target_coverage_ratio'))}")
     print(f"{'Groups Below Target':<30}: {_format_diagnostic_value(row.get('groups_below_target'))}")
     print(f"{'Groups Met Target':<30}: {_format_diagnostic_value(row.get('groups_met_target'))}")
@@ -3783,9 +3740,7 @@ def print_shortfall_fairness_diagnostics(row: Mapping[str, object]) -> None:
     print(f"{'Total Shortfall':<30}: {_format_diagnostic_value(row.get('total_shortfall'))}")
     print(f"{'Overcoverage Waste':<30}: {_format_diagnostic_value(row.get('overcoverage_waste'))}")
     print(f"{'MF':<30}: {_format_diagnostic_value(row.get('mf'))}")
-    print(f"{'F-score (primary)':<30}: {_format_diagnostic_value(row.get('f_score'))}")
-    print(f"{'F-score (shortfall)':<30}: {_format_diagnostic_value(row.get('f_score_shortfall'))}")
-    print(f"{'Disparity Warning':<30}: {'yes' if row.get('disparity_warning') else 'no'}")
+    print(f"{'F-score':<30}: {_format_diagnostic_value(row.get('f_score'))}")
     print("")
 
 
@@ -3945,8 +3900,7 @@ def print_stack_result_diagnostics(frame: pd.DataFrame, config: FIMPermutationRu
         if bool(config.print_seed_diagnostics):
             print_final_seed_set_diagnostics(row)
         if bool(config.print_group_influence):
-            if str(row.get("primary_dcv_mode", "disparity")).strip().lower() == "shortfall":
-                print_shortfall_fairness_diagnostics(row)
+            print_shortfall_fairness_diagnostics(row)
             print_protected_group_influence(row)
         if bool(config.print_score_diagnostics):
             print_candidate_score_diagnostics(row)
@@ -4152,11 +4106,6 @@ def _result_row(
         "budget_per_group_estimate": budget_per_group_estimate,
         "group_influence_distribution": pd.NA,
         "normalized_group_influence_distribution": pd.NA,
-        "parity_target": pd.NA,
-        "parity_abs_error": pd.NA,
-        "parity_squared_error": pd.NA,
-        "over_served_groups": pd.NA,
-        "under_served_groups": pd.NA,
         "weakest_protected_group": pd.NA,
         "strongest_protected_group": pd.NA,
         "negative_f_score_reason": pd.NA,
@@ -4184,11 +4133,6 @@ def _result_row(
         "swap_accepted_spread_fairness_preserved": pd.NA,
         "swaps_accepted_dcv_improvement": pd.NA,
         "swaps_rejected_dcv_worsening": pd.NA,
-        "dcv_before_parity_repair": pd.NA,
-        "dcv_after_parity_repair_estimated": pd.NA,
-        "parity_repair_attempts": pd.NA,
-        "parity_repair_successes": pd.NA,
-        "groups_rebalanced": pd.NA,
         "memetic_crossover_rate": pd.NA,
         "memetic_mutation_rate": pd.NA,
         "memetic_local_search_enabled": pd.NA,
@@ -4206,7 +4150,6 @@ def _result_row(
         "mf_lift_rounds": int(config.mf_lift_rounds),
         "mf_lift_candidate_limit": int(config.mf_lift_candidate_limit),
         "mf_lift_weight": float(config.mf_lift_weight),
-        "mf_lift_disparity_tolerance": float(config.mf_lift_disparity_tolerance),
         "mf_lift_spread_drop_tolerance": float(config.mf_lift_spread_drop_tolerance),
         "mf_lift_require_shortfall_zero": bool(config.mf_lift_require_shortfall_zero),
         "mf_lift_require_target_coverage": float(config.mf_lift_require_target_coverage),
@@ -4266,9 +4209,6 @@ def _result_row(
     _ideal_inf = config.ideal_influences if hasattr(config, "ideal_influences") else None
     row.update(_fairness_coverage_fields(evaluation, ideal_influences=_ideal_inf, config=config))
     row.update(_seed_diagnostic_fields(evaluation, protected_group_report, config))
-    # When primary_dcv_mode=shortfall, make dcv/f_score in the result row shortfall-based.
-    _primary_dcv_mode = str(getattr(config, "primary_dcv_mode", "disparity")).strip().lower()
-    row["primary_dcv_mode"] = _primary_dcv_mode
     row["ideal_influence_mode"] = str(getattr(config, "ideal_influence_mode", "proportional_budget_internal"))
     row["target_alpha"] = float(getattr(config, "target_alpha", 1.0))
     row["original_ideal_influences_json"] = json.dumps(
@@ -4276,16 +4216,13 @@ def _result_row(
         sort_keys=True,
     )
     row["effective_ideal_influences_json"] = row.get("ideal_influences_json", "{}")
-    row["fscore_mode"] = str(getattr(config, "fscore_mode", "disparity_primary"))
     row["shortfall_dcv_weight"] = float(getattr(config, "shortfall_dcv_weight", 1.0))
-    row["disparity_dcv_weight"] = float(getattr(config, "disparity_dcv_weight", 0.25))
-    if _primary_dcv_mode == "shortfall":
-        _sf_dcv = float(row.get("dcv_shortfall", row.get("dcv", 0.0)) or 0.0)
-        row["dcv"] = _sf_dcv
-        row["DCV"] = _sf_dcv
-        _sf_fscore = float(row.get("f_score_shortfall", row.get("f_score", 0.0)) or 0.0)
-        row["f_score"] = _sf_fscore
-        row["F-score"] = _sf_fscore
+    _sf_dcv = float(row.get("dcv_shortfall", row.get("dcv", 0.0)) or 0.0)
+    row["dcv"] = _sf_dcv
+    row["DCV"] = _sf_dcv
+    _sf_fscore = float(row.get("f_score_shortfall", row.get("f_score", 0.0)) or 0.0)
+    row["f_score"] = _sf_fscore
+    row["F-score"] = _sf_fscore
     if extra_fields:
         row.update(dict(extra_fields))
     candidate_pool_raw = pd.to_numeric(pd.Series([row.get("candidate_pool_size", pd.NA)]), errors="coerce").iloc[0]
@@ -5250,42 +5187,28 @@ def _fairness_coverage_fields(
             "overcoverage_waste": 0.0,
         }
 
-    dcv_disparity = float(evaluation.fairness.dcv)
     mf = float(evaluation.fairness.mf)
 
     # Shortfall-aware F-score.
-    fscore_mode = str(getattr(config, "fscore_mode", "disparity_primary") or "disparity_primary")
     shortfall_dcv_weight = float(getattr(config, "shortfall_dcv_weight", 1.0) or 1.0)
-    disparity_dcv_weight = float(getattr(config, "disparity_dcv_weight", 0.25) or 0.25)
     f_score_shortfall = compute_f_score(
         mf,
-        dcv_disparity,
+        dcv_shortfall,
         0.5,
         dcv_shortfall=dcv_shortfall,
         shortfall_dcv_weight=shortfall_dcv_weight,
-        disparity_dcv_weight=disparity_dcv_weight,
-        fscore_mode=fscore_mode,
     )
-
-    disparity_warning_threshold = float(getattr(config, "disparity_warning_threshold", 0.10) or 0.10)
-    disparity_warning = dcv_disparity > disparity_warning_threshold
 
     return {
         "zero_covered_groups_count": int(total_groups - len(covered_groups)),
         "fraction_groups_covered": fraction_groups_covered,
         "group_influence_distribution": group_spread,
         "normalized_group_influence_distribution": normalized_group_spread,
-        "parity_target": float(getattr(evaluation.fairness, "parity_target", 0.0)),
-        "parity_abs_error": float(getattr(evaluation.fairness, "parity_abs_error", 0.0)),
-        "parity_squared_error": float(getattr(evaluation.fairness, "parity_squared_error", 0.0)),
-        "over_served_groups": list(getattr(evaluation.fairness, "over_served_groups", ()) or ()),
-        "under_served_groups": list(getattr(evaluation.fairness, "under_served_groups", ()) or ()),
         "weakest_protected_group": "" if weakest_group is None else str(weakest_group),
         "strongest_protected_group": "" if strongest_group is None else str(strongest_group),
         "negative_f_score_reason": negative_reason,
         # Shortfall DCV columns.
         "dcv_shortfall": dcv_shortfall,
-        "dcv_disparity": dcv_disparity,
         "target_coverage_ratio": target_coverage_ratio,
         "groups_below_target": list(groups_below),
         "groups_met_target": list(groups_met),
@@ -5301,7 +5224,6 @@ def _fairness_coverage_fields(
         "total_shortfall": float(target_diagnostics["total_shortfall"]),
         "overcoverage_waste": float(target_diagnostics["overcoverage_waste"]),
         "f_score_shortfall": f_score_shortfall,
-        "disparity_warning": bool(disparity_warning),
     }
 
 
@@ -5391,10 +5313,6 @@ def _optimizer_diagnostics_json(row: Mapping[str, object]) -> str:
         "mf_lift_target_coverage_preserved": row.get("mf_lift_target_coverage_preserved", pd.NA),
         "accepted_mf_dcv_moves": row.get("memetic_accepted_mf_dcv_moves", row.get("swap_accepted_mf_improvement", pd.NA)),
         "accepted_spread_safe_swaps": row.get("swap_accepted_spread_fairness_preserved", pd.NA),
-        "parity_repair_attempts": row.get("parity_repair_attempts", pd.NA),
-        "parity_repair_successes": row.get("parity_repair_successes", pd.NA),
-        "dcv_before_parity_repair": row.get("dcv_before_parity_repair", pd.NA),
-        "dcv_after_parity_repair_estimated": row.get("dcv_after_parity_repair_estimated", pd.NA),
         "best_generation": row.get("best_generation", pd.NA),
         "final_fitness": row.get("final_fitness", pd.NA),
         "diversity_score": row.get("diversity_score", pd.NA),
@@ -7079,9 +6997,7 @@ def _hybrid_optimizer_config(
         use_dcv_minimization=bool(config.use_dcv_minimization),
         dcv_target_mode=str(config.dcv_target_mode),
         parity_error_improvement_epsilon=float(config.parity_error_improvement_epsilon),
-        primary_dcv_mode=str(config.primary_dcv_mode),
         shortfall_dcv_weight=float(config.shortfall_dcv_weight),
-        disparity_dcv_weight=float(config.disparity_dcv_weight),
         ideal_influences=dict(config.ideal_influences or {}),
         optimization_mode="full",
         cluster_diversity_enabled=bool(config.use_cluster_diversity_bonus or config.cluster_balance_enabled),
@@ -7499,8 +7415,6 @@ def _target_shortfall_effective_config(
     )
     return _dataclass_replace(
         config,
-        primary_dcv_mode="shortfall",
-        fscore_mode="shortfall_primary",
         ideal_influences=effective_ideal,
         original_ideal_influences={str(k): float(v) for k, v in original_ideal.items()},
         use_shortfall_repair=True,
@@ -7538,7 +7452,6 @@ def _target_shortfall_optimizer_config(config: FIMPermutationRunConfig) -> Targe
         mf_lift_rounds=max(0, int(config.mf_lift_rounds)),
         mf_lift_candidate_limit=max(1, int(config.mf_lift_candidate_limit)),
         mf_lift_weight=float(config.mf_lift_weight),
-        mf_lift_disparity_tolerance=float(config.mf_lift_disparity_tolerance),
         mf_lift_spread_drop_tolerance=float(config.mf_lift_spread_drop_tolerance),
         mf_lift_require_shortfall_zero=bool(config.mf_lift_require_shortfall_zero),
         mf_lift_require_target_coverage=float(config.mf_lift_require_target_coverage),
@@ -7666,12 +7579,10 @@ def _run_target_shortfall_repair_memetic_ris_stack(
         target_coverage = float(getattr(fairness, "target_coverage_ratio", 0.0))
         shortfall = float(getattr(fairness, "dcv_shortfall", 0.0))
         solved = target_coverage >= 1.0 - 1e-12 and shortfall <= 1e-12
-        dcv_disparity = float(getattr(fairness, "dcv_disparity", getattr(fairness, "dcv", 0.0)))
         if solved:
             return (
                 1.0,
                 float(getattr(fairness, "mf", 0.0)),
-                -dcv_disparity,
                 float(getattr(evaluation, "f_score", 0.0)),
                 float(getattr(evaluation, "total_spread_mean", 0.0)),
             )
@@ -7680,7 +7591,6 @@ def _run_target_shortfall_repair_memetic_ris_stack(
             target_coverage,
             -shortfall,
             float(getattr(fairness, "mf", 0.0)),
-            -dcv_disparity,
             float(getattr(evaluation, "f_score", 0.0)),
             float(getattr(evaluation, "total_spread_mean", 0.0)),
         )
@@ -7711,7 +7621,6 @@ def _run_target_shortfall_repair_memetic_ris_stack(
                 target_diag["mf_lift_pre_mc_mf"] = float(candidate_eval.fairness.mf)
                 target_diag["mf_lift_pre_mc_dcv_shortfall"] = float(candidate_eval.fairness.dcv_shortfall)
                 target_diag["mf_lift_pre_mc_target_coverage"] = float(candidate_eval.fairness.target_coverage_ratio)
-                target_diag["mf_lift_pre_mc_dcv_disparity"] = float(candidate_eval.fairness.dcv_disparity)
                 target_diag["mf_lift_pre_mc_f_score"] = float(candidate_eval.f_score)
                 target_diag["mf_lift_pre_mc_spread"] = float(candidate_eval.total_spread_mean)
             else:
@@ -7760,7 +7669,6 @@ def _run_target_shortfall_repair_memetic_ris_stack(
     target_diag["mf_lift_final_mc_mf"] = float(final_eval.fairness.mf)
     target_diag["mf_lift_final_mc_dcv_shortfall"] = float(final_eval.fairness.dcv_shortfall)
     target_diag["mf_lift_final_mc_target_coverage"] = float(final_eval.fairness.target_coverage_ratio)
-    target_diag["mf_lift_final_mc_dcv_disparity"] = float(final_eval.fairness.dcv_disparity)
     target_diag["mf_lift_final_mc_f_score"] = float(final_eval.f_score)
     target_diag["mf_lift_final_mc_spread"] = float(final_eval.total_spread_mean)
     target_diag["mf_lift_weakest_group_after_mc"] = str(
@@ -7853,7 +7761,6 @@ def _run_target_shortfall_repair_memetic_ris_stack(
                     "mf_lift_rounds": int(target_diag.get("mf_lift_rounds", effective_config.mf_lift_rounds)),
                     "mf_lift_candidate_limit": int(effective_config.mf_lift_candidate_limit),
                     "mf_lift_weight": float(effective_config.mf_lift_weight),
-                    "mf_lift_disparity_tolerance": float(effective_config.mf_lift_disparity_tolerance),
                     "mf_lift_spread_drop_tolerance": float(effective_config.mf_lift_spread_drop_tolerance),
                     "mf_lift_require_shortfall_zero": bool(effective_config.mf_lift_require_shortfall_zero),
                     "mf_lift_require_target_coverage": float(effective_config.mf_lift_require_target_coverage),
@@ -8623,19 +8530,20 @@ def format_fim_permutation_report(frame: pd.DataFrame, config: FIMPermutationRun
                 f"weakest={row.get('weakest_protected_group')} | "
                 f"strongest={row.get('strongest_protected_group')}"
             )
-            lines.extend(
-                [
-                    "   DCV Parity Diagnostics",
-                    "   " + "-" * 60,
-                    f"   {'Parity Target':<28}: {row.get('parity_target')}",
-                    f"   {'Normalized Influence':<28}: {row.get('normalized_group_influence_distribution')}",
-                    f"   {'Over-served Groups':<28}: {row.get('over_served_groups')}",
-                    f"   {'Under-served Groups':<28}: {row.get('under_served_groups')}",
-                    f"   {'Parity Abs Error':<28}: {row.get('parity_abs_error')}",
-                    f"   {'DCV':<28}: {row.get('dcv')}",
-                    f"   {'Repair Successes':<28}: {row.get('parity_repair_successes')}",
-                ]
-            )
+            try:
+                _dcv_value = float(row.get("dcv", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                _dcv_value = float("inf")
+            try:
+                _coverage_value = float(row.get("target_coverage_ratio", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                _coverage_value = 0.0
+            if _dcv_value <= 1e-9 and _coverage_value >= 1.0:
+                lines.append(
+                    "   Shortfall fairness target satisfied. All protected groups reached their effective ideal influence targets."
+                )
+            else:
+                lines.append("   Some protected groups remain below their effective ideal influence targets.")
             lines.append(
                 "   "
                 f"runtime_breakdown: dataset={row.get('time_dataset_loading')} | "
@@ -8742,13 +8650,10 @@ def format_fim_permutation_report(frame: pd.DataFrame, config: FIMPermutationRun
             )
             lines.append(
                 "   "
-                f"dcv_targeting: enabled={row.get('use_dcv_targeting')} | "
-                f"over_served_penalty={row.get('use_over_served_group_penalty')} | "
+                f"shortfall_targeting: enabled={row.get('use_dcv_targeting')} | "
                 f"dcv_first_swap={row.get('use_dcv_first_swap_acceptance')} | "
-                f"parity_repair={row.get('use_dcv_parity_repair')} | "
-                f"repair_successes={row.get('parity_repair_successes')} | "
-                f"dcv_before_repair={row.get('dcv_before_parity_repair')} | "
-                f"dcv_after_repair_est={row.get('dcv_after_parity_repair_estimated')}"
+                f"dcv={row.get('dcv')} | "
+                f"target_coverage={row.get('target_coverage_ratio')}"
             )
             lines.append(
                 "   "
@@ -8919,9 +8824,8 @@ def run_fim_permutation_benchmark(
 
     _compact = str(getattr(config, "output_mode", "verbose")).strip().lower() == "compact"
 
-    # Compute ideal influences once per benchmark run when shortfall mode is active.
-    _primary_mode = str(getattr(config, "primary_dcv_mode", "disparity")).strip().lower()
-    if _primary_mode == "shortfall" and not getattr(config, "ideal_influences", None):
+    # Compute ideal influences once per benchmark run for shortfall-based DCV.
+    if not getattr(config, "ideal_influences", None):
         _ideal_mode = str(getattr(config, "ideal_influence_mode", "proportional_budget_internal"))
         if _ideal_mode in ("proportional_budget_internal", "proportional_budget_feasible"):
             _feasible = _ideal_mode == "proportional_budget_feasible"
@@ -8961,7 +8865,7 @@ def run_fim_permutation_benchmark(
                     print(f"  Ideal targets: {_groups_str}")
             except Exception as _exc:  # noqa: BLE001
                 if not _compact:
-                    print(f"  Warning: ideal influence computation failed ({_exc}); shortfall DCV will default to disparity DCV.")
+                    print(f"  Warning: ideal influence computation failed ({_exc}); shortfall DCV will use population-proportional targets.")
 
     if bool(config.print_experiment_header) and not _compact:
         print_experiment_setup_header(

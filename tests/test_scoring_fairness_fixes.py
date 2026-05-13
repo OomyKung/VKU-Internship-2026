@@ -1,7 +1,7 @@
 """Unit tests for F-score formula, group bonus/penalty scoring, and feasible ideal influences.
 
 Covers:
-  - compute_f_score: both disparity_primary and shortfall_primary modes, boundary values, error handling
+  - compute_f_score: shortfall-only formula, boundary values, error handling
   - _combined_guidance_score_frame over-served penalty: positive penalty for high-mean-score groups
   - _combined_guidance_score_frame ideal-influence bonus: monotonicity with respect to ideal share
   - compute_ideal_influences_feasible: non-negativity, ceiling_factor=0 collapses to zero,
@@ -63,68 +63,47 @@ def _score_frame(ranking_scores, report, **kwargs):
 # ---------------------------------------------------------------------------
 
 class FScoreFormulaTestCase(unittest.TestCase):
-    """Verify compute_f_score in both disparity_primary and shortfall_primary modes."""
+    """Verify compute_f_score uses MF - DCV."""
 
-    def test_disparity_primary_formula(self) -> None:
-        # F = lambda * MF - (1 - lambda) * DCV
+    def test_shortfall_formula(self) -> None:
         result = compute_f_score(mf=0.8, dcv=0.2, lambda_weight=0.5)
-        self.assertAlmostEqual(result, 0.5 * 0.8 - 0.5 * 0.2)
+        self.assertAlmostEqual(result, 0.8 - 0.2)
 
-    def test_disparity_primary_lambda_zero(self) -> None:
-        # lambda=0: F = -DCV regardless of MF
+    def test_lambda_zero_keeps_shortfall_formula(self) -> None:
         result = compute_f_score(mf=1.0, dcv=0.4, lambda_weight=0.0)
-        self.assertAlmostEqual(result, -0.4)
+        self.assertAlmostEqual(result, 0.6)
 
-    def test_disparity_primary_lambda_one(self) -> None:
-        # lambda=1: F = MF regardless of DCV
+    def test_lambda_one_keeps_shortfall_formula(self) -> None:
         result = compute_f_score(mf=0.7, dcv=0.9, lambda_weight=1.0)
-        self.assertAlmostEqual(result, 0.7)
+        self.assertAlmostEqual(result, -0.2)
 
-    def test_disparity_primary_zero_dcv(self) -> None:
-        # Perfect fairness: F = lambda * MF
+    def test_zero_dcv_returns_mf(self) -> None:
         result = compute_f_score(mf=0.6, dcv=0.0, lambda_weight=0.5)
-        self.assertAlmostEqual(result, 0.3)
+        self.assertAlmostEqual(result, 0.6)
 
-    def test_shortfall_primary_formula(self) -> None:
-        # F = MF - w_short * DCV_shortfall - w_disp * DCV
+    def test_explicit_dcv_shortfall_is_primary_dcv(self) -> None:
         result = compute_f_score(
             mf=0.8,
             dcv=0.2,
             lambda_weight=0.5,
             dcv_shortfall=0.1,
             shortfall_dcv_weight=1.0,
-            disparity_dcv_weight=0.25,
-            fscore_mode="shortfall_primary",
         )
-        self.assertAlmostEqual(result, 0.8 - 1.0 * 0.1 - 0.25 * 0.2)
+        self.assertAlmostEqual(result, 0.8 - 0.1)
 
-    def test_shortfall_primary_zero_shortfall(self) -> None:
-        # When DCV_shortfall=0, only disparity term penalises
+    def test_zero_shortfall_returns_mf(self) -> None:
         result = compute_f_score(
             mf=0.6,
             dcv=0.4,
             lambda_weight=0.5,
             dcv_shortfall=0.0,
             shortfall_dcv_weight=1.0,
-            disparity_dcv_weight=0.25,
-            fscore_mode="shortfall_primary",
         )
-        self.assertAlmostEqual(result, 0.6 - 0.0 - 0.25 * 0.4)
+        self.assertAlmostEqual(result, 0.6)
 
-    def test_disparity_primary_ignores_dcv_shortfall(self) -> None:
-        # Explicit disparity_primary mode ignores dcv_shortfall even when provided
-        result_without = compute_f_score(mf=0.6, dcv=0.3, lambda_weight=0.5)
-        result_with = compute_f_score(
-            mf=0.6, dcv=0.3, lambda_weight=0.5,
-            dcv_shortfall=0.9,
-            fscore_mode="disparity_primary",
-        )
-        self.assertAlmostEqual(result_without, result_with)
-
-    def test_none_dcv_shortfall_falls_back_to_disparity(self) -> None:
-        # dcv_shortfall=None always uses the disparity formula
+    def test_none_dcv_shortfall_falls_back_to_dcv(self) -> None:
         result = compute_f_score(mf=0.6, dcv=0.2, lambda_weight=0.5, dcv_shortfall=None)
-        self.assertAlmostEqual(result, 0.5 * 0.6 - 0.5 * 0.2)
+        self.assertAlmostEqual(result, 0.4)
 
     def test_invalid_lambda_above_one_raises(self) -> None:
         with self.assertRaises(ValueError):
@@ -134,15 +113,13 @@ class FScoreFormulaTestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             compute_f_score(mf=0.5, dcv=0.1, lambda_weight=-0.01)
 
-    def test_shortfall_weight_zero_is_just_mf_minus_disparity(self) -> None:
+    def test_shortfall_weight_zero_returns_mf(self) -> None:
         result = compute_f_score(
             mf=0.7,
             dcv=0.3,
             lambda_weight=0.5,
             dcv_shortfall=0.5,
             shortfall_dcv_weight=0.0,
-            disparity_dcv_weight=0.0,
-            fscore_mode="shortfall_primary",
         )
         self.assertAlmostEqual(result, 0.7)
 

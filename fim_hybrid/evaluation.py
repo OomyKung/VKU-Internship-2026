@@ -1,4 +1,4 @@
-"""Shared seed-set evaluation utilities for fair FIM comparisons."""
+﻿"""Shared seed-set evaluation utilities for fair FIM comparisons."""
 
 from __future__ import annotations
 
@@ -33,24 +33,12 @@ def compute_f_score(
     *,
     dcv_shortfall: float | None = None,
     shortfall_dcv_weight: float = 1.0,
-    disparity_dcv_weight: float = 0.25,
-    fscore_mode: str = "disparity_primary",
 ) -> float:
-    """Compute F(S).
-
-    Default (fscore_mode='disparity_primary'): F(S) = lambda * MF - (1 - lambda) * DCV_disparity.
-    Shortfall-primary mode: F(S) = MF - shortfall_dcv_weight * DCV_shortfall
-                                      - disparity_dcv_weight * DCV_disparity.
-    Backward-compatible: if dcv_shortfall is None the disparity formula is always used.
-    """
+    """Compute F(S) as MF minus shortfall DCV."""
     if not 0.0 <= lambda_weight <= 1.0:
         raise ValueError("lambda_weight must be between 0.0 and 1.0.")
-    mode = str(fscore_mode or "disparity_primary").strip().lower()
-    if dcv_shortfall is None or mode == "disparity_primary":
-        # Original formula — backward compatible.
-        return float(lambda_weight * mf - (1.0 - lambda_weight) * dcv)
-    # shortfall_primary / combined: penalise shortfall strongly, disparity softly.
-    return float(float(mf) - float(shortfall_dcv_weight) * float(dcv_shortfall) - float(disparity_dcv_weight) * float(dcv))
+    primary_dcv = float(dcv if dcv_shortfall is None else dcv_shortfall)
+    return float(float(mf) - float(shortfall_dcv_weight) * primary_dcv)
 
 
 def evaluate_seed_set(
@@ -69,8 +57,7 @@ def evaluate_seed_set(
 
     When ideal_influences is provided, the returned FairnessMetrics will include
     dcv_shortfall, groups_below_target, groups_met_target, and target_coverage_ratio.
-    The f_score field always uses the original lambda-weighted disparity formula so
-    existing callers are unaffected.
+    The f_score field uses the shortfall definition: MF - DCV.
     """
     start = perf_counter()
     validate_diffusion_model(diffusion_model)
@@ -97,7 +84,12 @@ def evaluate_seed_set(
         total_spread_mean=diffusion_result.total_spread_mean,
         total_spread_std=diffusion_result.total_spread_std,
         fairness=fairness,
-        f_score=compute_f_score(fairness.mf, fairness.dcv, lambda_weight),
+        f_score=compute_f_score(
+            fairness.mf,
+            fairness.dcv,
+            lambda_weight,
+            dcv_shortfall=fairness.dcv_shortfall,
+        ),
         runtime_seconds=runtime_seconds,
     )
 
@@ -118,7 +110,7 @@ def compute_ideal_influences_proportional(
       G_g = induced subgraph on g's nodes
       ideal_influence_g = expected IC spread inside G_g using top-degree k_g seeds
 
-    Results are cacheable — call once per (dataset, attribute, budget) tuple.
+    Results are cacheable โ€” call once per (dataset, attribute, budget) tuple.
     Falls back to min(|g|, k_g) when the group subgraph is trivially small.
     """
     rng = np.random.default_rng(int(random_seed))
@@ -180,7 +172,7 @@ def compute_ideal_influences_feasible(
 ) -> dict[str, float]:
     """Two-pass feasibility-aware ideal influences.
 
-    Pass 1 (proportional): same as compute_ideal_influences_proportional —
+    Pass 1 (proportional): same as compute_ideal_influences_proportional โ€”
       k_g = ceil(budget * |g| / |V|), IC spread with top-degree k_g seeds.
 
     Pass 2 (ceiling): IC spread with min(budget, n_sg) seeds (full-budget upper bound).
@@ -189,7 +181,7 @@ def compute_ideal_influences_feasible(
     Final: ideal_g = min(pass1_g, achievable_ceiling_g * ceiling_factor).
 
     This prevents setting targets that exceed what the group's subgraph can realistically
-    absorb — e.g., sparse or disconnected groups where even the full budget stalls.
+    absorb โ€” e.g., sparse or disconnected groups where even the full budget stalls.
     """
     rng_pass1 = np.random.default_rng(int(random_seed))
     rng_pass2 = np.random.default_rng(int(random_seed) + 1)

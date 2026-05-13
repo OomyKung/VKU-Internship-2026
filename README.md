@@ -32,10 +32,10 @@ The important result fields are:
 
 - `Spread`: expected number of activated nodes from Monte Carlo simulation.
 - `MF`: the minimum normalized influence across protected groups. Higher is better because the weakest protected group is doing better.
-- `DCV_shortfall`: target-shortfall violation. `0.0` means every protected group met or exceeded its target.
-- `DCV_disparity`: remaining normalized influence imbalance between groups.
+- `DCV`: target-shortfall violation. `0.0` means every protected group met or exceeded its effective ideal target.
+- `DCV_shortfall`: same value as `DCV`, retained in detailed outputs for clarity.
 - `Target Coverage Ratio`: fraction of protected groups that met their target.
-- `F-score`: shortfall-first fairness score, computed as `MF - DCV_shortfall - 0.25 * DCV_disparity`.
+- `F-score`: shortfall-first fairness score, computed as `MF - DCV`.
 - `fairness_gate_status`: whether the professor-priority gates passed.
 
 ## Representative Result
@@ -50,9 +50,9 @@ The saved run in `results/target_alpha_08_full` uses the active stack on the `tw
 | Spread | `125.189` |
 | MF | `0.031717` |
 | DCV_shortfall | `0.000000` |
-| DCV_disparity | `0.016394` |
+| DCV | `0.000000` |
 | Target Coverage Ratio | `1.000000` |
-| F-score | `0.027618` |
+| F-score | `0.031717` |
 | Runtime | `1142.817s` |
 | Fairness gate | `fail: scalability_required` |
 
@@ -66,7 +66,7 @@ Group-level result:
 
 What happened:
 
-The algorithm selected all `120` required seeds with no duplicates. Every protected group exceeded its target influence, so `DCV_shortfall` is `0.0` and `Target Coverage Ratio` is `1.0`. Group `1` still has the lowest normalized influence because it is much larger than the other groups: it receives the largest absolute influence (`87.379`) but that influence is divided by `2755` group members.
+The algorithm selected all `120` required seeds with no duplicates. Every protected group exceeded its target influence, so `DCV` is `0.0` and `Target Coverage Ratio` is `1.0`. Group `1` still has the lowest normalized influence because it is much larger than the other groups: it receives the largest absolute influence (`87.379`) but that influence is divided by `2755` group members.
 
 Why the fairness gate still fails:
 
@@ -87,25 +87,87 @@ The high validation correlation means GraphSAGE learned the fairness-guided node
 
 The table below summarizes the current top-level saved dataset runs under `results/*/summary.json`.
 
-| Run | Dataset | Attr | Budget | RR | MC | F-score | MF | DCV_short | DCV_disp | Coverage | Spread | Runtime(s) | Gate |
-| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| graph_spa_age_fast_test | graph_spa_500_0 | age | 50 | 512 | 300 | 0.0886 | 0.0952 | 0.0000 | 0.0266 | 1.0000 | 51.513 | 1.96 | fail: scalability_required |
-| graph_spa_ethnicity_fast_test | graph_spa_500_0 | ethnicity | 50 | 512 | 300 | 0.0946 | 0.0978 | 0.0000 | 0.0128 | 1.0000 | 51.683 | 1.70 | fail: scalability_required |
-| graph_spa_gender_fast_test | graph_spa_500_0 | gender | 50 | 512 | 300 | 0.0999 | 0.1018 | 0.0000 | 0.0076 | 1.0000 | 51.703 | 1.68 | fail: scalability_required |
-| graph_spa_region_fast_confirm | graph_spa_500_0 | region | 50 | 768 | 1000 | 0.0835 | 0.0890 | 0.0000 | 0.0216 | 1.0000 | 51.936 | 52.14 | fail: scalability_required |
-| graph_spa_region_fast_test | graph_spa_500_0 | region | 50 | 512 | 300 | 0.0833 | 0.0887 | 0.0000 | 0.0215 | 1.0000 | 51.650 | 40.51 | fail: scalability_required |
-| scalability_rice_balanced | rice_subset | color | 70 | 1024 | 1000 | 0.2145 | 0.2304 | 0.0000 | 0.0634 | 1.0000 | 117.408 | 44.46 | pass |
-| scalability_synth2_balanced | synth2 | color | 40 | 1024 | 1000 | 0.0802 | 0.0830 | 0.0000 | 0.0112 | 1.0000 | 42.439 | 8.77 | pass |
-| scalability_synth3_balanced | synth3 | color | 40 | 1024 | 1000 | 0.0762 | 0.0815 | 0.0000 | 0.0212 | 1.0000 | 42.378 | 90.42 | pass |
-| target_alpha_08_full | twitter | color | 120 | 2048 | 1000 | 0.0286 | 0.0316 | 0.0000 | 0.0121 | 1.0000 | 123.125 | 1117.05 | fail: scalability_required |
-| twitter_balanced_seed_21 | twitter | color | 120 | 1024 | 1000 | 0.0331 | 0.0334 | 0.0000 | 0.0012 | 1.0000 | 125.783 | 144.75 | fail: scalability_required |
-| twitter_balanced_seed_42 | twitter | color | 120 | 1024 | 1000 | 0.0287 | 0.0316 | 0.0000 | 0.0118 | 1.0000 | 122.973 | 148.26 | fail: scalability_required |
-| twitter_balanced_seed_7 | twitter | color | 120 | 1024 | 1000 | 0.0264 | 0.0313 | 0.0000 | 0.0195 | 1.0000 | 124.703 | 180.78 | fail: scalability_required |
-| twitter_balanced_seed_77 | twitter | color | 120 | 1024 | 1000 | 0.0299 | 0.0320 | 0.0000 | 0.0086 | 1.0000 | 123.297 | 161.88 | fail: scalability_required |
-| twitter_balanced_seed_99 | twitter | color | 120 | 1024 | 1000 | 0.0286 | 0.0316 | 0.0000 | 0.0119 | 1.0000 | 122.798 | 162.39 | fail: scalability_required |
-| twitter_scalability_balanced_confirm | twitter | color | 120 | 1024 | 1000 | 0.0287 | 0.0316 | 0.0000 | 0.0118 | 1.0000 | 122.973 | 157.24 | fail: scalability_required |
+| Run | Dataset | Attr | Budget | RR | MC | F-score | MF | DCV | Coverage | Spread | Runtime(s) | Gate |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| graph_spa_age_fast_test | graph_spa_500_0 | age | 50 | 512 | 300 | 0.0952 | 0.0952 | 0.0000 | 1.0000 | 51.513 | 1.96 | fail: scalability_required |
+| graph_spa_ethnicity_fast_test | graph_spa_500_0 | ethnicity | 50 | 512 | 300 | 0.0978 | 0.0978 | 0.0000 | 1.0000 | 51.683 | 1.70 | fail: scalability_required |
+| graph_spa_gender_fast_test | graph_spa_500_0 | gender | 50 | 512 | 300 | 0.1018 | 0.1018 | 0.0000 | 1.0000 | 51.703 | 1.68 | fail: scalability_required |
+| graph_spa_region_fast_confirm | graph_spa_500_0 | region | 50 | 768 | 1000 | 0.0890 | 0.0890 | 0.0000 | 1.0000 | 51.936 | 52.14 | fail: scalability_required |
+| graph_spa_region_fast_test | graph_spa_500_0 | region | 50 | 512 | 300 | 0.0887 | 0.0887 | 0.0000 | 1.0000 | 51.650 | 40.51 | fail: scalability_required |
+| scalability_rice_balanced | rice_subset | color | 70 | 1024 | 1000 | 0.2304 | 0.2304 | 0.0000 | 1.0000 | 117.408 | 44.46 | pass |
+| scalability_synth2_balanced | synth2 | color | 40 | 1024 | 1000 | 0.0830 | 0.0830 | 0.0000 | 1.0000 | 42.439 | 8.77 | pass |
+| scalability_synth3_balanced | synth3 | color | 40 | 1024 | 1000 | 0.0815 | 0.0815 | 0.0000 | 1.0000 | 42.378 | 90.42 | pass |
+| target_alpha_08_full | twitter | color | 120 | 2048 | 1000 | 0.0316 | 0.0316 | 0.0000 | 1.0000 | 123.125 | 1117.05 | fail: scalability_required |
+| twitter_balanced_seed_21 | twitter | color | 120 | 1024 | 1000 | 0.0334 | 0.0334 | 0.0000 | 1.0000 | 125.783 | 144.75 | fail: scalability_required |
+| twitter_balanced_seed_42 | twitter | color | 120 | 1024 | 1000 | 0.0316 | 0.0316 | 0.0000 | 1.0000 | 122.973 | 148.26 | fail: scalability_required |
+| twitter_balanced_seed_7 | twitter | color | 120 | 1024 | 1000 | 0.0313 | 0.0313 | 0.0000 | 1.0000 | 124.703 | 180.78 | fail: scalability_required |
+| twitter_balanced_seed_77 | twitter | color | 120 | 1024 | 1000 | 0.0320 | 0.0320 | 0.0000 | 1.0000 | 123.297 | 161.88 | fail: scalability_required |
+| twitter_balanced_seed_99 | twitter | color | 120 | 1024 | 1000 | 0.0316 | 0.0316 | 0.0000 | 1.0000 | 122.798 | 162.39 | fail: scalability_required |
+| twitter_scalability_balanced_confirm | twitter | color | 120 | 1024 | 1000 | 0.0316 | 0.0316 | 0.0000 | 1.0000 | 122.973 | 157.24 | fail: scalability_required |
 
-Runs with `DCV_short = 0.0000` and `Coverage = 1.0000` met the target-shortfall fairness objective. A `scalability_required` gate failure means the stricter professor-priority scalability check still rejected the run.
+Runs with `DCV = 0.0000` and `Coverage = 1.0000` met the target-shortfall fairness objective. A `scalability_required` gate failure means the stricter professor-priority scalability check still rejected the run.
+
+## CEA-FIM Comparison Evaluation Setting
+
+The following experimental setting is used when evaluating the proposed GraphSAGE + Leiden + Fair RIS + EA/Memetic framework for manual comparison with the CEA-FIM paper.
+
+| Evaluation Requirement | Value |
+|---|---:|
+| Budget | 40 |
+| Monte Carlo Simulations | 1000 |
+| Population Size | 10 |
+| Generations | 150 |
+
+### Reproduction Command
+
+```bash
+python scripts/run_fim_stack.py --dataset twitter --protected-attribute color --budget 40 --embedding-method graphsage --graphsage-training-target combined_fairness_gain --community-method leiden --optimizer ea_memetic --ris-num-rr-sets 768 --mc-runs-eval 1000 --population-size 10 --generations 150 --graphsage-hidden-dim 16 --graphsage-embedding-dim 32 --graphsage-epochs 30 --target-alpha 0.5 --candidate-pool-size 120 --shortfall-repair-rounds 2 --shortfall-repair-candidate-limit 60 --include-mf-gain-in-graphsage-label --random-seed 42 --output-dir results/twitter_fast_compared_to_CEA_FIM --save-json --output-mode compact
+```
+
+This configuration is used as the proposed-method evaluation setting for manual comparison against the CEA-FIM paper.
+
+## Proposed-Method Results for CEA-FIM Comparison Setting
+
+The following table collects all saved proposed-method experiment results that use the evaluation setting selected for manual comparison with the CEA-FIM paper.
+
+### Fixed Comparison Setting
+
+| Requirement | Value |
+|---|---:|
+| Budget | 40 |
+| Monte Carlo Simulations | 1000 |
+| Population Size | 10 |
+| Generations | 150 |
+
+### Matching Proposed-Method Results
+
+| Dataset | Protected Attribute | Target Alpha | RR Sets | Spread | MF | DCV | Target Coverage | F-score | Runtime (s) | Seed |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| graph_spa_500_0 | age | 0.5 | 768 | 41.3440 | 0.0742 | 0.0000 | 1.0000 | 0.0742 | 24.844 | N/A |
+| graph_spa_500_0 | ethnicity | 0.5 | 768 | 41.6340 | 0.0731 | 0.0000 | 1.0000 | 0.0731 | 17.393 | N/A |
+| graph_spa_500_0 | gender | 0.5 | 768 | 41.7400 | 0.0820 | 0.0000 | 1.0000 | 0.0820 | 71.671 | N/A |
+| graph_spa_500_0 | region | 0.5 | 768 | 41.3950 | 0.0628 | 0.0000 | 1.0000 | 0.0628 | 23.916 | N/A |
+| rice_subset | color | 0.5 | 768 | 72.8330 | 0.1238 | 0.0000 | 1.0000 | 0.1238 | 63.361 | N/A |
+| synth2 | color | 0.5 | 768 | 42.8850 | 0.0840 | 0.0000 | 1.0000 | 0.0840 | 19.366 | N/A |
+| synth3 | color | 0.5 | 768 | 42.2110 | 0.0823 | 0.0000 | 1.0000 | 0.0823 | 18.518 | N/A |
+| twitter | color | 0.5 | 768 | 40.9320 | 0.0100 | 0.0000 | 1.0000 | 0.0100 | 132.352 | N/A |
+
+All rows have `DCV = 0.0000` and `Target Coverage = 1.0000`, meaning every protected group met its shortfall-based fairness target in each run. The random seed is not stored in `summary.json` and is therefore listed as N/A.
+
+### Saved Result Folders
+
+- `results/graph_spa_age_fast_compared_to_CEA_FIM`
+- `results/graph_spa_ethnicity_fast_compared_to_CEA_FIM`
+- `results/graph_spa_gender_fast_compared_to_CEA_FIM`
+- `results/graph_spa_region_fast_compared_to_CEA_FIM`
+- `results/rice_subset_fast_compared_to_CEA_FIM`
+- `results/synth2_fast_compared_to_CEA_FIM`
+- `results/synth3_fast_compared_to_CEA_FIM`
+- `results/twitter_fast_compared_to_CEA_FIM`
+
+These runs are intended to be compared manually against the CEA-FIM paper using the same chosen high-level evaluation requirements.
+
+Do not add any CEA-FIM scores or claims here.
 
 ## Detailed Algorithm Explanation
 
@@ -152,25 +214,25 @@ The target-shortfall metric compares each group against an effective influence t
 effective_target[g] = target_alpha * original_ideal_target[g]
 shortfall[g] = max(0, effective_target[g] - group_influence[g])
 shortfall_ratio[g] = shortfall[g] / effective_target[g]
-DCV_shortfall = average(shortfall_ratio[g])
+DCV = DCV_shortfall = average(shortfall_ratio[g])
 Target Coverage Ratio = groups_with_zero_shortfall / number_of_groups
 ```
 
-`DCV_shortfall = 0.0` means no protected group is below its target. This is the primary fairness objective in the active stack.
+`DCV = 0.0` means no protected group is below its effective ideal target. `Target Coverage Ratio = 1.0` means every protected group satisfies the fairness target.
 
-`DCV_disparity` is different. It measures remaining population-proportional under-service after spread is allocated across groups. A run can have `DCV_shortfall = 0.0` and still have nonzero `DCV_disparity` if some groups receive more influence per population share than others.
+The framework does not require exact equality of normalized influence across protected groups. `MF` remains useful after shortfall fairness is satisfied because it identifies the weakest normalized group influence.
 
-The shortfall-first F-score used in the README result is:
+The shortfall-first F-score used by the active stack is:
 
 ```text
-F-score = MF - DCV_shortfall - 0.25 * DCV_disparity
+F-score = MF - DCV
 ```
 
 For the representative result:
 
 ```text
-F-score = 0.031717 - 0.000000 - 0.25 * 0.016394
-        = 0.027618
+F-score = 0.031717 - 0.000000
+        = 0.031717
 ```
 
 ### Step 1: Loading And Protected-Group Validation
@@ -318,10 +380,11 @@ Then each generation applies:
 
 The target-shortfall priority is:
 
-1. Prefer seed sets where all groups meet their targets.
-2. If not all groups meet targets, prefer higher target coverage.
-3. Then prefer lower `DCV_shortfall`.
-4. Then prefer better `MF`, lower disparity, higher F-score, and higher spread.
+1. Prefer higher `Target Coverage Ratio`.
+2. Then prefer lower `DCV`.
+3. Then prefer better `MF`.
+4. Then prefer higher F-score.
+5. Then prefer higher spread, with lower runtime only as a final tie-breaker.
 
 This ordering explains why the algorithm may reject a high-spread seed if it causes a group to fall below target.
 
@@ -346,9 +409,9 @@ Once `DCV_shortfall = 0.0`, the algorithm changes focus. At that point, every gr
 MF-lift tries swaps that:
 
 - Improve the weakest group's normalized influence.
-- Preserve `DCV_shortfall = 0.0`.
+- Preserve `DCV = 0.0`.
 - Preserve `Target Coverage Ratio = 1.0`.
-- Avoid unacceptable spread or disparity degradation.
+- Avoid unacceptable spread degradation.
 
 The final implementation evaluates pre-lift, post-lift, and accepted lift-swap candidates with Monte Carlo, then chooses the best one under the same shortfall-first priority.
 
@@ -702,7 +765,7 @@ python scripts/summarize_scalability_results.py --results-root results --output-
 - Ablation runs: use to prove each component matters.
 - Summary commands: use to generate final CSV/Markdown tables.
 - Cleanup commands: use after important outputs are saved.
-- Always check: F-score, MF, DCV_shortfall, DCV_disparity, Target Coverage, Spread, Runtime.
+- Always check: F-score, MF, DCV, Target Coverage, Spread, Runtime.
 
 ## Built-In Protected Attributes
 
@@ -711,6 +774,6 @@ python scripts/summarize_scalability_results.py --results-root results --output-
 
 ## Output Interpretation
 
-Use `DCV_shortfall` and `Target Coverage Ratio` to answer whether protected groups met their targets. Use `MF` and `DCV_disparity` to understand remaining inequality after the shortfall target is met. Use `fairness_gate_status` to know whether the stricter professor-priority policy accepted the run.
+Use `DCV` and `Target Coverage Ratio` to answer whether protected groups met their targets. Use `MF` to understand the weakest normalized group influence after the shortfall target is met. Use `fairness_gate_status` to know whether the stricter professor-priority policy accepted the run.
 
 For the representative Twitter result, the algorithm met all group influence targets but did not pass the strict scalability gate. The practical next experiments are a budget sweep, higher `fair_ris_score_weight`, higher `weak_group_bonus_weight`, or support-aware fairness settings for strongly imbalanced protected groups.

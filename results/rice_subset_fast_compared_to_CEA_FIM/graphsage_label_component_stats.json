@@ -1,0 +1,88 @@
+{
+  "baseline_group_influence": {
+    "0": 16.184971098265898,
+    "1": 61.46218487394958
+  },
+  "baseline_normalized_group_influence": {
+    "0": 0.161849710982659,
+    "1": 0.1781512605042017
+  },
+  "baseline_seed_count": 40,
+  "ideal_influences": {
+    "0": 5.175,
+    "1": 33.25
+  },
+  "include_mf_gain_in_graphsage_label": true,
+  "label_component_stats": {
+    "combined_fairness_gain": {
+      "count": 445,
+      "max": 1.0,
+      "mean": 0.28764107823371887,
+      "min": 0.0,
+      "std": 0.15008896589279175
+    },
+    "community_diversity_score": {
+      "count": 445,
+      "max": 1.0,
+      "mean": 0.5179685393258426,
+      "min": 0.0,
+      "std": 0.3808210512281291
+    },
+    "fair_ris_score": {
+      "count": 445,
+      "max": 1.0,
+      "mean": 0.28779026217228465,
+      "min": 0.0,
+      "std": 0.16795230270846195
+    },
+    "label_score": {
+      "count": 445,
+      "max": 1.0,
+      "mean": 0.2876410700964187,
+      "min": 0.0,
+      "std": 0.1500889694700724
+    },
+    "mf_gain_score": {
+      "count": 445,
+      "max": 1.0,
+      "mean": 0.12734082397003746,
+      "min": 0.0,
+      "std": 0.178812967502741
+    },
+    "ris_score": {
+      "count": 445,
+      "max": 1.0,
+      "mean": 0.29606741573033707,
+      "min": 0.0,
+      "std": 0.17055432998049136
+    },
+    "shortfall_gain": {
+      "count": 445,
+      "max": 0.0,
+      "mean": 0.0,
+      "min": 0.0,
+      "std": 0.0
+    },
+    "spread_proxy_score": {
+      "count": 445,
+      "max": 1.0,
+      "mean": 0.3071408705381959,
+      "min": 0.0,
+      "std": 0.16186291190502078
+    },
+    "weakest_group_gain": {
+      "count": 445,
+      "max": 1.0,
+      "mean": 0.12734082397003746,
+      "min": 0.0,
+      "std": 0.178812967502741
+    }
+  },
+  "mf_gain_label_weight": 1.5,
+  "mf_gain_weakest_group": "0",
+  "shortfall_ratio": {
+    "0": 0.0,
+    "1": 0.0
+  },
+  "training_target": "combined_fairness_gain"
+}

@@ -1,8 +1,8 @@
 {
   "allow_protected_features_in_ml": false,
   "best_epoch": 30,
-  "best_validation_loss": 0.0029203593730926514,
-  "cache_fingerprint": "053b715f8f4c8173f86500ab16b14cbcfb0f98568a146bee03be56b984c7f302",
+  "best_validation_loss": 0.002760893665254116,
+  "cache_fingerprint": "1a1cec9dd90f7759396dbe129e500b0c87c74b0250bd01f272bf09c4cb252a41",
   "effective_graphsage_weight": 0.8,
   "epochs_run": 30,
   "feature_columns": [
@@ -49,66 +49,66 @@
   "include_mf_gain_in_graphsage_label": true,
   "label_stats": {
     "baseline_group_influence": {
-      "acton": 3.235294117647059,
+      "acton": 2.588235294117647,
       "desert_view_highlands": 0.0,
-      "lake_los_angeles": 4.0,
-      "lancaster": 25.42168674698795,
+      "lake_los_angeles": 3.0,
+      "lancaster": 19.701807228915662,
       "leona_valley": 0.0,
       "littlerock": 0.0,
       "northeast_antelope_valley": 1.0,
       "northwest_antelope_valley": 0.0,
       "northwest_palmdale": 0.0,
-      "palmdale": 14.09491525423729,
+      "palmdale": 12.752542372881356,
       "quartz_hill": 2.608695652173913,
       "southeast_antelope_valley": 0.0,
       "sun_village": 1.3636363636363638
     },
     "baseline_normalized_group_influence": {
-      "acton": 0.29411764705882354,
+      "acton": 0.23529411764705885,
       "desert_view_highlands": 0.0,
-      "lake_los_angeles": 0.2222222222222222,
-      "lancaster": 0.12048192771084337,
+      "lake_los_angeles": 0.16666666666666666,
+      "lancaster": 0.09337349397590361,
       "leona_valley": 0.0,
       "littlerock": 0.0,
       "northeast_antelope_valley": 0.14285714285714285,
       "northwest_antelope_valley": 0.0,
       "northwest_palmdale": 0.0,
-      "palmdale": 0.0711864406779661,
+      "palmdale": 0.06440677966101695,
       "quartz_hill": 0.17391304347826086,
       "southeast_antelope_valley": 0.0,
       "sun_village": 0.09090909090909091
     },
-    "baseline_seed_count": 50,
+    "baseline_seed_count": 40,
     "ideal_influences": {
-      "acton": 1.64,
-      "desert_view_highlands": 0.8,
-      "lake_los_angeles": 1.6,
-      "lancaster": 18.64,
-      "leona_valley": 0.8,
-      "littlerock": 0.8,
-      "northeast_antelope_valley": 0.8800000000000001,
-      "northwest_antelope_valley": 0.8800000000000001,
-      "northwest_palmdale": 0.8400000000000001,
-      "palmdale": 17.080000000000002,
-      "quartz_hill": 1.6,
-      "southeast_antelope_valley": 0.8400000000000001,
-      "sun_village": 1.64
+      "acton": 0.525,
+      "desert_view_highlands": 0.5,
+      "lake_los_angeles": 1.0,
+      "lancaster": 9.0,
+      "leona_valley": 0.5,
+      "littlerock": 0.5,
+      "northeast_antelope_valley": 0.55,
+      "northwest_antelope_valley": 0.5,
+      "northwest_palmdale": 0.5,
+      "palmdale": 8.65,
+      "quartz_hill": 1.1,
+      "southeast_antelope_valley": 0.525,
+      "sun_village": 1.0
     },
     "include_mf_gain_in_graphsage_label": true,
     "label_component_stats": {
       "combined_fairness_gain": {
         "count": 500,
         "max": 1.0,
-        "mean": 0.1607121229171753,
+        "mean": 0.14772604405879974,
         "min": 0.0,
-        "std": 0.12281940877437592
+        "std": 0.10860516130924225
       },
       "community_diversity_score": {
         "count": 500,
         "max": 1.0,
-        "mean": 0.34971428571428564,
+        "mean": 0.415304347826087,
         "min": 0.0,
-        "std": 0.35365634598216183
+        "std": 0.37450058497615346
       },
       "fair_ris_score": {
         "count": 500,
@@ -120,9 +120,9 @@
       "label_score": {
         "count": 500,
         "max": 1.0,
-        "mean": 0.1607121209534671,
+        "mean": 0.14772604703773687,
         "min": 0.0,
-        "std": 0.12281940807769401
+        "std": 0.10860515615172438
       },
       "mf_gain_score": {
         "count": 500,
@@ -141,9 +141,9 @@
       "shortfall_gain": {
         "count": 500,
         "max": 1.0,
-        "mean": 0.05722508736618347,
+        "mean": 0.01933333333333333,
         "min": 0.0,
-        "std": 0.11958067051259778
+        "std": 0.10885056014759152
       },
       "spread_proxy_score": {
         "count": 500,
@@ -172,33 +172,33 @@
       "northeast_antelope_valley": 0.0,
       "northwest_antelope_valley": 1.0,
       "northwest_palmdale": 1.0,
-      "palmdale": 0.17477076965823843,
+      "palmdale": 0.0,
       "quartz_hill": 0.0,
       "southeast_antelope_valley": 1.0,
-      "sun_village": 0.1685144124168513
+      "sun_village": 0.0
     },
     "training_target": "combined_fairness_gain"
   },
   "loaded_from_cache": false,
   "metrics": {
-    "label_std": 0.12281940807769401,
-    "mae": 0.2415421710540686,
-    "ndcg_at_budget": 0.7800662940246192,
-    "pearson": 0.7594463123350252,
-    "precision_at_2budget": 0.71,
-    "precision_at_budget": 0.64,
-    "prediction_std": 0.1688512930239977,
-    "rmse": 0.2617658494178765,
-    "spearman": 0.8097516482916227,
-    "topk_community_count": 9.0,
-    "topk_community_coverage": 0.47368421052631576,
-    "topk_protected_group_count": 5.0,
-    "topk_protected_group_coverage": 0.38461538461538464
+    "label_std": 0.10860515615172438,
+    "mae": 0.2650306555278512,
+    "ndcg_at_budget": 0.7732447551957644,
+    "pearson": 0.7018356690197775,
+    "precision_at_2budget": 0.6,
+    "precision_at_budget": 0.625,
+    "prediction_std": 0.17209190603030922,
+    "rmse": 0.28857138713850666,
+    "spearman": 0.7653145308143915,
+    "topk_community_count": 10.0,
+    "topk_community_coverage": 0.5263157894736842,
+    "topk_protected_group_count": 8.0,
+    "topk_protected_group_coverage": 0.6153846153846154
   },
   "mf_gain_label_weight": 1.5,
   "mf_gain_weakest_group": "desert_view_highlands",
   "protected_feature_columns": [],
-  "runtime_seconds": 0.12773680000100285,
+  "runtime_seconds": 0.16772699999955876,
   "test_indices": [
     42,
     122,

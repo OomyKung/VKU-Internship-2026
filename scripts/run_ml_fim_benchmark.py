@@ -1512,7 +1512,7 @@ def parse_args() -> argparse.Namespace:
             "Nodes in groups with a larger share of total ideal influence receive a higher "
             "under_served_group_bonus, making the component non-constant and targeting "
             "under-served large groups (e.g. lancaster, palmdale). Requires ideal_influences "
-            "to be computed (set --primary-dcv-mode shortfall or pass --ideal-influence-mode). "
+            "to be computed or an --ideal-influence-mode to be selected. "
             "Default: off (backward compatible)."
         ),
     )
@@ -1703,19 +1703,7 @@ def parse_args() -> argparse.Namespace:
         help="Reuse saved node-score caches when available.",
     )
     parser.add_argument("--save-json", action=argparse.BooleanOptionalAction, default=False)
-    # -- Shortfall DCV arguments (Steps 2-13 of the shortfall-DCV refactor) ------
-    parser.add_argument(
-        "--primary-dcv-mode",
-        choices=["disparity", "shortfall"],
-        default="disparity",
-        help="Primary fairness metric: 'shortfall' = no-group-left-behind, 'disparity' = original DCV (default).",
-    )
-    parser.add_argument(
-        "--report-both-dcv",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Always report both DCV_shortfall and DCV_disparity in output.",
-    )
+    # Shortfall DCV arguments.
     parser.add_argument(
         "--ideal-influence-mode",
         choices=["proportional_budget_internal", "proportional_budget_feasible"],
@@ -1744,19 +1732,7 @@ def parse_args() -> argparse.Namespace:
         "--shortfall-dcv-weight",
         type=float,
         default=1.0,
-        help="Weight for DCV_shortfall in shortfall-primary F-score.",
-    )
-    parser.add_argument(
-        "--disparity-dcv-weight",
-        type=float,
-        default=0.25,
-        help="Weight for DCV_disparity as a soft secondary penalty.",
-    )
-    parser.add_argument(
-        "--fscore-mode",
-        choices=["disparity_primary", "shortfall_primary", "combined"],
-        default="disparity_primary",
-        help="F-score formula mode: disparity_primary keeps original lambda formula.",
+        help="Weight for DCV_shortfall in F-score.",
     )
     parser.add_argument(
         "--shortfall-dcv-worsen-tolerance",
@@ -1765,16 +1741,10 @@ def parse_args() -> argparse.Namespace:
         help="Allow shortfall DCV to worsen by this amount during swap acceptance.",
     )
     parser.add_argument(
-        "--disparity-warning-threshold",
-        type=float,
-        default=0.10,
-        help="DCV_disparity value above which a disparity warning is reported.",
-    )
-    parser.add_argument(
         "--max-shortfall-dcv",
         type=float,
         default=0.01,
-        help="Fairness gate: maximum acceptable DCV_shortfall (only active when primary-dcv-mode=shortfall).",
+        help="Fairness gate: maximum acceptable DCV_shortfall.",
     )
     parser.add_argument(
         "--min-target-coverage-ratio",
@@ -2130,15 +2100,10 @@ def main() -> None:
         ea_random_immigrant_rate=float(args.random_immigrant_rate),
         ea_diversity_preservation=bool(args.diversity_preservation),
         # Shortfall DCV settings.
-        primary_dcv_mode=str(args.primary_dcv_mode),
-        report_both_dcv=bool(args.report_both_dcv),
         ideal_influence_mode=str(args.ideal_influence_mode),
         feasible_ceiling_factor=float(args.feasible_ceiling_factor),
         shortfall_dcv_weight=float(args.shortfall_dcv_weight),
-        disparity_dcv_weight=float(args.disparity_dcv_weight),
-        fscore_mode=str(args.fscore_mode),
         shortfall_dcv_worsen_tolerance=float(args.shortfall_dcv_worsen_tolerance),
-        disparity_warning_threshold=float(args.disparity_warning_threshold),
         max_shortfall_dcv=float(args.max_shortfall_dcv),
         min_target_coverage_ratio=float(args.min_target_coverage_ratio),
         use_shortfall_repair=bool(args.use_shortfall_repair),
@@ -2154,7 +2119,6 @@ def main() -> None:
         scalability_required=bool(args.scalability_required),
         runtime_tiebreak_only=bool(args.runtime_tiebreak_only),
         warn_only_fairness_gates=bool(args.warn_only_fairness_gates),
-        primary_dcv_mode=str(args.primary_dcv_mode),
         max_shortfall_dcv=float(args.max_shortfall_dcv),
         min_target_coverage_ratio=float(args.min_target_coverage_ratio),
     )
