@@ -1,41 +1,41 @@
 {
   "baseline_group_influence": {
-    "asian": 1.7777777777777777,
-    "black": 7.418181818181818,
+    "asian": 2.6666666666666665,
+    "black": 8.036363636363637,
     "latino": 13.614406779661017,
     "other": 0.0,
-    "white": 21.672972972972975
+    "white": 29.554054054054056
   },
   "baseline_normalized_group_influence": {
-    "asian": 0.1111111111111111,
-    "black": 0.10909090909090909,
+    "asian": 0.16666666666666666,
+    "black": 0.1181818181818182,
     "latino": 0.08898305084745763,
     "other": 0.0,
-    "white": 0.0891891891891892
+    "white": 0.12162162162162163
   },
-  "baseline_seed_count": 40,
+  "baseline_seed_count": 50,
   "ideal_influences": {
-    "asian": 1.025,
-    "black": 3.025,
-    "latino": 6.925,
-    "other": 1.0,
-    "white": 10.525
+    "asian": 1.64,
+    "black": 5.68,
+    "latino": 13.440000000000001,
+    "other": 1.6,
+    "white": 21.040000000000003
   },
   "include_mf_gain_in_graphsage_label": true,
   "label_component_stats": {
     "combined_fairness_gain": {
       "count": 500,
       "max": 1.0,
-      "mean": 0.13010767102241516,
+      "mean": 0.12873674929141998,
       "min": 0.0,
-      "std": 0.11490628868341446
+      "std": 0.11826243251562119
     },
     "community_diversity_score": {
       "count": 500,
       "max": 1.0,
-      "mean": 0.415304347826087,
+      "mean": 0.34971428571428564,
       "min": 0.0,
-      "std": 0.37450058497615346
+      "std": 0.35365634598216183
     },
     "fair_ris_score": {
       "count": 500,
@@ -47,9 +47,9 @@
     "label_score": {
       "count": 500,
       "max": 1.0,
-      "mean": 0.13010767371722615,
+      "mean": 0.1287367593862582,
       "min": 0.0,
-      "std": 0.11490628805712612
+      "std": 0.11826243446391296
     },
     "mf_gain_score": {
       "count": 500,

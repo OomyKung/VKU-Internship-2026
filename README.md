@@ -660,6 +660,14 @@ python scripts/run_all_fim_evaluations.py --seeds 7,21,42
 python scripts/run_all_fim_evaluations.py --multi-seed-twitter
 ```
 
+### Ten-Run Repeated Evaluation
+
+Run the selected evaluation 10 times and record per-run runtime:
+
+```bash
+python scripts/run_all_fim_evaluations.py --datasets twitter --repeat-runs 10
+```
+
 ---
 
 ## 4. Multi-Seed Stability Runs
