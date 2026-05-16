@@ -1,0 +1,88 @@
+{
+  "baseline_group_influence": {
+    "0": 8.279220779220779,
+    "1": 40.08379888268156
+  },
+  "baseline_normalized_group_influence": {
+    "0": 0.05519480519480519,
+    "1": 0.11452513966480446
+  },
+  "baseline_seed_count": 40,
+  "ideal_influences": {
+    "0": 10.08,
+    "1": 25.28
+  },
+  "include_mf_gain_in_graphsage_label": true,
+  "label_component_stats": {
+    "combined_fairness_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.19586096704006195,
+      "min": 0.0,
+      "std": 0.18679368495941162
+    },
+    "community_diversity_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.3308863636363637,
+      "min": 0.0,
+      "std": 0.43051413457301113
+    },
+    "fair_ris_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.2366666666666667,
+      "min": 0.0,
+      "std": 0.18488735309191198
+    },
+    "label_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.195860950358212,
+      "min": 0.0,
+      "std": 0.1867936881179186
+    },
+    "mf_gain_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.10766666666666669,
+      "min": 0.0,
+      "std": 0.20954209335808616
+    },
+    "ris_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.3134285714285714,
+      "min": 0.0,
+      "std": 0.2099739536811406
+    },
+    "shortfall_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.10766666666666669,
+      "min": 0.0,
+      "std": 0.20954209335808616
+    },
+    "spread_proxy_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.4422266484109868,
+      "min": 0.0,
+      "std": 0.16797924693712069
+    },
+    "weakest_group_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.10766666666666669,
+      "min": 0.0,
+      "std": 0.20954209335808616
+    }
+  },
+  "mf_gain_label_weight": 1.5,
+  "mf_gain_weakest_group": "0",
+  "shortfall_ratio": {
+    "0": 0.1786487322201608,
+    "1": 0.0
+  },
+  "training_target": "combined_fairness_gain"
+}

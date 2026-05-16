@@ -1,0 +1,92 @@
+{
+  "baseline_group_influence": {
+    "0": 21.945945945945947,
+    "1": 59.40700808625337,
+    "2": 6.2
+  },
+  "baseline_normalized_group_influence": {
+    "0": 0.02702702702702703,
+    "1": 0.0215633423180593,
+    "2": 0.03333333333333333
+  },
+  "baseline_seed_count": 120,
+  "ideal_influences": {
+    "0": 24.880000000000003,
+    "1": 82.64,
+    "2": 5.6000000000000005
+  },
+  "include_mf_gain_in_graphsage_label": true,
+  "label_component_stats": {
+    "combined_fairness_gain": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.08982997387647629,
+      "min": 0.0,
+      "std": 0.11137952655553818
+    },
+    "community_diversity_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.7452330998811125,
+      "min": 0.0,
+      "std": 0.29302220392098177
+    },
+    "fair_ris_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.044745501857402115,
+      "min": 0.0,
+      "std": 0.12623503894685675
+    },
+    "label_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.08982998326436094,
+      "min": 0.0,
+      "std": 0.11137952604771795
+    },
+    "mf_gain_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.03357314148681055,
+      "min": 0.0,
+      "std": 0.10935571226458883
+    },
+    "ris_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.04698463451461053,
+      "min": 0.0,
+      "std": 0.1257873783319711
+    },
+    "shortfall_gain": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.03808118867084305,
+      "min": 0.0,
+      "std": 0.1110806683657783
+    },
+    "spread_proxy_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.022338619833780368,
+      "min": 0.0,
+      "std": 0.040947356496527004
+    },
+    "weakest_group_gain": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.03357314148681055,
+      "min": 0.0,
+      "std": 0.10935571226458883
+    }
+  },
+  "mf_gain_label_weight": 1.5,
+  "mf_gain_weakest_group": "1",
+  "shortfall_ratio": {
+    "0": 0.11792821760667423,
+    "1": 0.28113494571329417,
+    "2": 0.0
+  },
+  "training_target": "combined_fairness_gain"
+}

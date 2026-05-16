@@ -1,0 +1,92 @@
+{
+  "baseline_group_influence": {
+    "0": 16.742268041237114,
+    "1": 102.03703703703704,
+    "2": 5.027027027027027
+  },
+  "baseline_normalized_group_influence": {
+    "0": 0.020618556701030927,
+    "1": 0.037037037037037035,
+    "2": 0.02702702702702703
+  },
+  "baseline_seed_count": 120,
+  "ideal_influences": {
+    "0": 24.240000000000002,
+    "1": 82.16000000000001,
+    "2": 5.5200000000000005
+  },
+  "include_mf_gain_in_graphsage_label": true,
+  "label_component_stats": {
+    "combined_fairness_gain": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.07708839327096939,
+      "min": 0.0,
+      "std": 0.08922382444143295
+    },
+    "community_diversity_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.7766468277973283,
+      "min": 0.0,
+      "std": 0.2804398659501607
+    },
+    "fair_ris_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.04385691357103003,
+      "min": 0.0,
+      "std": 0.12309873420834146
+    },
+    "label_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.07708839685581698,
+      "min": 0.0,
+      "std": 0.08922382343719537
+    },
+    "mf_gain_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.01332267519317879,
+      "min": 0.0,
+      "std": 0.0829670065633431
+    },
+    "ris_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.04716227018385292,
+      "min": 0.0,
+      "std": 0.1261909841419035
+    },
+    "shortfall_gain": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.014899785368793224,
+      "min": 0.0,
+      "std": 0.08445903242546579
+    },
+    "spread_proxy_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.024282515853535143,
+      "min": 0.0,
+      "std": 0.045211174252953366
+    },
+    "weakest_group_gain": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.01332267519317879,
+      "min": 0.0,
+      "std": 0.0829670065633431
+    }
+  },
+  "mf_gain_label_weight": 1.5,
+  "mf_gain_weakest_group": "0",
+  "shortfall_ratio": {
+    "0": 0.30931237453642274,
+    "1": 0.0,
+    "2": 0.08930669800235022
+  },
+  "training_target": "combined_fairness_gain"
+}

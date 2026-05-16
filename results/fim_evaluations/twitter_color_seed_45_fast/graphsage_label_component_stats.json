@@ -1,0 +1,92 @@
+{
+  "baseline_group_influence": {
+    "0": 7.25,
+    "1": 95.0,
+    "2": 16.17391304347826
+  },
+  "baseline_normalized_group_influence": {
+    "0": 0.008928571428571428,
+    "1": 0.034482758620689655,
+    "2": 0.08695652173913043
+  },
+  "baseline_seed_count": 120,
+  "ideal_influences": {
+    "0": 24.680000000000003,
+    "1": 82.48,
+    "2": 5.5600000000000005
+  },
+  "include_mf_gain_in_graphsage_label": true,
+  "label_component_stats": {
+    "combined_fairness_gain": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.06762519478797913,
+      "min": 0.0,
+      "std": 0.06793083995580673
+    },
+    "community_diversity_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.7651830866130104,
+      "min": 0.0,
+      "std": 0.29550642657214204
+    },
+    "fair_ris_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.029897770537148902,
+      "min": 0.0,
+      "std": 0.08548582646883437
+    },
+    "label_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.06762519554365848,
+      "min": 0.0,
+      "std": 0.06793084469282433
+    },
+    "mf_gain_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.010480504485300647,
+      "min": 0.0,
+      "std": 0.06258248579723372
+    },
+    "ris_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.04787281286082245,
+      "min": 0.0,
+      "std": 0.12779019177687012
+    },
+    "shortfall_gain": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.01048050448530065,
+      "min": 0.0,
+      "std": 0.06258248579723373
+    },
+    "spread_proxy_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.024460151522777526,
+      "min": 0.0,
+      "std": 0.04506756427705737
+    },
+    "weakest_group_gain": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.010480504485300647,
+      "min": 0.0,
+      "std": 0.06258248579723372
+    }
+  },
+  "mf_gain_label_weight": 1.5,
+  "mf_gain_weakest_group": "0",
+  "shortfall_ratio": {
+    "0": 0.7062398703403566,
+    "1": 0.0,
+    "2": 0.0
+  },
+  "training_target": "combined_fairness_gain"
+}

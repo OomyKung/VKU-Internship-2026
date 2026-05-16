@@ -1,0 +1,88 @@
+{
+  "baseline_group_influence": {
+    "0": 6.890459363957597,
+    "1": 34.008097165991906
+  },
+  "baseline_normalized_group_influence": {
+    "0": 0.045936395759717315,
+    "1": 0.09716599190283402
+  },
+  "baseline_seed_count": 40,
+  "ideal_influences": {
+    "0": 10.0,
+    "1": 25.040000000000003
+  },
+  "include_mf_gain_in_graphsage_label": true,
+  "label_component_stats": {
+    "combined_fairness_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.1658710092306137,
+      "min": 0.0,
+      "std": 0.15005722641944885
+    },
+    "community_diversity_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.35187421383647804,
+      "min": 0.0,
+      "std": 0.4162579270855219
+    },
+    "fair_ris_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.197,
+      "min": 0.0,
+      "std": 0.14954754891924876
+    },
+    "label_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.16587101326324047,
+      "min": 0.0,
+      "std": 0.15005723247697922
+    },
+    "mf_gain_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.08342857142857144,
+      "min": 0.0,
+      "std": 0.16555065813267933
+    },
+    "ris_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.31057142857142855,
+      "min": 0.0,
+      "std": 0.2118780935599814
+    },
+    "shortfall_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.08342857142857142,
+      "min": 0.0,
+      "std": 0.16555065813267933
+    },
+    "spread_proxy_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.42321536722435144,
+      "min": 0.0,
+      "std": 0.1717168748366043
+    },
+    "weakest_group_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.08342857142857144,
+      "min": 0.0,
+      "std": 0.16555065813267933
+    }
+  },
+  "mf_gain_label_weight": 1.5,
+  "mf_gain_weakest_group": "0",
+  "shortfall_ratio": {
+    "0": 0.31095406360424027,
+    "1": 0.0
+  },
+  "training_target": "combined_fairness_gain"
+}

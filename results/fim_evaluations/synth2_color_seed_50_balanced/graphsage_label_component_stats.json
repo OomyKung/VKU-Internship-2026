@@ -1,0 +1,88 @@
+{
+  "baseline_group_influence": {
+    "0": 7.305194805194805,
+    "1": 36.66201117318436
+  },
+  "baseline_normalized_group_influence": {
+    "0": 0.048701298701298704,
+    "1": 0.10474860335195532
+  },
+  "baseline_seed_count": 40,
+  "ideal_influences": {
+    "0": 10.240000000000002,
+    "1": 25.12
+  },
+  "include_mf_gain_in_graphsage_label": true,
+  "label_component_stats": {
+    "combined_fairness_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.14312833547592163,
+      "min": 0.0,
+      "std": 0.1343080997467041
+    },
+    "community_diversity_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.30455056179775286,
+      "min": 0.0,
+      "std": 0.435447121599895
+    },
+    "fair_ris_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.15866666666666668,
+      "min": 0.0,
+      "std": 0.1306118554730904
+    },
+    "label_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.1431283428473398,
+      "min": 0.0,
+      "std": 0.13430810231529636
+    },
+    "mf_gain_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.07222222222222223,
+      "min": 0.0,
+      "std": 0.1453603440750937
+    },
+    "ris_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.2451111111111111,
+      "min": 0.0,
+      "std": 0.17110981240488393
+    },
+    "shortfall_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.07222222222222223,
+      "min": 0.0,
+      "std": 0.1453603440750937
+    },
+    "spread_proxy_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.44332580257825066,
+      "min": 0.0,
+      "std": 0.16998897971075597
+    },
+    "weakest_group_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.07222222222222223,
+      "min": 0.0,
+      "std": 0.1453603440750937
+    }
+  },
+  "mf_gain_label_weight": 1.5,
+  "mf_gain_weakest_group": "0",
+  "shortfall_ratio": {
+    "0": 0.2866020698051949,
+    "1": 0.0
+  },
+  "training_target": "combined_fairness_gain"
+}

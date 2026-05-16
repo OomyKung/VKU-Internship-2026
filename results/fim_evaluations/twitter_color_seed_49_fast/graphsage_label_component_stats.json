@@ -1,0 +1,92 @@
+{
+  "baseline_group_influence": {
+    "0": 13.533333333333333,
+    "1": 88.3957219251337,
+    "2": 0.0
+  },
+  "baseline_normalized_group_influence": {
+    "0": 0.016666666666666666,
+    "1": 0.03208556149732621,
+    "2": 0.0
+  },
+  "baseline_seed_count": 120,
+  "ideal_influences": {
+    "0": 23.96,
+    "1": 82.24000000000001,
+    "2": 5.960000000000001
+  },
+  "include_mf_gain_in_graphsage_label": true,
+  "label_component_stats": {
+    "combined_fairness_gain": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.07639192789793015,
+      "min": 0.0,
+      "std": 0.07314659655094147
+    },
+    "community_diversity_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.7655922836645728,
+      "min": 0.0,
+      "std": 0.2726059497068631
+    },
+    "fair_ris_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.04371920284623537,
+      "min": 0.0,
+      "std": 0.12369139659170131
+    },
+    "label_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.0763919246680743,
+      "min": 0.0,
+      "std": 0.07314659956122324
+    },
+    "mf_gain_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.002398081534772182,
+      "min": 0.0,
+      "std": 0.0364213772978242
+    },
+    "ris_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.04662936317612577,
+      "min": 0.0,
+      "std": 0.1252121689319714
+    },
+    "shortfall_gain": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.009413207701321783,
+      "min": 0.0,
+      "std": 0.05405017448842607
+    },
+    "spread_proxy_score": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.024149289101603355,
+      "min": 0.0,
+      "std": 0.043907850334419136
+    },
+    "weakest_group_gain": {
+      "count": 3753,
+      "max": 1.0,
+      "mean": 0.002398081534772182,
+      "min": 0.0,
+      "std": 0.0364213772978242
+    }
+  },
+  "mf_gain_label_weight": 1.5,
+  "mf_gain_weakest_group": "2",
+  "shortfall_ratio": {
+    "0": 0.43516972732331666,
+    "1": 0.0,
+    "2": 1.0
+  },
+  "training_target": "combined_fairness_gain"
+}

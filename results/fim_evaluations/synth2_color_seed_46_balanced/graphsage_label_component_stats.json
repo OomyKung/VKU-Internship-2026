@@ -1,0 +1,88 @@
+{
+  "baseline_group_influence": {
+    "0": 7.401315789473684,
+    "1": 36.94444444444444
+  },
+  "baseline_normalized_group_influence": {
+    "0": 0.049342105263157895,
+    "1": 0.10555555555555556
+  },
+  "baseline_seed_count": 40,
+  "ideal_influences": {
+    "0": 10.08,
+    "1": 25.92
+  },
+  "include_mf_gain_in_graphsage_label": true,
+  "label_component_stats": {
+    "combined_fairness_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.14009270071983337,
+      "min": 0.0,
+      "std": 0.129876047372818
+    },
+    "community_diversity_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.3542325581395349,
+      "min": 0.0,
+      "std": 0.41828231106487673
+    },
+    "fair_ris_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.1587777777777778,
+      "min": 0.0,
+      "std": 0.12587761055686658
+    },
+    "label_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.14009269460290671,
+      "min": 0.0,
+      "std": 0.12987604062908892
+    },
+    "mf_gain_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.0697777777777778,
+      "min": 0.0,
+      "std": 0.13991249469879202
+    },
+    "ris_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.24777777777777776,
+      "min": 0.0,
+      "std": 0.17116521511159188
+    },
+    "shortfall_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.0697777777777778,
+      "min": 0.0,
+      "std": 0.13991249469879202
+    },
+    "spread_proxy_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.3859140173522451,
+      "min": 0.0,
+      "std": 0.15695804682103678
+    },
+    "weakest_group_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.0697777777777778,
+      "min": 0.0,
+      "std": 0.13991249469879202
+    }
+  },
+  "mf_gain_label_weight": 1.5,
+  "mf_gain_weakest_group": "0",
+  "shortfall_ratio": {
+    "0": 0.26574248120300753,
+    "1": 0.0
+  },
+  "training_target": "combined_fairness_gain"
+}

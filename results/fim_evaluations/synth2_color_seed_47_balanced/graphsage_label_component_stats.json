@@ -1,0 +1,88 @@
+{
+  "baseline_group_influence": {
+    "0": 5.357142857142857,
+    "1": 37.63966480446927
+  },
+  "baseline_normalized_group_influence": {
+    "0": 0.03571428571428571,
+    "1": 0.10754189944134077
+  },
+  "baseline_seed_count": 40,
+  "ideal_influences": {
+    "0": 10.200000000000001,
+    "1": 24.560000000000002
+  },
+  "include_mf_gain_in_graphsage_label": true,
+  "label_component_stats": {
+    "combined_fairness_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.19136734306812286,
+      "min": 0.0,
+      "std": 0.1876119077205658
+    },
+    "community_diversity_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.3102183908045977,
+      "min": 0.0,
+      "std": 0.43200448284595566
+    },
+    "fair_ris_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.2355,
+      "min": 0.0,
+      "std": 0.18431035118938804
+    },
+    "label_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.19136734585755039,
+      "min": 0.0,
+      "std": 0.18761190422706078
+    },
+    "mf_gain_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.10833333333333334,
+      "min": 0.0,
+      "std": 0.2094636006565341
+    },
+    "ris_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.31085714285714283,
+      "min": 0.0,
+      "std": 0.20824945794573843
+    },
+    "shortfall_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.10833333333333332,
+      "min": 0.0,
+      "std": 0.2094636006565341
+    },
+    "spread_proxy_score": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.4384016303395068,
+      "min": 0.0,
+      "std": 0.1800696269011057
+    },
+    "weakest_group_gain": {
+      "count": 500,
+      "max": 1.0,
+      "mean": 0.10833333333333334,
+      "min": 0.0,
+      "std": 0.2094636006565341
+    }
+  },
+  "mf_gain_label_weight": 1.5,
+  "mf_gain_weakest_group": "0",
+  "shortfall_ratio": {
+    "0": 0.47478991596638664,
+    "1": 0.0
+  },
+  "training_target": "combined_fairness_gain"
+}

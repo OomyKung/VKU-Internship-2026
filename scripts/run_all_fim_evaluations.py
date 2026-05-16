@@ -272,13 +272,20 @@ def _fmt(val: float | None, decimals: int = 3) -> str:
 
 def _compute_stats(
     values: list[float],
-) -> tuple[float, float, float, float] | tuple[None, None, None, None]:
+) -> tuple[float, float, float, float, float] | tuple[None, None, None, None, None]:
     if not values:
-        return None, None, None, None
+        return None, None, None, None, None
     n = len(values)
+    ordered = sorted(values)
+    midpoint = n // 2
     mean = sum(values) / n
+    median = (
+        ordered[midpoint]
+        if n % 2
+        else (ordered[midpoint - 1] + ordered[midpoint]) / 2
+    )
     std = math.sqrt(sum((v - mean) ** 2 for v in values) / (n - 1)) if n > 1 else 0.0
-    return mean, std, min(values), max(values)
+    return mean, median, std, ordered[0], ordered[-1]
 
 
 # ── Terminal output ────────────────────────────────────────────────────────────
@@ -314,7 +321,7 @@ def _print_runtime_table(records: list[dict]) -> None:
     print("-" * _TABLE_WIDTH)
 
 
-def _print_runtime_stats(records: list[dict]) -> None:
+def _print_runtime_stats(records: list[dict], overall_runtime_seconds: float | None = None) -> None:
     completed = [r for r in records if r["status"] == "OK"]
     failed = [r for r in records if r["status"] == "FAILED"]
     skipped = [r for r in records if r["status"] == "SKIPPED"]
@@ -322,21 +329,29 @@ def _print_runtime_stats(records: list[dict]) -> None:
     algo_times = [r["algorithm_runtime_seconds"] for r in completed if r["algorithm_runtime_seconds"] is not None]
     wall_times = [r["runner_wallclock_seconds"] for r in completed if r["runner_wallclock_seconds"] is not None]
 
-    a_mean, a_std, a_min, a_max = _compute_stats(algo_times)
-    w_mean, w_std, w_min, w_max = _compute_stats(wall_times)
+    a_mean, a_median, a_std, a_min, a_max = _compute_stats(algo_times)
+    w_mean, w_median, w_std, w_min, w_max = _compute_stats(wall_times)
+    a_total = sum(algo_times) if algo_times else None
+    w_total = sum(wall_times) if wall_times else None
 
     print()
     print("Runtime Statistics")
     print("-" * 62)
+    if overall_runtime_seconds is not None:
+        print(f"{'Overall Runtime':<32} : {_fmt(overall_runtime_seconds)} s")
     print(f"{'Completed Runs':<32} : {len(completed)}")
     print(f"{'Failed Runs':<32} : {len(failed)}")
     if skipped:
         print(f"{'Skipped Runs':<32} : {len(skipped)}")
+    print(f"{'Algorithm Runtime Total':<32} : {_fmt(a_total)} s")
     print(f"{'Algorithm Runtime Mean':<32} : {_fmt(a_mean)} s")
+    print(f"{'Algorithm Runtime Median':<32} : {_fmt(a_median)} s")
     print(f"{'Algorithm Runtime Std':<32} : {_fmt(a_std)} s")
     print(f"{'Algorithm Runtime Min':<32} : {_fmt(a_min)} s")
     print(f"{'Algorithm Runtime Max':<32} : {_fmt(a_max)} s")
+    print(f"{'Wall-Clock Runtime Total':<32} : {_fmt(w_total)} s")
     print(f"{'Wall-Clock Runtime Mean':<32} : {_fmt(w_mean)} s")
+    print(f"{'Wall-Clock Runtime Median':<32} : {_fmt(w_median)} s")
     print(f"{'Wall-Clock Runtime Std':<32} : {_fmt(w_std)} s")
     print(f"{'Wall-Clock Runtime Min':<32} : {_fmt(w_min)} s")
     print(f"{'Wall-Clock Runtime Max':<32} : {_fmt(w_max)} s")
@@ -365,8 +380,10 @@ def _save_runtime_log_markdown(records: list[dict], output_root: Path) -> None:
     failed = [r for r in records if r["status"] == "FAILED"]
     algo_times = [r["algorithm_runtime_seconds"] for r in completed if r["algorithm_runtime_seconds"] is not None]
     wall_times = [r["runner_wallclock_seconds"] for r in completed if r["runner_wallclock_seconds"] is not None]
-    a_mean, a_std, a_min, a_max = _compute_stats(algo_times)
-    w_mean, w_std, w_min, w_max = _compute_stats(wall_times)
+    a_mean, a_median, a_std, a_min, a_max = _compute_stats(algo_times)
+    w_mean, w_median, w_std, w_min, w_max = _compute_stats(wall_times)
+    a_total = sum(algo_times) if algo_times else None
+    w_total = sum(wall_times) if wall_times else None
 
     visible = [r for r in records if r["status"] != "DRY_RUN"]
     lines = [
@@ -400,7 +417,9 @@ def _save_runtime_log_markdown(records: list[dict], output_root: Path) -> None:
         "",
         "| Metric | Algorithm Runtime (s) | Wall-Clock Runtime (s) |",
         "| ------ | --------------------- | ---------------------- |",
+        f"| Total  | {_fmt(a_total)} | {_fmt(w_total)} |",
         f"| Mean   | {_fmt(a_mean)} | {_fmt(w_mean)} |",
+        f"| Median | {_fmt(a_median)} | {_fmt(w_median)} |",
         f"| Std    | {_fmt(a_std)} | {_fmt(w_std)} |",
         f"| Min    | {_fmt(a_min)} | {_fmt(w_min)} |",
         f"| Max    | {_fmt(a_max)} | {_fmt(w_max)} |",
@@ -469,6 +488,7 @@ def parse_args() -> argparse.Namespace:
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main() -> int:
+    overall_t_start = time.perf_counter()
     args = parse_args()
 
     # Resolve datasets
@@ -645,7 +665,7 @@ def main() -> int:
             else:
                 _flush_logs(records, output_root)
                 _print_runtime_table(records)
-                _print_runtime_stats(records)
+                _print_runtime_stats(records, time.perf_counter() - overall_t_start)
                 return int(completed.returncode)
 
     # ── Persist runtime logs ─────────────────────────────────────────────────
@@ -655,7 +675,7 @@ def main() -> int:
 
     # ── Print terminal summary ───────────────────────────────────────────────
     _print_runtime_table(records)
-    _print_runtime_stats(records)
+    _print_runtime_stats(records, time.perf_counter() - overall_t_start)
 
     return 0
 
