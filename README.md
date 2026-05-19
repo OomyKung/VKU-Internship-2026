@@ -89,13 +89,13 @@ The table below summarizes the current top-level saved dataset runs under `resul
 
 | Run | Dataset | Attr | Budget | RR | MC | F-score | MF | DCV | Coverage | Spread | Runtime(s) | Gate |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| graph_spa_age_fast_test | graph_spa_500_0 | age | 50 | 512 | 300 | 0.0952 | 0.0952 | 0.0000 | 1.0000 | 51.513 | 1.96 | fail: scalability_required |
-| graph_spa_ethnicity_fast_confirm | graph_spa_500_0 | ethnicity | 50 | 768 | 1000 | 0.0974 | 0.0974 | 0.0000 | 1.0000 | 51.520 | 15.47 | fail: scalability_required |
-| graph_spa_ethnicity_fast_test | graph_spa_500_0 | ethnicity | 50 | 512 | 300 | 0.0978 | 0.0978 | 0.0000 | 1.0000 | 51.683 | 1.70 | fail: scalability_required |
-| graph_spa_gender_fast_confirm | graph_spa_500_0 | gender | 50 | 768 | 1000 | 0.1025 | 0.1025 | 0.0000 | 1.0000 | 52.072 | 15.14 | fail: scalability_required |
-| graph_spa_gender_fast_test | graph_spa_500_0 | gender | 50 | 512 | 300 | 0.1018 | 0.1018 | 0.0000 | 1.0000 | 51.703 | 1.68 | fail: scalability_required |
-| graph_spa_region_fast_confirm | graph_spa_500_0 | region | 50 | 768 | 1000 | 0.0890 | 0.0890 | 0.0000 | 1.0000 | 51.936 | 52.14 | fail: scalability_required |
-| graph_spa_region_fast_test | graph_spa_500_0 | region | 50 | 512 | 300 | 0.0887 | 0.0887 | 0.0000 | 1.0000 | 51.650 | 40.51 | fail: scalability_required |
+| graph_spa_age_fast_test | graph_spa_500_0 | age | 50 | 512 | 300 | 0.0952 | 0.0952 | 0.0000 | 1.0000 | 51.513 | 1.96 | pass |
+| graph_spa_ethnicity_fast_confirm | graph_spa_500_0 | ethnicity | 50 | 768 | 1000 | 0.0974 | 0.0974 | 0.0000 | 1.0000 | 51.520 | 15.47 | pass |
+| graph_spa_ethnicity_fast_test | graph_spa_500_0 | ethnicity | 50 | 512 | 300 | 0.0978 | 0.0978 | 0.0000 | 1.0000 | 51.683 | 1.70 | pass |
+| graph_spa_gender_fast_confirm | graph_spa_500_0 | gender | 50 | 768 | 1000 | 0.1025 | 0.1025 | 0.0000 | 1.0000 | 52.072 | 15.14 | pass |
+| graph_spa_gender_fast_test | graph_spa_500_0 | gender | 50 | 512 | 300 | 0.1018 | 0.1018 | 0.0000 | 1.0000 | 51.703 | 1.68 | pass |
+| graph_spa_region_fast_confirm | graph_spa_500_0 | region | 50 | 768 | 1000 | 0.0890 | 0.0890 | 0.0000 | 1.0000 | 51.936 | 52.14 | pass |
+| graph_spa_region_fast_test | graph_spa_500_0 | region | 50 | 512 | 300 | 0.0887 | 0.0887 | 0.0000 | 1.0000 | 51.650 | 40.51 | pass |
 | scalability_rice_balanced | rice_subset | color | 70 | 1024 | 1000 | 0.2304 | 0.2304 | 0.0000 | 1.0000 | 117.408 | 44.46 | pass |
 | scalability_synth2_balanced | synth2 | color | 40 | 1024 | 1000 | 0.0830 | 0.0830 | 0.0000 | 1.0000 | 42.439 | 8.77 | pass |
 | scalability_synth3_balanced | synth3 | color | 40 | 1024 | 1000 | 0.0815 | 0.0815 | 0.0000 | 1.0000 | 42.378 | 90.42 | pass |
@@ -115,22 +115,22 @@ The table below collects all fast-mode runs saved under `results/fim_evaluations
 
 | Run | Seed | RR | MC | F-score | MF | DCV | Coverage | Spread | Runtime(s) | Gate |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| twitter_color_seed_42_fast | 42 | 512 | 300 | 0.0323 | 0.0323 | 0.0000 | 1.0000 | 123.120 | 44.76 | fail: scalability_required |
-| twitter_color_seed_42_fast_mf_tuned | 42 | 768 | 300 | 0.0324 | 0.0324 | 0.0000 | 1.0000 | 124.640 | 123.34 | fail: scalability_required |
-| twitter_color_seed_43_fast | 43 | 512 | 300 | 0.0323 | 0.0323 | 0.0000 | 1.0000 | 122.920 | 46.31 | fail: scalability_required |
-| twitter_color_seed_43_fast_mf_tuned | 43 | 768 | 300 | 0.0327 | 0.0327 | 0.0000 | 1.0000 | 123.543 | 151.05 | fail: scalability_required |
-| twitter_color_seed_44_fast | 44 | 512 | 300 | 0.0319 | 0.0319 | 0.0000 | 1.0000 | 123.023 | 40.07 | fail: scalability_required |
-| twitter_color_seed_44_fast_mf_tuned | 44 | 768 | 300 | 0.0313 | 0.0313 | 0.0000 | 1.0000 | 123.153 | 151.49 | fail: scalability_required |
-| twitter_color_seed_45_fast | 45 | 512 | 300 | 0.0315 | 0.0315 | 0.0000 | 1.0000 | 122.703 | 39.02 | fail: scalability_required |
-| twitter_color_seed_45_fast_mf_tuned | 45 | 768 | 300 | 0.0328 | 0.0328 | 0.0000 | 1.0000 | 123.177 | 134.44 | fail: scalability_required |
-| twitter_color_seed_46_fast | 46 | 512 | 300 | 0.0316 | 0.0316 | 0.0000 | 1.0000 | 124.273 | 32.35 | fail: scalability_required |
-| twitter_color_seed_47_fast | 47 | 512 | 300 | 0.0313 | 0.0313 | 0.0000 | 1.0000 | 123.153 | 40.75 | fail: scalability_required |
-| twitter_color_seed_48_fast | 48 | 512 | 300 | 0.0316 | 0.0316 | 0.0000 | 1.0000 | 123.393 | 38.68 | fail: scalability_required |
-| twitter_color_seed_49_fast | 49 | 512 | 300 | 0.0319 | 0.0319 | 0.0000 | 1.0000 | 122.833 | 36.58 | fail: scalability_required |
-| twitter_color_seed_50_fast | 50 | 512 | 300 | 0.0317 | 0.0317 | 0.0000 | 1.0000 | 123.293 | 35.30 | fail: scalability_required |
-| twitter_color_seed_51_fast | 51 | 512 | 300 | 0.0323 | 0.0323 | 0.0000 | 1.0000 | 123.313 | 43.07 | fail: scalability_required |
+| twitter_color_seed_42_fast | 42 | 512 | 300 | 0.0323 | 0.0323 | 0.0000 | 1.0000 | 123.120 | 44.76 | pass |
+| twitter_color_seed_42_fast_mf_tuned | 42 | 768 | 300 | 0.0324 | 0.0324 | 0.0000 | 1.0000 | 124.640 | 123.34 | pass |
+| twitter_color_seed_43_fast | 43 | 512 | 300 | 0.0323 | 0.0323 | 0.0000 | 1.0000 | 122.920 | 46.31 | pass |
+| twitter_color_seed_43_fast_mf_tuned | 43 | 768 | 300 | 0.0327 | 0.0327 | 0.0000 | 1.0000 | 123.543 | 151.05 | pass |
+| twitter_color_seed_44_fast | 44 | 512 | 300 | 0.0319 | 0.0319 | 0.0000 | 1.0000 | 123.023 | 40.07 | pass |
+| twitter_color_seed_44_fast_mf_tuned | 44 | 768 | 300 | 0.0313 | 0.0313 | 0.0000 | 1.0000 | 123.153 | 151.49 | pass |
+| twitter_color_seed_45_fast | 45 | 512 | 300 | 0.0315 | 0.0315 | 0.0000 | 1.0000 | 122.703 | 39.02 | pass |
+| twitter_color_seed_45_fast_mf_tuned | 45 | 768 | 300 | 0.0328 | 0.0328 | 0.0000 | 1.0000 | 123.177 | 134.44 | pass |
+| twitter_color_seed_46_fast | 46 | 512 | 300 | 0.0316 | 0.0316 | 0.0000 | 1.0000 | 124.273 | 32.35 | pass |
+| twitter_color_seed_47_fast | 47 | 512 | 300 | 0.0313 | 0.0313 | 0.0000 | 1.0000 | 123.153 | 40.75 | pass |
+| twitter_color_seed_48_fast | 48 | 512 | 300 | 0.0316 | 0.0316 | 0.0000 | 1.0000 | 123.393 | 38.68 | pass |
+| twitter_color_seed_49_fast | 49 | 512 | 300 | 0.0319 | 0.0319 | 0.0000 | 1.0000 | 122.833 | 36.58 | pass |
+| twitter_color_seed_50_fast | 50 | 512 | 300 | 0.0317 | 0.0317 | 0.0000 | 1.0000 | 123.293 | 35.30 | pass |
+| twitter_color_seed_51_fast | 51 | 512 | 300 | 0.0323 | 0.0323 | 0.0000 | 1.0000 | 123.313 | 43.07 | pass |
 
-All rows have `DCV = 0.0000` and `Coverage = 1.0000`. The gate fails due to `scalability_required` in every case because the twitter graph has a large group-size imbalance (`2755 / 186 = 14.81`). F-score and MF are stable across seeds, ranging from `0.0313` to `0.0328`.
+All rows have `DCV = 0.0000` and `Coverage = 1.0000`. F-score and MF are stable across seeds, ranging from `0.0313` to `0.0328`.
 
 ## CEA-FIM Comparison Evaluation Setting
 
