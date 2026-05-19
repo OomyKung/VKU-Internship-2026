@@ -1,0 +1,21 @@
+{
+  "mode": "fast_mf_tuned",
+  "ris_num_rr_sets": 768,
+  "mc_runs_eval": 300,
+  "mf_lift_rounds": 6,
+  "mf_lift_candidate_limit": 250,
+  "mf_lift_top_additions": 100,
+  "mf_lift_top_removals": 60,
+  "mf_lift_max_attempts": 400,
+  "weakest_group_before": "0",
+  "weakest_group_after": "1",
+  "mf_before_lift": 0.0925925925925926,
+  "approx_mf_after_lift": 0.11904761904761904,
+  "final_mc_mf": 0.03238112522686025,
+  "final_mc_fscore": 0.03238112522686025,
+  "dcv_preserved": true,
+  "target_coverage_preserved": true,
+  "successful_mf_lift_swaps": 6,
+  "rejected_dcv_breaking": 0,
+  "rejected_mf_drop": 0
+}
